@@ -59,8 +59,8 @@ Nothing leaves your machine. The network is used only when you ask: `--update-pr
 | Saver | Method | Could touch | Saved | Of the bill |
 |---|---|---|---|---|
 | [rtk](https://github.com/rtk-ai/rtk) 0.50.0 | replayed (all 5,513 outputs) | 15% of tool output | $47 | 1.1% |
-| [caveman](https://github.com/JuliusBrussee/caveman) proxy engine | replayed (60,339 of 60,341 outputs) | all tool output | $14 | 0.3% |
-| [headroom](https://github.com/headroomlabs-ai/headroom) 0.38.0 | replayed (all ~30k outputs), lower estimate | 56% | $152 | 3.6% |
+| [caveman](https://github.com/JuliusBrussee/caveman) proxy engine | replayed (every output of 500+ tokens) | all tool output | $13 | 0.3% |
+| [headroom](https://github.com/headroomlabs-ai/headroom) 0.38.0 | replayed (all ~30k outputs), lower estimate | 56% | $151 | 3.6% |
 | caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $95 | 2.3% |
 | [codegraph](https://github.com/colbymchenry/codegraph) | upper bound | 43% | ≤ $579 | ≤ 13.8% |
 | [context-mode](https://github.com/mksglu/context-mode) | upper bound | 61% | ≤ $704 | ≤ 16.7% |
@@ -75,7 +75,7 @@ The headroom number is a lower estimate (see below). On Codex alone, where shell
 
 - **replayed.** saver-audit sends the recorded tool output through *your installed copy* of the saver and counts what is left, measured against what the model actually saw.
   - For example, Claude Code cuts large Bash output down to a preview, so that preview is the baseline.
-  - Replayed runs use a deterministic sample by default. `--full-replay` replays everything, and results are cached.
+  - rtk and the caveman engine replay every output (caveman above 500 tokens, which leaves out about 5% of its savings). headroom, which runs an ML model per output, replays a sample of 300 by default and says so; `--full-replay` replays everything. Results are cached.
 - **modeled.** An estimate from a published measurement, with the assumption printed next to it.
 - **upper bound.** The saver changes how the agent behaves (which tools it calls), so replay can only give a ceiling: everything it could possibly remove.
 

@@ -47,8 +47,8 @@ rtk, the caveman engine and headroom were all fully replayed.
 | Saver | Method | Could touch | Saved | Of the bill |
 |---|---|---|---|---|
 | rtk 0.50.0 | replayed, all 5,513 outputs | 15% of tool output | $47 | 1.1% |
-| caveman proxy engine | replayed, 60,339 of 60,341 outputs | all tool output | $14 | 0.3% |
-| headroom 0.38.0 | replayed, all ~30k outputs; a lower estimate | 56% | $152 | 3.6% |
+| caveman proxy engine | replayed, every output of 500+ tokens | all tool output | $13 | 0.3% |
+| headroom 0.38.0 | replayed, all ~30k outputs; a lower estimate | 56% | $151 | 3.6% |
 | caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $95 | 2.3% |
 | codegraph | upper bound (it changes agent behaviour) | 43% | ≤ $579 | ≤ 13.8% |
 | context-mode | upper bound (it changes agent behaviour) | 61% | ≤ $704 | ≤ 16.7% |
@@ -61,9 +61,9 @@ rtk, the caveman engine and headroom were all fully replayed.
 | API calls | 792 |
 | Cost | $125 |
 | Largest content bucket | Shell output, $55 (44%) |
-| headroom | $13.09 (10.4% of the Codex bill) |
+| headroom | $13.05 (10.4% of the Codex bill) |
 | rtk | $5.20 (4.1% of the Codex bill) |
-| caveman engine | $0.61 |
+| caveman engine | $0.59 |
 | codegraph ceiling | ≤ $19.51 |
 | context-mode ceiling | ≤ $48.40 |
 
@@ -157,7 +157,7 @@ Caveman and context-mode can only *deny* on Codex, not rewrite, so their Codex n
 
 **"Sampling?"**
 - By default, big replays run on a deterministic sample, labelled "sample N%".
-- As an example: caveman's 5% sample said $9.69, and the full replay said $14.06. So the launch numbers use full replays.
+- Sampling was checked against full replays and was off by up to 40% for caveman, so rtk and caveman are now replayed in full (caveman above 500 tokens, about 5% conservative). headroom's 300-output sample was within 3% over the month but off by 20–37% on single weeks, so the launch numbers use its full replay (tech-notes §8.9).
 
 **"Is it biased against savers?"**
 - Conservative choices are listed in STATUS.md:

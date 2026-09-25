@@ -21,8 +21,8 @@ $4,209 API-equivalent (I don't pay that, it's list price). The biggest line wasn
 Then I replayed the same sessions through the popular token savers, using my installed copies, offline:
 
 rtk: $47 (1.1%)
-caveman engine: $14 (0.3%)
-headroom: $152 (3.6%)
+caveman engine: $13 (0.3%)
+headroom: $151 (3.6%)
 caveman skill (modeled): $95 (2.3%)
 
 **3/**

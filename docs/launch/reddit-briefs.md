@@ -34,9 +34,9 @@ Avoid:
   - 16% shell output.
 - **Saver numbers (Claude Code only):**
   - rtk $41.88 (1.0%);
-  - caveman engine $13.45 (0.3%);
+  - caveman engine $12.72 (0.3%);
   - caveman skill $94.71 (2.3%, modeled);
-  - headroom $138.96 (3.4%, a lower estimate);
+  - headroom $137.77 (3.4%, a lower estimate);
   - ceilings: codegraph ≤ $560 (13.7%), context-mode ≤ $655 (16.0%).
 - **The "what I learned" part:**
   - the dedupe bug the ccusage cross-check caught;
@@ -57,9 +57,9 @@ Avoid:
 - **Lead numbers:**
   - 20 sessions, 792 calls, $125, split into gpt-5.6-sol $68.70 and gpt-6-astra $56.26;
   - cache reads 63%;
-  - headroom $13.09 (10.4%);
+  - headroom $13.05 (10.4%);
   - rtk $5.20 (4.1%);
-  - caveman engine $0.61;
+  - caveman engine $0.59;
   - codegraph ≤ $19.51;
   - context-mode ≤ $48.40.
 - **Image:** the share card, or a Codex-only card. Image posts did well here: "I benchmarked every single usage saving tool" got 171 points. A Codex-only card comes from `--source codex --card`.
