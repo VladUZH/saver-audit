@@ -31,6 +31,7 @@
   ],
   "license": "MIT",
   "devDependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
     "@types/node": "^24.13.6",
     "esbuild": "^0.28.2",
     "gpt-tokenizer": "^4.0.0",

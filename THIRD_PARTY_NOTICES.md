@@ -29,3 +29,12 @@ SOFTWARE.
 
 `data/prices.json` is derived from models.dev (https://github.com/anomalyco/models.dev, MIT)
 and, for retired models only, LiteLLM's model price list (https://github.com/BerriAI/litellm, MIT).
+
+`dist/resvg.wasm` (used only by `--card`) is the unmodified WebAssembly build of
+@resvg/resvg-wasm 2.6.2 (https://github.com/thx/resvg-js), licensed under the Mozilla
+Public License 2.0 (https://mozilla.org/MPL/2.0/). Its source code is available at that
+repository.
+
+`dist/fonts/JetBrainsMono-Regular.ttf` and `dist/fonts/JetBrainsMono-Bold.ttf` are
+JetBrains Mono 2.304 (https://github.com/JetBrains/JetBrainsMono), licensed under the SIL
+Open Font License 1.1; the licence text ships as `dist/fonts/OFL.txt`.

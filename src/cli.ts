@@ -10,6 +10,7 @@ import { renderTerminal } from "./report/terminal.ts";
 import { renderJson } from "./report/json.ts";
 import type { Source } from "./sources/types.ts";
 import { parsePeriod, parseUntil } from "./period.ts";
+import { normalizeCardArg } from "./args.ts";
 
 export const VERSION = "0.0.0";
 
@@ -22,6 +23,7 @@ Usage: saver-audit [options]
   --until <YYYY-MM-DD>   end date (default: now)
   --source <s>           claude-code | codex | all (default all)
   --json                 machine-readable output
+  --card [path]          write a share card PNG (default saver-audit.png)
   --show-projects        include project names (hidden by default)
   --savers <a,b>         savers to audit (default: all; see list below)
   --no-savers            skip the saver section
@@ -39,7 +41,7 @@ Dollar figures are API-equivalent list prices, not a subscription bill.
 
 async function main(argv: string[]): Promise<number> {
   const { values } = parseArgs({
-    args: argv,
+    args: normalizeCardArg(argv),
     options: {
       last: { type: "string" },
       since: { type: "string" },
@@ -72,7 +74,6 @@ async function main(argv: string[]): Promise<number> {
     const { updatePrices } = await import("./prices/update.ts");
     await updatePrices(userPricesPath(), log);
   }
-  if (values.card !== undefined) log("note: --card is not built yet (milestone M3).");
   const saverIds = values["no-savers"] ? [] : values.savers ? values.savers.split(",").map((x) => x.trim()).filter(Boolean) : SAVERS.map((x) => x.id);
 
   const src = values.source;
@@ -87,6 +88,11 @@ async function main(argv: string[]): Promise<number> {
     { ids: saverIndex(saverIds).map((x) => x.id), full: values["full-replay"], cacheFile: defaultReplayCachePath(), log },
   );
   const showProjects = values["show-projects"];
+  if (values.card !== undefined) {
+    const { writeCard } = await import("./report/card.ts");
+    await writeCard(result, values.card);
+    log(`share card written to ${values.card} (numbers, model names and dates only)`);
+  }
   if (values.json) process.stdout.write(renderJson(result, { showProjects, version: VERSION }));
   else process.stdout.write(renderTerminal(result, { showProjects, verbose: values.verbose, color: process.stdout.isTTY === true && !process.env.NO_COLOR, elapsedMs: performance.now() - t0 }));
   return 0;
