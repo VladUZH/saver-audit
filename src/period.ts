@@ -11,3 +11,11 @@ export function parsePeriod(last: string | undefined, since: string | undefined,
   const unit = m[2] === "h" ? 3600e3 : m[2] === "w" ? 7 * 864e5 : 864e5;
   return now - Number(m[1]) * unit;
 }
+
+/** End of the period: --until date (end of that day when only a date is given), else now. */
+export function parseUntil(until: string | undefined, now: number): number {
+  if (!until) return now;
+  const t = Date.parse(until.length === 10 ? `${until}T23:59:59.999` : until);
+  if (Number.isNaN(t)) throw new Error(`--until: not a date: ${until}`);
+  return t;
+}

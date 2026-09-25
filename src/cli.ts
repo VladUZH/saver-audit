@@ -1,14 +1,15 @@
 // saver-audit: where your Claude Code and Codex tokens go. Offline by default.
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { parseArgs } from "node:util";
-import { runAudit, runWorker, defaultJobs, WORKER_FLAG } from "./pool.ts";
+import { runAudit, runWorker, defaultJobs, defaultReplayCachePath, WORKER_FLAG } from "./pool.ts";
+import { SAVERS, saverIndex } from "./savers/registry.ts";
 import { claudeRoots } from "./sources/claude-code.ts";
 import { codexHome } from "./sources/codex.ts";
 import { loadPrices, userPricesPath } from "./prices/load.ts";
 import { renderTerminal } from "./report/terminal.ts";
 import { renderJson } from "./report/json.ts";
 import type { Source } from "./sources/types.ts";
-import { parsePeriod } from "./period.ts";
+import { parsePeriod, parseUntil } from "./period.ts";
 
 export const VERSION = "0.0.0";
 
@@ -18,12 +19,19 @@ Usage: saver-audit [options]
 
   --last <N>d|w|h        period to audit (default 30d)
   --since <YYYY-MM-DD>   start date instead of --last
+  --until <YYYY-MM-DD>   end date (default: now)
   --source <s>           claude-code | codex | all (default all)
   --json                 machine-readable output
   --show-projects        include project names (hidden by default)
+  --savers <a,b>         savers to audit (default: all; see list below)
+  --no-savers            skip the saver section
+  --full-replay          replay every output instead of a sample (slow first run; cached)
   --update-prices        fetch a fresh public price list (the only network call)
   --verbose              more detail about skipped records
   -h, --help / -v, --version
+
+Savers: rtk, caveman-engine, headroom (replayed on your installed copies),
+caveman-skill (modeled), codegraph, context-mode (upper bounds).
 
 Reads ~/.claude/projects and ~/.codex/sessions locally. Nothing leaves your machine.
 Dollar figures are API-equivalent list prices, not a subscription bill.
@@ -35,12 +43,15 @@ async function main(argv: string[]): Promise<number> {
     options: {
       last: { type: "string" },
       since: { type: "string" },
+      until: { type: "string" },
       source: { type: "string", default: "all" },
       json: { type: "boolean", default: false },
       card: { type: "string" },
       "show-projects": { type: "boolean", default: false },
       "update-prices": { type: "boolean", default: false },
       savers: { type: "string" },
+      "no-savers": { type: "boolean", default: false },
+      "full-replay": { type: "boolean", default: false },
       verbose: { type: "boolean", default: false },
       jobs: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
@@ -61,7 +72,8 @@ async function main(argv: string[]): Promise<number> {
     const { updatePrices } = await import("./prices/update.ts");
     await updatePrices(userPricesPath(), log);
   }
-  if (values.card !== undefined || values.savers !== undefined) log("note: --card and --savers are not built yet (milestones M2/M3).");
+  if (values.card !== undefined) log("note: --card is not built yet (milestone M3).");
+  const saverIds = values["no-savers"] ? [] : values.savers ? values.savers.split(",").map((x) => x.trim()).filter(Boolean) : SAVERS.map((x) => x.id);
 
   const src = values.source;
   if (src !== "all" && src !== "claude-code" && src !== "codex") throw new Error(`--source: expected claude-code, codex or all, got ${src}`);
@@ -69,9 +81,10 @@ async function main(argv: string[]): Promise<number> {
   const now = Date.now();
   const t0 = performance.now();
   const result = await runAudit(
-    { sinceMs: parsePeriod(values.last, values.since, now), untilMs: now, sources, claudeRoots: claudeRoots(), codexHome: codexHome(), prices: loadPrices() },
+    { sinceMs: parsePeriod(values.last, values.since, now), untilMs: parseUntil(values.until, now), sources, claudeRoots: claudeRoots(), codexHome: codexHome(), prices: loadPrices() },
     new URL(import.meta.url),
     values.jobs ? Math.max(1, Number(values.jobs)) : defaultJobs(),
+    { ids: saverIndex(saverIds).map((x) => x.id), full: values["full-replay"], cacheFile: defaultReplayCachePath(), log },
   );
   const showProjects = values["show-projects"];
   if (values.json) process.stdout.write(renderJson(result, { showProjects, version: VERSION }));

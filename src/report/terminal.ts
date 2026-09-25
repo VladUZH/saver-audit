@@ -40,7 +40,10 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   const bold = (s: string) => (o.color ? `\x1b[1m${s}\x1b[0m` : s);
   const dim = (s: string) => (o.color ? `\x1b[2m${s}\x1b[0m` : s);
   const out: string[] = [];
-  const day = (iso: string) => iso.slice(0, 10);
+  const day = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
 
   // 1. Header
   out.push(bold(`saver-audit: ${day(r.period.since)} → ${day(r.period.until)}`));
@@ -79,7 +82,10 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   }
   out.push("");
 
-  // 4. Biggest waste (3 is the saver table, added in M2)
+  // 3. Savers
+  if (r.savers.length) out.push(...saverSection(r, o, bold, dim));
+
+  // 4. Biggest waste
   const top = r.waste.slice(0, 3);
   if (top.length) {
     out.push(bold("Biggest tool-output costs"));
@@ -95,10 +101,14 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   out.push("  Billed totals: recorded usage in your logs, deduplicated, priced at list prices.");
   const cal = r.calibration
     .filter((c) => c.basis !== "tokenizer")
-    .map((c) => `${c.model} ×${c.k.toFixed(2)} (${c.quality}${c.basis === "none" ? ", uncalibrated" : `, n=${c.n}`})`);
+    .map((c) => `${c.model} ×${c.k.toFixed(2)} (${c.quality}${c.basis === "none" ? ", uncalibrated" : c.basis === "family" ? `, via ${c.fittedOn} n=${c.n}` : `, n=${c.n}`})`);
   out.push("  Context split: o200k_base token counts" + (cal.length ? `, calibrated to each Claude model's usage: ${cal.join("; ")}.` : "."));
   if (r.calibration.some((c) => c.basis === "tokenizer")) out.push("  OpenAI models: o200k_base is their tokenizer (assumed for gpt-6).");
   out.push("  Claude Code attachments are sized from their stored fields; system prompt and tool definitions are not logged.");
+  if (r.savers.length) {
+    out.push("  Savers: offline replay cannot show whether a saver changes how the agent behaves");
+    out.push("  (extra turns, retries, recalls, answer quality). Savings assume the same cache pattern.");
+  }
   const unpriced = r.models.filter((m) => !m.pricedAs);
   if (unpriced.length) out.push(`  No price for: ${unpriced.map((m) => m.model).join(", ")} (tokens counted, $0).`);
   const aliased = r.models.filter((m) => m.pricedAs && m.pricedAs !== m.model && !m.model.includes("["));
@@ -109,4 +119,51 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   }
   if (o.elapsedMs !== undefined) out.push(dim(`  ${r.files} log files read in ${(o.elapsedMs / 1000).toFixed(1)} s. Nothing left your machine.`));
   return out.join("\n") + "\n";
+}
+
+const METHOD: Record<string, string> = { replayed: "replayed", modeled: "modeled", "upper-bound": "upper bound" };
+
+/** Short confidence label: how much of the number is measured. */
+export function confidence(s: AuditResult["savers"][number]): string {
+  if (s.method === "upper-bound") return "ceiling";
+  if (s.method === "modeled") return "assumed";
+  const r = s.replay;
+  if (!r || !r.extrapolated) return "high";
+  const replayed = s.replayTotal ? 1 - r.extrapolated / s.replayTotal : 0;
+  return `sample ${Math.max(replayed * 100, 0.1).toFixed(replayed < 0.1 ? 1 : 0)}%`;
+}
+
+function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => string, dim: (s: string) => string): string[] {
+  const out: string[] = [];
+  const total = r.billing.total.cost;
+  out.push(bold("What each token saver would have cut"));
+  out.push(dim(`  ${pad("Saver", 24)} ${pad("Method", 12)} ${lpad("Covers", 7)} ${lpad("Tokens", 9)} ${lpad("Saved", 10)} ${lpad("of bill", 8)}  Confidence`));
+  const shown = r.savers.filter((s) => s.status === "ok");
+  for (const s of shown) {
+    const le = s.method === "upper-bound" ? "≤ " : "";
+    const cost = s.cost < 0 ? `-${fmtUsd(-s.cost)}` : `${le}${fmtUsd(s.cost)}`;
+    const tokens = s.tokens < 0 ? `-${fmtTokens(-s.tokens)}` : `${le}${fmtTokens(s.tokens)}`;
+    const share = total ? `${((100 * s.cost) / total).toFixed(1)}%` : "—";
+    const cov = s.method === "modeled" ? "—" : `${(100 * s.coverage).toFixed(0)}%`;
+    out.push(`  ${pad(s.name, 24)} ${pad(METHOD[s.method]!, 12)} ${lpad(cov, 7)} ${lpad(tokens, 9)} ${lpad(cost, 10)} ${lpad(share, 8)}  ${confidence(s)}`);
+  }
+  const notes: string[] = [];
+  for (const s of shown) {
+    if (s.replay && (s.replay.extrapolated || s.replay.failed)) {
+      const parts = [];
+      if (s.replay.extrapolated) parts.push(`${s.replay.extrapolated.toLocaleString("en-US")} not yet replayed outputs extrapolated from the sample (--full-replay replays all)`);
+      if (s.replay.failed) parts.push(`${s.replay.failed.toLocaleString("en-US")} failed`);
+      notes.push(`${s.name}: ${parts.join("; ")}.`);
+    }
+    if (s.assumption) notes.push(`${s.name}: ${s.assumption}.`);
+    if (s.installed && s.installed !== "version unknown" && !s.version.startsWith(s.installed)) notes.push(`${s.name}: installed ${s.installed}; this adapter was written for ${s.version}.`);
+  }
+  const codex = shown.filter((s) => s.codexHypothetical && Math.abs(s.codexCost) >= 0.005);
+  if (codex.length) notes.push(`On Codex, hooks cannot rewrite tool input, so these Codex savings are hypothetical: ${codex.map((s) => `${s.name} ${fmtUsd(Math.abs(s.codexCost))}`).join(", ")}.`);
+  notes.push("fast-jev-compaction is not in this table: it acts only at compaction and its keep/drop decisions need its hosted API, so offline replay has nothing honest to measure.");
+  const missing = r.savers.filter((s) => s.status === "not installed");
+  if (missing.length) notes.push(`Not installed, so not replayed: ${missing.map((s) => s.name).join(", ")}. saver-audit calls your installed copy; it never bundles saver code.`);
+  for (const n of notes) out.push(dim(`  · ${n}`));
+  out.push("");
+  return out;
 }
