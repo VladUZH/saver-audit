@@ -29,6 +29,8 @@ export interface ReplayStats {
 }
 
 /** Default number of unique outputs replayed per run and saver; --full-replay lifts it. */
+const CHECKPOINT = 250;
+
 export const DEFAULT_BUDGET: Record<string, number> = { rtk: 20_000, "caveman-engine": 3_000, headroom: 300 };
 
 function onPath(name: string): string | undefined {
@@ -251,6 +253,11 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         cache.set(key, { t: countProxy(out), c: out.length, p: countProxy(out.slice(0, PREVIEW_CHARS)) });
         st.ran++;
         dirty = true;
+        // Long replays save as they go, so an interrupted run resumes where it stopped.
+        if (st.ran % CHECKPOINT === 0) {
+          if (o.cacheFile) saveReplayCache(o.cacheFile, cache);
+          o.log?.(`  ${saver}: ${st.ran.toLocaleString("en-US")} of ${todo.length.toLocaleString("en-US")} replayed`);
+        }
       };
       if (saver === "headroom") {
         const side = new HeadroomSidecar(tool.command, env);
