@@ -5,8 +5,8 @@ what is blocked and why, and decisions made where the docs were silent.
 
 ## Current milestone
 
-M1 — where your tokens go: **done** (acceptance met, see log 2026-09-25). Next: M2.
-GATE still open: create the public GitHub repo (below).
+M2 — saver adapters: **done** (acceptance met, see log 2026-09-25). Next: M3 (share card, README).
+Launch numbers still need one `--full-replay` run (see Human steps).
 
 ## Log
 
@@ -93,6 +93,36 @@ GATE still open: create the public GitHub repo (below).
   - `npm test` → 31/31 pass; `node scripts/crosscheck-usage.mjs 30` → PASS 0.000%;
     `node dist/cli.js --last 30d` → 7.02 s / 6.89 s.
 
+- 2026-09-25 — **M2 done.** Saver adapters (`src/savers/`): rtk, caveman-engine and
+  headroom replayed on the installed binaries; caveman skill modeled; codegraph and
+  context-mode upper bounds. Compounding cost model (removed tokens priced as cache write
+  when first sent, cache read on each later call until compaction, same per-call rates as
+  the context split). Report section 3 with method, coverage, tokens, $, share of bill and
+  confidence; notes for sampling, assumptions, Codex, not-installed savers.
+  New flags: `--savers`, `--no-savers`, `--full-replay`, `--until`. Verified:
+  - `npm test` → `ℹ tests 40 ℹ pass 40 ℹ fail 0` (adds rtk filter mapping, persisted
+    preview rule, coverage rules, hand-computed compounding and skill math, replay through
+    fake saver binaries incl. cache and reproducibility, not-installed handling; privacy
+    test now runs with savers on).
+  - Real logs, `node dist/cli.js --since 2026-08-26 --until 2026-09-25T13:00:00`, three
+    runs: every saver line labelled (replayed / modeled / upper bound); runs 2 and 3
+    identical for all saver numbers and the whole report except per-run replay counters.
+    Warm-cache run: 7.3–8.6 s. First run with an empty cache: 78 s.
+  - Results on that window (sampled replay, NOT launch numbers): rtk $47 (1.1% of bill,
+    high), caveman engine $9.7 (0.2%, sample 5%), headroom $151 (3.6%, sample 1%, lower
+    estimate), caveman skill $95 (2.3%, assumed), codegraph ≤ $579 (13.8%, ceiling),
+    context-mode ≤ $704 (16.7%, ceiling).
+- 2026-09-25 — Bugs found and fixed during M2: (1) each run replayed a different sample
+  (cached outputs were dropped before sampling) → sample now drawn from all applicable
+  outputs; (2) calibration used calls outside the period → k drifted as this session wrote
+  new logs; (3) replay failures were retried every run → cached as pass-through.
+- 2026-09-25 — headroom setup needed three extra steps in the tools folder: `pip install
+  "onnxruntime>=1.24"` into its venv, the ModernBERT tokenizer files via
+  `huggingface_hub.snapshot_download`, and `HEADROOM_WORKSPACE_DIR`. My first headroom
+  test ran without `HEADROOM_WORKSPACE_DIR` and created `~/.headroom/ccr_store.db`
+  (45 KB, did not exist before); my `rm -rf ~/.headroom` was blocked by the permission
+  system, so it is still there (see Human steps).
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -101,7 +131,7 @@ GATE still open: create the public GitHub repo (below).
 | caveman engine | replayed | user's own `caveman-engine` binary; skip with note if absent |
 | headroom | replayed | user's own `headroom-ai[ml]` with cached model, offline + beacon off; skip with note otherwise |
 | caveman skill | modeled | JetBrains −8.5% output; overhead = tokenized SKILL.md size |
-| fast-jev-compaction | modeled | range: built-in summary / 300-char cut / drop all non-pinned pairs |
+| fast-jev-compaction | ~~modeled~~ → Later | not modeled: see Decisions 2026-09-25 (M2) |
 | codegraph | upper bound | exploratory Read/Grep/Glob tool output |
 | context-mode | upper bound | tool outputs > 5,000 bytes → small excerpt |
 
@@ -150,7 +180,36 @@ GATE still open: create the public GitHub repo (below).
 - 2026-09-25 — Codex calls with no recorded service tier are priced as standard, not
   priority (ccusage assumes priority). Lower, and only what the log shows.
 
+- 2026-09-25 (M2) — fast-jev-compaction moved to Later instead of modeled: it acts only at
+  compaction, its decisions need the hosted Jev API, and keeping tool pairs likely adds
+  tokens versus the built-in summary; a number would be mostly assumption. The report
+  prints one line saying why it is absent.
+- 2026-09-25 (M2) — Replayed savers run on a deterministic sample by default (rtk 20,000,
+  caveman-engine 3,000, headroom 300 unique outputs), the rest extrapolated per class and
+  labelled "sample N%". `--full-replay` for launch numbers. Keeps a first run bounded.
+- 2026-09-25 (M2) — Replay cache at `$XDG_CACHE_HOME/saver-audit/replay-v1.json`
+  (default `~/.cache/…`): content hashes and token counts only, no text.
+- 2026-09-25 (M2) — caveman skill overhead = 1,650 o200k tokens of SKILL.md (v2.7.0,
+  commit 880114a420) × k in every prompt; output cut 8.5% (JetBrains).
+- 2026-09-25 (M2) — codegraph ceiling = all Read/Grep/Glob/ToolSearch output plus shell
+  search, listing and file-reading families; context-mode ceiling = all outputs over
+  5,000 bytes. Both assume the output disappears and nothing replaces it.
+- 2026-09-25 (M2) — headroom marked not Codex-hypothetical (it is a proxy, not a hook);
+  unverified whether `headroom wrap` supports Codex.
+- 2026-09-25 (M2) — Added `--until` (not in the spec) so a fixed window can be re-run
+  while new logs are being written; needed for the reproducibility check.
+
 ## Human steps waiting (GATE)
+
+- **Delete one stray folder** (my delete was blocked): `rm -rf ~/.headroom` — it holds only
+  `ccr_store.db`, created 2026-09-25 16:10 by my headroom test.
+- **Before writing launch copy: one full replay** (slow; cached afterwards). From the repo:
+  ```
+  T=~/.saver-audit-tools
+  PATH=$T/bin:$PATH SAVER_AUDIT_HEADROOM_PYTHON=$T/headroom-venv/bin/python \
+    HF_HOME=$T/hf XDG_CACHE_HOME=$T/cache node dist/cli.js --last 30d --full-replay
+  ```
+  Claude can run it; flagged here because headroom may take hours on CPU.
 
 - ~~Create the public GitHub repo now~~ (done 2026-09-25, see log).
   Original instruction kept for reference:
@@ -170,6 +229,13 @@ GATE still open: create the public GitHub repo (below).
   these are installs on your machine, so I have not run them.
 
 ## Later
+
+- fast-jev-compaction: model only if a defensible method appears (needs compaction-level
+  replay and the hosted decisions).
+- headroom: replay whole conversations (not single outputs) to capture age-based
+  compression of excluded tools.
+- A setup helper for users: detect headroom without the Kompress model / onnxruntime and
+  print the exact fix.
 
 - Use Codex `token_usage_record` (per-response, v0.153+) when present.
 - zstd-compressed Codex rollouts (`.jsonl.zst`, feature-flagged, none seen yet).

@@ -593,3 +593,26 @@ Aggregates only; no content was read by a person.
   - BPE is quadratic in the length of a single pre-token, so base64 blobs and minified code dominated CPU. Counting non-space runs of 400+ characters in 400-character slices halved single-thread time (90 s → 48 s) and adds at most one token per slice.
   - Worker threads (cores − 1) bring a 30-day run to 6.8–7.2 s wall time here.
   - One Claude transcript is 587 MB, so readers must stream (it breaks `readFileSync`).
+
+### 8.7 M2 findings: replaying the savers (2026-09-25)
+
+Installed in `~/.saver-audit-tools` (see STATUS). Behaviour seen while building the adapters:
+
+- **rtk 0.50.0:** `rtk pipe --filter <f>` takes about 6 ms per call. It prints `[rtk] /!\ No hook installed…` to stderr, which saver-audit ignores. In this period 5.5k unique shell outputs mapped to a pipe filter, covering 15% of tool-output tokens.
+- **caveman-engine (bin-v1.1.7):**
+  - `compress` takes about 26 ms per call, because it opens its SQLite recovery store each time.
+  - There is no batch mode and no `--version` flag.
+  - It writes `ccr.db` under `CAVEMAN_HOME`, so saver-audit points that at a temp folder.
+  - About 1 in 750 outputs fails, and is recorded as a pass-through, as the engine itself does on error.
+- **headroom 0.38.0:**
+  - **Library path:** `headroom.compress(messages, model=…)` works offline.
+  - **Excluded tools:** its router leaves `DEFAULT_EXCLUDE_TOOLS` alone (Read, Glob, Grep, Write, Edit, WebSearch, WebFetch, Skill and lowercase variants). It does compress *older* outputs of those tools as they age out of a protection window, which per-output replay cannot reproduce, so the replayed number is a lower estimate.
+  - **State:** it writes `ccr_store.db` under `HEADROOM_WORKSPACE_DIR`, defaulting to `~/.headroom`.
+  - **Kompress model setup** (a pitfall users will hit too):
+    - `prefetch_kompress_artifacts()` fetches only the ONNX weights, not the `answerdotai/ModernBERT-base` tokenizer files, and with those missing the local-first loader raises instead of downloading.
+    - `onnxruntime>=1.24` is not pulled in by `headroom-ai[ml]`, so without it headroom falls back to PyTorch weights that are not cached.
+    - On a cold start the model loads in the background and requests skip it. The sidecar therefore loads it synchronously (`_load_kompress(allow_download=False)`, about 5 s), like a warm proxy.
+  - **Speed:** about 1 s per large output with Kompress on CPU, so the default run replays a 300-output sample.
+- **Sampling:** by default, each replayed saver runs on a deterministic sample: the first N unique outputs in hash order, drawn from *all* applicable outputs. The rest are extrapolated per (category, family) class. `--full-replay` replays everything. Results are cached by content hash, and the cache holds hashes and counts only.
+- **Reproducibility:** calibration is now fit only on calls inside the period. Fitting on everything let calls newer than `--until` shift k between runs. Two runs over the same window now give identical saver numbers.
+- **fast-jev-compaction:** not modeled. It acts only at compaction (46 compactions, 10 automatic, in all local history), and its keep/truncate/drop decisions need the hosted Jev API. Keeping even truncated tool pairs leaves more context than the built-in summary, so its effect on tokens is probably negative, and any number would be mostly assumption.
