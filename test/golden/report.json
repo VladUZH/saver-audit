@@ -1,0 +1,235 @@
+{
+  "schema": 1,
+  "tool": {
+    "name": "saver-audit",
+    "version": "test"
+  },
+  "costBasis": "API-equivalent at list prices; not a subscription bill",
+  "period": {
+    "since": "2026-09-01T00:00:00.000Z",
+    "until": "2026-09-30T00:00:00.000Z"
+  },
+  "sources": [
+    "claude-code",
+    "codex"
+  ],
+  "files": 5,
+  "sessions": {
+    "main": 3,
+    "subagent": 1,
+    "bySource": {
+      "claude-code": 1,
+      "codex": 2
+    }
+  },
+  "calls": 8,
+  "models": [
+    {
+      "model": "claude-sonnet-5",
+      "pricedAs": "claude-sonnet-5",
+      "calls": 1,
+      "tokens": 2015,
+      "cost": 0.02047
+    },
+    {
+      "model": "claude-opus-5-5",
+      "pricedAs": "claude-opus-5-5",
+      "calls": 2,
+      "tokens": 2585,
+      "cost": 0.01232
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "pricedAs": "gpt-5.6-terra",
+      "calls": 3,
+      "tokens": 3730,
+      "cost": 0.00796
+    },
+    {
+      "model": "claude-haiku-4-5-20251001",
+      "pricedAs": "claude-haiku-4-5-20251001",
+      "calls": 1,
+      "tokens": 215,
+      "cost": 0.000305
+    },
+    {
+      "model": "codex-auto-review",
+      "pricedAs": "gpt-5.6-luna",
+      "calls": 1,
+      "tokens": 110,
+      "cost": 0.000032
+    }
+  ],
+  "billing": {
+    "input": {
+      "tokens": 2620,
+      "cost": 0.005065
+    },
+    "cacheWrite": {
+      "tokens": 1700,
+      "cost": 0.01075
+    },
+    "cacheRead": {
+      "tokens": 4000,
+      "cost": 0.0008
+    },
+    "output": {
+      "tokens": 335,
+      "cost": 0.004472
+    },
+    "webSearch": {
+      "requests": 2,
+      "cost": 0.02
+    },
+    "total": {
+      "tokens": 8655,
+      "cost": 0.041087
+    }
+  },
+  "buckets": [
+    {
+      "key": "fees",
+      "label": "Web search fees",
+      "group": "fees",
+      "tokens": 0,
+      "cost": 0.02
+    },
+    {
+      "key": "residual",
+      "label": "Not in logs: system prompt, tool definitions",
+      "group": "context",
+      "tokens": 7573,
+      "cost": 0.013627
+    },
+    {
+      "key": "output",
+      "label": "Assistant output (incl. thinking)",
+      "group": "output",
+      "tokens": 335,
+      "cost": 0.004472
+    },
+    {
+      "key": "tool:Shell",
+      "label": "Tool output: Shell",
+      "group": "context",
+      "tokens": 505.921543,
+      "cost": 0.002462
+    },
+    {
+      "key": "assistant",
+      "label": "Earlier assistant turns, re-read",
+      "group": "context",
+      "tokens": 116.141479,
+      "cost": 0.000281
+    },
+    {
+      "key": "prompt",
+      "label": "Your prompts",
+      "group": "context",
+      "tokens": 61,
+      "cost": 0.00017
+    },
+    {
+      "key": "injected",
+      "label": "Reminders, attachments & command output",
+      "group": "context",
+      "tokens": 23.936977,
+      "cost": 0.000034
+    },
+    {
+      "key": "system",
+      "label": "Recorded system prompt & instructions",
+      "group": "context",
+      "tokens": 20,
+      "cost": 0.000022
+    },
+    {
+      "key": "compaction",
+      "label": "Compaction summaries",
+      "group": "context",
+      "tokens": 20,
+      "cost": 0.00002
+    }
+  ],
+  "calibration": [
+    {
+      "model": "claude-haiku-4-5-20251001",
+      "k": 1,
+      "c": 0,
+      "n": 0,
+      "p25": 1,
+      "p75": 1,
+      "basis": "none",
+      "quality": "poor"
+    },
+    {
+      "model": "claude-opus-5-5",
+      "k": 1,
+      "c": 0,
+      "n": 1,
+      "p25": 1,
+      "p75": 1,
+      "basis": "none",
+      "quality": "poor"
+    },
+    {
+      "model": "claude-sonnet-5",
+      "k": 1,
+      "c": 0,
+      "n": 0,
+      "p25": 1,
+      "p75": 1,
+      "basis": "none",
+      "quality": "poor"
+    },
+    {
+      "model": "codex-auto-review",
+      "k": 1,
+      "c": 0,
+      "n": 0,
+      "p25": 1,
+      "p75": 1,
+      "basis": "tokenizer",
+      "quality": "good"
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "k": 1,
+      "c": 0,
+      "n": 0,
+      "p25": 1,
+      "p75": 1,
+      "basis": "tokenizer",
+      "quality": "good"
+    }
+  ],
+  "prices": {
+    "date": "2026-09-25",
+    "sources": [
+      "https://models.dev/api.json (MIT)",
+      "LiteLLM model_prices_and_context_window.json (MIT), retired models only"
+    ]
+  },
+  "skipped": {
+    "lines": 2,
+    "unreadableFiles": 0,
+    "duplicateCalls": 1,
+    "outsidePeriod": 0,
+    "notBillable": 1
+  },
+  "projects": 2,
+  "waste": [
+    {
+      "label": "Shell: tests",
+      "tokens": 483.921543,
+      "cost": 0.002418,
+      "projects": 1
+    },
+    {
+      "label": "Shell: git",
+      "tokens": 22,
+      "cost": 0.000044,
+      "projects": 1
+    }
+  ]
+}
