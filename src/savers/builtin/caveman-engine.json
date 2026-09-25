@@ -1,0 +1,29 @@
+{
+  "id": "caveman-engine",
+  "name": "caveman (proxy engine)",
+  "repo": "https://github.com/JuliusBrussee/caveman",
+  "version": "2.7.0 (engine bin-v1.1.7)",
+  "licence": "BSL-1.1 (called as your installed binary, never bundled)",
+  "method": "replayed",
+  "covers": "every tool output in the request (the proxy compresses what is sent)",
+  "assumption": "outputs under 500 tokens are not replayed and counted as unchanged; on the author's logs that left out about 5% of its savings, so this is slightly low",
+  "stage": "request",
+  "binary": "caveman-engine",
+  "binaryEnv": "CAVEMAN_ENGINE_BIN",
+  "paths": [
+    "~/.caveman/bin"
+  ],
+  "env": {
+    "CAVEMAN_HOME": "{state}/caveman"
+  },
+  "routes": [
+    {
+      "args": [
+        "compress"
+      ]
+    }
+  ],
+  "minTokens": 500,
+  "codexHypothetical": true,
+  "install": "saver-audit --install-savers"
+}

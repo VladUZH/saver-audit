@@ -1,0 +1,314 @@
+{
+  "id": "rtk",
+  "name": "rtk",
+  "repo": "https://github.com/rtk-ai/rtk",
+  "version": "0.50.0",
+  "licence": "Apache-2.0",
+  "method": "replayed",
+  "covers": "shell output of commands rtk has a pipe filter for (tests, builds, grep/find, git diff, linters)",
+  "stage": "tool",
+  "binary": "rtk",
+  "binaryEnv": "SAVER_AUDIT_RTK",
+  "versionArgs": [
+    "--version"
+  ],
+  "routes": [
+    {
+      "name": "pytest",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(python3? -m )?pytest\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "pytest"
+      ]
+    },
+    {
+      "name": "cargo-test",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^cargo (test|nextest)\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "cargo-test"
+      ]
+    },
+    {
+      "name": "cargo",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^cargo (build|check|clippy)\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "cargo"
+      ]
+    },
+    {
+      "name": "go-test",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^go test\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "go-test"
+      ]
+    },
+    {
+      "name": "go-build",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^go (build|vet)\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "go-build"
+      ]
+    },
+    {
+      "name": "ctest",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^ctest\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "ctest"
+      ]
+    },
+    {
+      "name": "tsc",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(npx |pnpm (exec )?|yarn |bunx )?tsc\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "tsc"
+      ]
+    },
+    {
+      "name": "vitest",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(npx |pnpm (exec )?|yarn |bunx )?vitest\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "vitest"
+      ]
+    },
+    {
+      "name": "grep",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(grep|rg|egrep)\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "grep"
+      ]
+    },
+    {
+      "name": "find",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(find|fd)\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "find"
+      ]
+    },
+    {
+      "name": "git-diff",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^git (diff|show)\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "git-diff"
+      ]
+    },
+    {
+      "name": "mypy",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(python3? -m )?mypy\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "mypy"
+      ]
+    },
+    {
+      "name": "ruff-check",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^ruff check\\b|^ruff\\b(?! format)"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "ruff-check"
+      ]
+    },
+    {
+      "name": "ruff-format",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^ruff format\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "ruff-format"
+      ]
+    },
+    {
+      "name": "sqlfluff-lint",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^sqlfluff lint\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "sqlfluff-lint"
+      ]
+    },
+    {
+      "name": "prettier",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(npx )?prettier\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "prettier"
+      ]
+    },
+    {
+      "name": "phpunit",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(vendor/bin/)?phpunit\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "phpunit"
+      ]
+    },
+    {
+      "name": "pest",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(vendor/bin/)?(pest|paratest)\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "pest"
+      ]
+    },
+    {
+      "name": "phpstan",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(vendor/bin/)?phpstan\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "phpstan"
+      ]
+    },
+    {
+      "name": "pint",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(vendor/bin/)?pint\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "pint"
+      ]
+    },
+    {
+      "name": "ecs",
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "command": "^(vendor/bin/)?ecs\\b"
+      },
+      "args": [
+        "pipe",
+        "--filter",
+        "ecs"
+      ]
+    }
+  ],
+  "codexHypothetical": false,
+  "install": "saver-audit --install-savers (or: brew install rtk)",
+  "_comment": "git status / git log are left out on purpose: live rtk rewrites them to formats its pipe filters expect (tech-notes §8.5)."
+}

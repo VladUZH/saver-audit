@@ -45,8 +45,10 @@ export interface ReplayJob {
   /** Content hash: cache key for (saver, version, tool, input). */
   key: string;
   tool: string;
-  /** Extra argument for the saver (rtk filter name, caveman content type). */
+  /** Route name (e.g. rtk's filter), part of the cache key. */
   arg?: string;
+  /** Arguments for the saver's program. */
+  args?: string[];
   /** Input text; empty when the result is already cached (text stays in the worker). */
   input: string;
   /** Class for extrapolating sampled results: `<category>|<family>`. */

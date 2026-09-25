@@ -1,0 +1,33 @@
+{
+  "id": "codegraph",
+  "name": "codegraph",
+  "repo": "https://github.com/colbymchenry/codegraph",
+  "version": "1.6.0",
+  "licence": "MIT",
+  "method": "upper-bound",
+  "covers": "exploration output: Read, Grep, Glob and shell search/listing/file reading",
+  "assumption": "ceiling: every exploration output disappears and nothing replaces it (codegraph's own README reports ~80% more residual context)",
+  "routes": [
+    {
+      "match": {
+        "categories": [
+          "File reads",
+          "Search"
+        ]
+      }
+    },
+    {
+      "match": {
+        "categories": [
+          "Shell"
+        ],
+        "families": [
+          "search",
+          "listing & find",
+          "file reading"
+        ]
+      }
+    }
+  ],
+  "codexHypothetical": true
+}

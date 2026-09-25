@@ -96,6 +96,8 @@ export interface SaverRow {
   replay?: ReplayStats;
   /** Unique outputs the replayed saver applies to (sampled + extrapolated). */
   replayTotal?: number;
+  /** How to install it (from its manifest), shown when it is missing. */
+  install?: string;
 }
 
 /** Saver audit inputs gathered by the caller (tool detection, replay stats). */
@@ -398,6 +400,7 @@ function saverRows(savers: SaverAdapter[], saved: Array<{ tokens: number; cost: 
       codexHypothetical: sv.codexHypothetical,
       replay: run?.stats.get(sv.id),
       replayTotal: run?.stats.get(sv.id)?.total,
+      install: sv.manifest?.install,
     };
   });
 }

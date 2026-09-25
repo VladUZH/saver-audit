@@ -1,0 +1,18 @@
+{
+  "id": "context-mode",
+  "name": "context-mode",
+  "repo": "https://github.com/mksglu/context-mode",
+  "version": "1.0.169",
+  "licence": "Elastic-2.0 (not bundled)",
+  "method": "upper-bound",
+  "covers": "tool outputs over 5,000 bytes",
+  "assumption": "ceiling: every tool output over 5,000 bytes disappears (in reality only when the agent passes an intent, or over 102,400 bytes)",
+  "routes": [
+    {
+      "match": {
+        "minBytes": 5000
+      }
+    }
+  ],
+  "codexHypothetical": true
+}

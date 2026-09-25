@@ -1,11 +1,26 @@
-// The launch set of savers (STATUS.md "Savers in scope"; mechanisms in tech-notes §8.5).
+// All savers: the built-in manifests (src/savers/builtin/*.json), the user's own
+// manifests (~/.saver-audit/savers/*.json), and two savers that need code: headroom
+// (a Python sidecar) and the caveman skill (modeled from a cited measurement).
+// Mechanisms: tech-notes §8.5.
 import type { OutputView, SaverInfo } from "./types.ts";
+import { findRoute, loadManifests, type SaverManifest } from "./manifest.ts";
+import rtk from "./builtin/rtk.json" with { type: "json" };
+import cavemanEngine from "./builtin/caveman-engine.json" with { type: "json" };
+import codegraph from "./builtin/codegraph.json" with { type: "json" };
+import contextMode from "./builtin/context-mode.json" with { type: "json" };
 
 export interface SaverAdapter extends SaverInfo {
   /** Can the saver act on this tool output at all? (coverage) */
   appliesTo(o: OutputView): boolean;
-  /** Replayed savers: input and argument for the external binary, or undefined to skip. */
-  replayInput?(o: OutputView): { input: string; arg?: string } | undefined;
+  /**
+   * Replayed savers: the input for the saver's program, the route name (part of the
+   * replay cache key) and the program's arguments; undefined to skip.
+   */
+  replayInput?(o: OutputView): { input: string; arg?: string; args?: string[] } | undefined;
+  /** "tool": acts before the agent sees the output, on the full raw output. "request": on what was sent. */
+  stage?: "tool" | "request";
+  /** Manifest-based savers: how to find and run the program. */
+  manifest?: SaverManifest;
   /** Upper-bound savers: o200k tokens removed from this output (the ceiling). */
   ceiling?(o: OutputView): number;
   /**
@@ -14,47 +29,6 @@ export interface SaverAdapter extends SaverInfo {
    * none of headroom's).
    */
   minTokens?: number;
-}
-
-// --- rtk ------------------------------------------------------------------
-// `rtk pipe --filter <name>` filters recorded text offline. Only filters whose
-// input format matches plain command output are used: live rtk rewrites
-// `git status` / `git log` to formats its filters expect (tech-notes §8.5).
-const RTK_FILTERS: Array<[RegExp, string]> = [
-  [/^(python3? -m )?pytest\b/, "pytest"],
-  [/^cargo (test|nextest)\b/, "cargo-test"],
-  [/^cargo (build|check|clippy)\b/, "cargo"],
-  [/^go test\b/, "go-test"],
-  [/^go (build|vet)\b/, "go-build"],
-  [/^ctest\b/, "ctest"],
-  [/^(npx |pnpm (exec )?|yarn |bunx )?tsc\b/, "tsc"],
-  [/^(npx |pnpm (exec )?|yarn |bunx )?vitest\b/, "vitest"],
-  [/^(grep|rg|egrep)\b/, "grep"],
-  [/^(find|fd)\b/, "find"],
-  [/^git (diff|show)\b/, "git-diff"],
-  [/^(python3? -m )?mypy\b/, "mypy"],
-  [/^ruff check\b|^ruff\b(?! format)/, "ruff-check"],
-  [/^ruff format\b/, "ruff-format"],
-  [/^sqlfluff lint\b/, "sqlfluff-lint"],
-  [/^(npx )?prettier\b/, "prettier"],
-  [/^(vendor\/bin\/)?phpunit\b/, "phpunit"],
-  [/^(vendor\/bin\/)?(pest|paratest)\b/, "pest"],
-  [/^(vendor\/bin\/)?phpstan\b/, "phpstan"],
-  [/^(vendor\/bin\/)?pint\b/, "pint"],
-  [/^(vendor\/bin\/)?ecs\b/, "ecs"],
-];
-
-/** The rtk pipe filter for a shell command, looking at its last real segment. */
-export function rtkFilter(command: string): string | undefined {
-  const segments = command.split(/&&|;|\n/).map((s) => s.trim()).filter(Boolean);
-  for (let i = segments.length - 1; i >= 0; i--) {
-    let seg = segments[i]!.split("|")[0]!.trim();
-    seg = seg.replace(/^([A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, "").replace(/^(sudo|time|env|timeout \S+)\s+/, "");
-    if (/^cd\b|^echo\b|^export\b|^source\b/.test(seg)) continue;
-    for (const [re, f] of RTK_FILTERS) if (re.test(seg)) return f;
-    return undefined;
-  }
-  return undefined;
 }
 
 const SHELL = "Shell";
@@ -71,41 +45,44 @@ export function splitCodexHeader(text: string): { header: string; body: string }
 
 export const CAVEMAN_SKILL_TOKENS = 1650; // o200k count of skills/caveman/SKILL.md at v2.7.0 (880114a420)
 export const CAVEMAN_SKILL_OUTPUT_CUT = 0.085; // JetBrains, 2026-07: −8.5% output tokens (tech-notes §3)
-export const CONTEXT_MODE_BYTES = 5000; // INTENT_SEARCH_THRESHOLD, src/server.ts (tech-notes §8.5)
 
-export const SAVERS: SaverAdapter[] = [
-  {
-    id: "rtk",
-    name: "rtk",
-    repo: "rtk-ai/rtk",
-    version: "0.50.0",
-    licence: "Apache-2.0",
-    method: "replayed",
-    covers: "shell output of commands rtk has a pipe filter for (tests, builds, grep/find, git diff, linters)",
-    codexHypothetical: false,
-    appliesTo: (o) => o.category === SHELL && !!o.command && !!rtkFilter(o.command),
+/** The input a saver sees: the full raw output for tool-stage savers, else what was sent. */
+function inputFor(stage: "tool" | "request" | undefined, o: OutputView): string {
+  if (stage === "tool") return o.raw ?? (o.source === "codex" ? splitCodexHeader(o.text).body : o.text);
+  return o.text;
+}
+
+/** An adapter from a manifest (built-in or community). */
+export function manifestAdapter(m: SaverManifest): SaverAdapter {
+  const base = {
+    id: m.id,
+    name: m.name,
+    repo: m.repo,
+    version: m.version,
+    licence: m.licence,
+    method: m.method,
+    covers: m.covers,
+    assumption: m.assumption,
+    codexHypothetical: m.codexHypothetical ?? true,
+    minTokens: m.minTokens,
+    stage: m.stage ?? "request",
+    manifest: m,
+    appliesTo: (o: OutputView) => o.text.length > 0 && !!findRoute(m, o),
+  };
+  if (m.method === "upper-bound") return { ...base, ceiling: (o) => o.tokens };
+  return {
+    ...base,
     replayInput: (o) => {
-      const arg = rtkFilter(o.command ?? "");
-      if (!arg) return undefined;
-      // rtk runs before Claude Code sees the output, so it filters the full raw output.
-      const input = o.raw ?? (o.source === "codex" ? splitCodexHeader(o.text).body : o.text);
-      return { input, arg };
+      const route = findRoute(m, o);
+      if (!route) return undefined;
+      return { input: inputFor(m.stage, o), arg: route.name, args: route.args ?? [] };
     },
-  },
-  {
-    id: "caveman-engine",
-    name: "caveman (proxy engine)",
-    repo: "JuliusBrussee/caveman",
-    version: "2.7.0 (engine bin-v1.1.7)",
-    licence: "BSL-1.1 (called as your installed binary, never bundled)",
-    method: "replayed",
-    covers: "every tool output in the request (the proxy compresses what is sent)",
-    assumption: "outputs under 500 tokens are not replayed and counted as unchanged; on the author's logs that left out about 5% of its savings, so this is slightly low",
-    codexHypothetical: true,
-    minTokens: 500,
-    appliesTo: (o) => o.text.length > 0,
-    replayInput: (o) => ({ input: o.text }),
-  },
+  };
+}
+
+const BUILTIN: SaverManifest[] = [rtk, cavemanEngine, codegraph, contextMode] as SaverManifest[];
+
+const CODE_SAVERS: SaverAdapter[] = [
   {
     id: "headroom",
     name: "headroom",
@@ -132,41 +109,44 @@ export const SAVERS: SaverAdapter[] = [
     codexHypothetical: true,
     appliesTo: () => false,
   },
-  {
-    id: "codegraph",
-    name: "codegraph",
-    repo: "colbymchenry/codegraph",
-    version: "1.6.0",
-    licence: "MIT",
-    method: "upper-bound",
-    covers: "exploration output: Read, Grep, Glob and shell search/listing/file reading",
-    assumption: "ceiling: every exploration output disappears and nothing replaces it (codegraph's own README reports ~80% more residual context)",
-    codexHypothetical: true,
-    appliesTo: (o) => o.category === "File reads" || o.category === "Search" || (o.category === SHELL && ["search", "listing & find", "file reading"].includes(o.family)),
-    ceiling: (o) => o.tokens,
-  },
-  {
-    id: "context-mode",
-    name: "context-mode",
-    repo: "mksglu/context-mode",
-    version: "1.0.169",
-    licence: "Elastic-2.0 (not bundled)",
-    method: "upper-bound",
-    covers: `tool outputs over ${CONTEXT_MODE_BYTES.toLocaleString("en-US")} bytes`,
-    assumption: `ceiling: every tool output over ${CONTEXT_MODE_BYTES.toLocaleString("en-US")} bytes disappears (in reality only when the agent passes an intent, or over 102,400 bytes)`,
-    codexHypothetical: true,
-    appliesTo: (o) => Buffer.byteLength(o.text, "utf8") > CONTEXT_MODE_BYTES,
-    ceiling: (o) => o.tokens,
-  },
 ];
 
+// Order in the report: the launch set first, then community manifests.
+const ORDER = ["rtk", "caveman-engine", "headroom", "caveman-skill", "codegraph", "context-mode"];
+
+function build(manifests: SaverManifest[]): SaverAdapter[] {
+  const all = [...manifests.map(manifestAdapter), ...CODE_SAVERS];
+  const rank = (id: string) => (ORDER.includes(id) ? ORDER.indexOf(id) : ORDER.length);
+  return all.sort((a, b) => rank(a.id) - rank(b.id));
+}
+
+/** The built-in savers (no user manifests): stable for tests and the docs. */
+export const SAVERS: SaverAdapter[] = build(BUILTIN);
+
+let loaded: { savers: SaverAdapter[]; problems: string[] } | undefined;
+
+/** Built-in savers plus the user's own manifests from ~/.saver-audit/savers. */
+export function allSavers(): { savers: SaverAdapter[]; problems: string[] } {
+  if (!loaded) {
+    const { manifests, problems } = loadManifests(BUILTIN);
+    loaded = { savers: build(manifests), problems };
+  }
+  return loaded;
+}
+
+/** The rtk pipe filter for a shell command (from rtk's manifest routes). */
+export function rtkFilter(command: string): string | undefined {
+  return findRoute(rtk as SaverManifest, { source: "claude-code", tool: "Bash", category: "Shell", family: "", command, text: "x", tokens: 1 })?.name;
+}
+
 export function saverIndex(ids: string[] | undefined): SaverAdapter[] {
-  if (!ids) return SAVERS;
-  const known = new Map(SAVERS.map((s) => [s.id, s]));
+  const all = allSavers().savers;
+  if (!ids) return all;
+  const known = new Map(all.map((s) => [s.id, s]));
   const out: SaverAdapter[] = [];
   for (const id of ids) {
-    const s = known.get(id) ?? SAVERS.find((x) => x.id.startsWith(id));
-    if (!s) throw new Error(`--savers: unknown saver "${id}" (known: ${SAVERS.map((x) => x.id).join(", ")})`);
+    const s = known.get(id) ?? all.find((x) => x.id.startsWith(id));
+    if (!s) throw new Error(`--savers: unknown saver "${id}" (known: ${all.map((x) => x.id).join(", ")})`);
     if (!out.includes(s)) out.push(s);
   }
   return out;

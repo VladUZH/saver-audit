@@ -124,13 +124,18 @@ export class SaverTracker {
       if (!inp || !inp.input) return;
       const key = replayKey(s, o.tool, inp.arg, inp.input);
       // Codex shell output keeps its Exit code / Wall time header around rtk's output.
-      const header = s.id === "rtk" && o.source === "codex" && !o.raw ? splitCodexHeader(o.text).header : "";
-      const persisted = o.raw !== undefined && s.id === "rtk" ? persistedHeader(o.text) : undefined;
+      // Tool-stage savers (hooks like rtk) see the full output before the agent does:
+      // a Codex shell header is kept around their output, and a Claude preview may be
+      // re-presented as a preview if their output is still too long.
+      const toolStage = s.stage === "tool";
+      const header = toolStage && o.source === "codex" && !o.raw ? splitCodexHeader(o.text).header : "";
+      const persisted = o.raw !== undefined && toolStage ? persistedHeader(o.text) : undefined;
       const job: ReplayJob = {
         saver: s.id,
         key,
         tool: o.tool,
         arg: inp.arg,
+        args: inp.args,
         input: inp.input,
         cls: `${o.category}|${o.family}`,
         baseline: o.tokens,

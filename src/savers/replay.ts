@@ -11,7 +11,8 @@ import type { FileResult } from "../audit.ts";
 import { readReplayCache, saveReplayCache } from "./cache.ts";
 import { presentedTokens, PREVIEW_CHARS, type ReplayResult } from "./tracker.ts";
 import type { ReplayJob } from "./types.ts";
-import { toolPaths } from "./toolsdir.ts";
+import { toolPaths, toolsDir } from "./toolsdir.ts";
+import { allSavers, saverIndex, type SaverAdapter } from "./registry.ts";
 
 export interface ReplayTool {
   saver: string;
@@ -38,6 +39,8 @@ const CHECKPOINT = 250;
 // exact; sampling missed caveman's rare, spiky savings by up to 40%). headroom runs an
 // ML model per output, so it stays a size-stratified sample unless --full-replay.
 export const DEFAULT_BUDGET: Record<string, number> = { rtk: Infinity, "caveman-engine": Infinity, headroom: 300 };
+/** Community savers: speed unknown, so a size-stratified sample unless --full-replay. */
+const COMMUNITY_BUDGET = 2000;
 
 function onPath(name: string): string | undefined {
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
@@ -57,13 +60,23 @@ function firstLine(cmd: string, args: string[]): string | undefined {
  * Finds the installed saver binaries: explicit overrides, then your PATH (your own
  * installs), then the folder --install-savers uses. Missing tools are simply absent.
  */
-export function detectReplayTools(): Map<string, ReplayTool> {
+export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): Map<string, ReplayTool> {
   const found = new Map<string, ReplayTool>();
   const exists = (p: string) => (existsSync(p) ? p : undefined);
-  const rtk = process.env.SAVER_AUDIT_RTK ?? onPath("rtk") ?? exists(toolPaths.rtk());
-  if (rtk) found.set("rtk", { saver: "rtk", command: rtk, version: firstLine(rtk, ["--version"])?.replace(/^rtk\s+/, "") });
-  const cave = process.env.CAVEMAN_ENGINE_BIN ?? onPath("caveman-engine") ?? exists(join(homedir(), ".caveman", "bin", "caveman-engine")) ?? exists(toolPaths.caveman());
-  if (cave) found.set("caveman-engine", { saver: "caveman-engine", command: cave }); // no version flag
+  const exe = process.platform === "win32" ? ".exe" : "";
+  for (const s of savers) {
+    const m = s.manifest;
+    if (!m || m.method !== "replayed" || !m.binary) continue;
+    const extra = (m.paths ?? []).map((p) => join(p.replace(/^~(?=\/|$)/, homedir()), m.binary + exe));
+    const command =
+      (m.binaryEnv ? process.env[m.binaryEnv] : undefined) ??
+      onPath(m.binary + exe) ??
+      exists(join(toolsDir(), "bin", m.binary + exe)) ??
+      extra.find((p) => existsSync(p));
+    if (!command) continue;
+    const version = m.versionArgs ? firstLine(command, m.versionArgs)?.replace(new RegExp(`^${m.binary}\\s+`), "") : undefined;
+    found.set(s.id, { saver: s.id, command, version });
+  }
   const own = process.env.SAVER_AUDIT_HEADROOM_PYTHON ?? headroomPython();
   const ours = own ? undefined : exists(toolPaths.headroomPython());
   const py = own ?? ours;
@@ -228,6 +241,7 @@ export interface ReplayOptions {
 export async function runReplays(results: FileResult[], saverIds: string[], o: ReplayOptions): Promise<Map<string, ReplayStats>> {
   const stats = new Map<string, ReplayStats>();
   const cache = readReplayCache(o.cacheFile);
+  const adapters = new Map(saverIndex(saverIds).map((a) => [a.id, a]));
   // Unique outputs per saver; keep a job that carries the text when one does.
   const bySaver = new Map<string, Map<string, ReplayJob>>();
   for (const r of results) {
@@ -256,7 +270,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     for (const [saver, unique] of bySaver) {
       const tool = o.tools.get(saver);
       const keys = [...unique.keys()].sort();
-      const budget = o.full ? Infinity : DEFAULT_BUDGET[saver] ?? 1000;
+      const budget = o.full ? Infinity : DEFAULT_BUDGET[saver] ?? COMMUNITY_BUDGET;
       const bySize = [...keys].sort((a, b) => unique.get(b)!.baseline - unique.get(a)!.baseline || (a < b ? -1 : 1));
       const large = new Set(bySize.slice(0, Math.ceil(budget / 2)));
       const small = keys.filter((k) => !large.has(k));
@@ -301,10 +315,13 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         }
         side.close();
       } else {
+        const m = adapters.get(saver)?.manifest;
+        // The manifest's environment; "{state}" is this run's temporary state folder.
+        const menv = Object.fromEntries(Object.entries(m?.env ?? {}).map(([k, v]) => [k, v.replaceAll("{state}", state)]));
+        const runEnv = { ...env, ...menv, ...tool.env };
         await pool(todo, o.concurrency, async (key) => {
           const j = unique.get(key)!;
-          const args = saver === "rtk" ? ["pipe", "--filter", j.arg ?? ""] : ["compress"];
-          store(key, await runOnce(tool.command, args, j.input, env, 60_000));
+          store(key, await runOnce(tool.command, j.args ?? [], j.input, runEnv, 60_000));
         });
       }
     }
