@@ -100,7 +100,7 @@ Offline replay can't show whether a saver changes how the agent behaves: extra t
 ```
 saver-audit [--last 30d | --since 2026-09-01] [--until 2026-09-25] [--source claude-code|codex|all]
             [--full | --short | --json] [--card [path] | --no-card] [--no-animation]
-            [--install-savers [--with-headroom] [--yes]]
+            [--install-savers [--with-headroom] [--yes]] [--check-saver <manifest.json>]
             [--show-projects] [--update-prices]
             [--savers rtk,caveman-engine,headroom,caveman-skill,codegraph,context-mode]
             [--no-savers] [--full-replay] [--verbose]
@@ -128,6 +128,10 @@ If you already have a saver installed yourself (on your `PATH`), saver-audit use
 - **caveman engine:** `caveman-engine` on your `PATH` or in `~/.caveman/bin`, or set `CAVEMAN_ENGINE_BIN`.
 - **headroom:** a `headroom` install with the `[ml]` extra and its Kompress model downloaded, or set `SAVER_AUDIT_HEADROOM_PYTHON`. headroom leaves Read/Grep/Glob/Edit/Write/web output alone while it is recent and compresses it as it ages. saver-audit replays each output as the newest message, so its headroom number is a lower estimate.
 
+## Add your saver
+
+A saver is one JSON file. If your tool can filter a tool output from stdin, saver-audit can measure it on every user's own logs. See [CONTRIBUTING.md](CONTRIBUTING.md) and `npx saver-audit --check-saver my-saver.json`. You can also drop a manifest into `~/.saver-audit/savers/` to try it privately. Suggestions: [open a "Saver" issue](https://github.com/VladUZH/saver-audit/issues/new?template=add-a-saver.yml).
+
 `fast-jev-compaction` is not included. It acts only at compaction, and its decisions need its hosted API.
 
 ## Credit
@@ -145,4 +149,4 @@ What saver-audit adds:
 
 ## Status
 
-Early release (0.3.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Early release (0.4.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

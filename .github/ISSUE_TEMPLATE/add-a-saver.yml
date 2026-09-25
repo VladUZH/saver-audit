@@ -1,0 +1,39 @@
+name: Add a saver
+description: Suggest a token saver for saver-audit to measure (or tell us you are adding yours).
+title: "Saver: "
+labels: ["saver"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        saver-audit can **replay** a saver if it has a program that filters one tool output from stdin to stdout, offline.
+        Tools that change how the agent works can be added as an **upper bound**. See CONTRIBUTING.md.
+  - type: input
+    id: repo
+    attributes:
+      label: Repository
+      placeholder: https://github.com/…
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: How does it save tokens?
+      options:
+        - Filters or compresses tool output (can be replayed)
+        - Changes how the agent works (upper bound only)
+        - Changes the model's writing style (needs a published measurement)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: stdin
+    attributes:
+      label: Is there a command that reads output on stdin and writes the filtered output?
+      description: e.g. `rtk pipe --filter pytest`, `caveman-engine compress`. If not, would the authors add one?
+  - type: checkboxes
+    id: author
+    attributes:
+      label: Are you a maintainer?
+      options:
+        - label: I maintain this saver and will open a PR with its manifest

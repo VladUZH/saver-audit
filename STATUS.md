@@ -257,6 +257,23 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
   Verified: `npm test` → 52/52; accuracy table re-run with the new defaults (caveman 0%
   on month and each week; headroom −3% month, −20%…+37% weeks).
 
+- 2026-09-25 — **0.4.0 step 2: community savers.** A saver is one JSON manifest
+  (`src/savers/manifest.ts`, CONTRIBUTING.md): identity, method (`replayed` or
+  `upper-bound`; modeled savers stay code because they need a cited source), stage
+  (`tool` = hook, gets full raw output; `request` = proxy), binary, routes (match on tool,
+  category, shell family, command regex over the last segment, size; args per route),
+  size floor, env with `{state}`. rtk, caveman engine, codegraph and context-mode are now
+  built-in manifests (`src/savers/builtin/*.json`); headroom (sidecar) and the caveman
+  skill (modeled) stay code. User manifests load from `~/.saver-audit/savers/` (cannot
+  replace a built-in id; problems reported, `--verbose` for details). `--check-saver
+  <file>` validates, finds the program and runs it on a sample. Fixture convention
+  `test/fixtures/savers/<id>/` (runs when the saver is installed, else skipped); rtk
+  fixture recorded with real rtk 0.50.0. "Add a saver" issue form + `saver` label.
+  Research: lowfat (zdk/lowfat, Apache-2.0, 575★) is not replayable today: its built-in
+  filters run only live (`lowfat git status`); `lowfat filter` needs a `.lf` plugin file.
+  Verified: `npm test` → 57/57; real-log numbers unchanged after moving rtk/caveman to
+  manifests (rtk $47.07, caveman $13.31, headroom $151; no re-replay: cache keys kept).
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
