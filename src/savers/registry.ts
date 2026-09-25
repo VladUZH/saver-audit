@@ -8,6 +8,8 @@ import rtk from "./builtin/rtk.json" with { type: "json" };
 import cavemanEngine from "./builtin/caveman-engine.json" with { type: "json" };
 import codegraph from "./builtin/codegraph.json" with { type: "json" };
 import contextMode from "./builtin/context-mode.json" with { type: "json" };
+import tokenSaver from "./builtin/token-saver.json" with { type: "json" };
+import leanCtx from "./builtin/lean-ctx.json" with { type: "json" };
 
 export interface SaverAdapter extends SaverInfo {
   /** Can the saver act on this tool output at all? (coverage) */
@@ -86,7 +88,7 @@ export function manifestAdapter(m: SaverManifest): SaverAdapter {
   };
 }
 
-const BUILTIN: SaverManifest[] = [rtk, cavemanEngine, codegraph, contextMode] as SaverManifest[];
+const BUILTIN: SaverManifest[] = [rtk, cavemanEngine, tokenSaver, leanCtx, codegraph, contextMode] as SaverManifest[];
 
 const CODE_SAVERS: SaverAdapter[] = [
   {
@@ -118,7 +120,7 @@ const CODE_SAVERS: SaverAdapter[] = [
 ];
 
 // Order in the report: the launch set first, then community manifests.
-const ORDER = ["rtk", "caveman-engine", "headroom", "caveman-skill", "codegraph", "context-mode"];
+const ORDER = ["rtk", "caveman-engine", "token-saver", "lean-ctx", "headroom", "caveman-skill", "codegraph", "context-mode"];
 
 function build(manifests: SaverManifest[]): SaverAdapter[] {
   const all = [...manifests.map(manifestAdapter), ...CODE_SAVERS];

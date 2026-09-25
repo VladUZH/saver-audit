@@ -1,0 +1,36 @@
+{
+  "id": "token-saver",
+  "name": "token-saver",
+  "repo": "https://github.com/ppgranger/token-saver",
+  "version": "3.0.0",
+  "licence": "Apache-2.0",
+  "method": "replayed",
+  "covers": "shell output, by its 36 command-aware processors",
+  "assumption": "run with default settings and without the exit code (the logs do not keep it), so failure-aware routing is not used. Outputs under 1,000 tokens are not replayed; on the author's logs that left out about 10% of its savings, so this is somewhat low",
+  "stage": "tool",
+  "binary": "token-saver",
+  "binaryEnv": "SAVER_AUDIT_TOKEN_SAVER",
+  "versionArgs": [
+    "version"
+  ],
+  "env": {
+    "HOME": "{state}/token-saver-home"
+  },
+  "routes": [
+    {
+      "name": "shell",
+      "match": {
+        "categories": [
+          "Shell"
+        ]
+      },
+      "args": [
+        "compress",
+        "{command}"
+      ]
+    }
+  ],
+  "minTokens": 1000,
+  "codexHypothetical": true,
+  "install": "saver-audit --install-savers"
+}

@@ -1,0 +1,59 @@
+{
+  "id": "lean-ctx",
+  "name": "lean-ctx",
+  "repo": "https://github.com/yvgude/lean-ctx",
+  "version": "3.10.3",
+  "licence": "Apache-2.0",
+  "method": "replayed",
+  "covers": "shell output and file reads, by its shell and read pipelines",
+  "assumption": "lean-ctx reports its own before/after token counts (its offline `compress diff` preview), and that ratio is applied to saver-audit's count of the same output; run with default settings. Outputs under 1,000 tokens are not replayed; on the author's logs that left out about 4% of its savings",
+  "stage": "tool",
+  "binary": "lean-ctx",
+  "binaryEnv": "SAVER_AUDIT_LEAN_CTX",
+  "versionArgs": [
+    "--version"
+  ],
+  "env": {
+    "HOME": "{state}/lean-ctx-home"
+  },
+  "jsonRatio": {
+    "before": "original_tokens",
+    "after": "compressed_tokens",
+    "afterBytes": "compressed_bytes"
+  },
+  "routes": [
+    {
+      "name": "shell",
+      "match": {
+        "categories": [
+          "Shell"
+        ]
+      },
+      "args": [
+        "compress",
+        "diff",
+        "-",
+        "--shell",
+        "{command}",
+        "--json"
+      ]
+    },
+    {
+      "name": "read",
+      "match": {
+        "categories": [
+          "File reads"
+        ]
+      },
+      "args": [
+        "compress",
+        "diff",
+        "-",
+        "--json"
+      ]
+    }
+  ],
+  "minTokens": 1000,
+  "codexHypothetical": true,
+  "install": "saver-audit --install-savers"
+}

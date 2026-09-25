@@ -94,3 +94,13 @@ test("{command} in a route's args passes the recorded command and keys the cache
   const plain = manifestAdapter(COMMUNITY as never).replayInput!(view({ command: "pytest" }))!;
   assert.equal(plain.arg, "tests", "savers without {command} keep their cache keys");
 });
+
+test("jsonRatio: a saver's own before/after counts scale saver-audit's count", async () => {
+  const { ratioResult } = await import("../src/savers/replay.ts");
+  const f = { before: "original_tokens", after: "compressed_tokens", afterBytes: "compressed_bytes" };
+  assert.deepEqual(ratioResult(JSON.stringify({ original_tokens: 1000, compressed_tokens: 250, compressed_bytes: 1000 }), f, 800), { t: 200, c: 1000, p: 200 });
+  const big = ratioResult(JSON.stringify({ original_tokens: 100, compressed_tokens: 100, compressed_bytes: 40_000 }), f, 10_000)!;
+  assert.equal(big.p, 500, "first 2,000 of 40,000 chars ≈ 5% of the tokens");
+  assert.equal(ratioResult("not json", f, 10), undefined);
+  assert.equal(ratioResult(JSON.stringify({ original_tokens: 0, compressed_tokens: 0 }), f, 10), undefined);
+});

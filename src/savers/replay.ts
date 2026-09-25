@@ -38,9 +38,11 @@ const CHECKPOINT = 250;
 // rtk and the caveman engine are replayed in full above their size floor (cheap and
 // exact; sampling missed caveman's rare, spiky savings by up to 40%). headroom runs an
 // ML model per output, so it stays a size-stratified sample unless --full-replay.
-export const DEFAULT_BUDGET: Record<string, number> = { rtk: Infinity, "caveman-engine": Infinity, headroom: 300 };
-/** Community savers: speed unknown, so a size-stratified sample unless --full-replay. */
-const COMMUNITY_BUDGET = 2000;
+export const DEFAULT_BUDGET: Record<string, number> = { rtk: Infinity, "caveman-engine": Infinity, "token-saver": Infinity, "lean-ctx": Infinity, headroom: 300 };
+/** Other savers: a size-stratified sample unless --full-replay (checked per saver, tech-notes §8.10). */
+const COMMUNITY_BUDGET = 1000;
+/** Savers that mostly wait (interpreter start-up) run more processes than cores. */
+const WAIT_BOUND = new Set(["token-saver", "lean-ctx"]);
 
 function onPath(name: string): string | undefined {
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
@@ -284,14 +286,17 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       const todo = sample.filter((k) => !cache.has(k) && unique.get(k)!.input);
       if (!tool || !todo.length) continue;
       o.log?.(`replaying ${todo.length.toLocaleString("en-US")} new outputs through ${saver} (results are cached for next time)…`);
-      const store = (key: string, out: string | undefined) => {
-        if (out === undefined) {
-          // A failed run is recorded as a pass-through (what caveman and rtk do on
-          // error), so the result is stable across runs.
-          st.failed++;
-          out = unique.get(key)!.input;
+      const store = (key: string, out: string | undefined, counted?: ReplayResult) => {
+        if (counted) cache.set(key, counted);
+        else {
+          if (out === undefined) {
+            // A failed run is recorded as a pass-through (what caveman and rtk do on
+            // error), so the result is stable across runs.
+            st.failed++;
+            out = unique.get(key)!.input;
+          }
+          cache.set(key, { t: countProxy(out), c: out.length, p: countProxy(out.slice(0, PREVIEW_CHARS)) });
         }
-        cache.set(key, { t: countProxy(out), c: out.length, p: countProxy(out.slice(0, PREVIEW_CHARS)) });
         st.ran++;
         dirty = true;
         o.progress?.(saver, st.ran, todo.length);
@@ -319,9 +324,14 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         // The manifest's environment; "{state}" is this run's temporary state folder.
         const menv = Object.fromEntries(Object.entries(m?.env ?? {}).map(([k, v]) => [k, v.replaceAll("{state}", state)]));
         const runEnv = { ...env, ...menv, ...tool.env };
-        await pool(todo, o.concurrency, async (key) => {
+        const ratio = m?.jsonRatio;
+        await pool(todo, WAIT_BOUND.has(saver) ? o.concurrency * 3 : o.concurrency, async (key) => {
           const j = unique.get(key)!;
-          store(key, await runOnce(tool.command, j.args ?? [], j.input, runEnv, 60_000));
+          const out = await runOnce(tool.command, j.args ?? [], j.input, runEnv, 60_000);
+          if (!ratio || out === undefined) return store(key, out);
+          // The program reports its own before/after counts: apply its ratio to our count.
+          const r = ratioResult(out, ratio, countProxy(j.input));
+          store(key, r ? "" : undefined, r);
         });
       }
     }
@@ -364,3 +374,19 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
 }
 
 export type { ReplayResult };
+
+/** Reads a saver's own before/after counts from its JSON output and scales our count. */
+export function ratioResult(out: string, f: { before: string; after: string; afterBytes?: string }, ourTokens: number): ReplayResult | undefined {
+  try {
+    const j = JSON.parse(out);
+    const before = Number(j?.[f.before]);
+    const after = Number(j?.[f.after]);
+    if (!(before > 0) || !(after >= 0)) return undefined;
+    const t = Math.round((ourTokens * after) / before);
+    const bytes = f.afterBytes !== undefined ? Number(j?.[f.afterBytes]) : NaN;
+    const c = Number.isFinite(bytes) && bytes >= 0 ? bytes : t * 4;
+    return { t, c, p: c > 0 ? Math.round(t * Math.min(1, PREVIEW_CHARS / c)) : t };
+  } catch {
+    return undefined;
+  }
+}

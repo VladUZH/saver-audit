@@ -66,6 +66,12 @@ export interface SaverManifest {
   codexHypothetical?: boolean;
   /** How to install it, shown when it is missing. */
   install?: string;
+  /**
+   * When the program reports counts instead of printing the filtered text: the JSON
+   * field names for its own before/after token counts. The saving is then applied as
+   * a ratio to saver-audit's o200k count of the same output (stated in its note).
+   */
+  jsonRatio?: { before: string; after: string; afterBytes?: string };
 }
 
 const ID = /^[a-z0-9][a-z0-9-]{1,40}$/;
@@ -94,6 +100,7 @@ export function validateManifest(m: any): string[] {
       }
     });
   if (m.env && (typeof m.env !== "object" || Object.values(m.env).some((v) => typeof v !== "string"))) p.push("env: an object of strings");
+  if (m.jsonRatio !== undefined && (typeof m.jsonRatio?.before !== "string" || typeof m.jsonRatio?.after !== "string")) p.push("jsonRatio: needs `before` and `after` field names");
   return p;
 }
 

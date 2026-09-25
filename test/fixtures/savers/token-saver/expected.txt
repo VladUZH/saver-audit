@@ -1,0 +1,11 @@
+1dcf0339 docs: CONTRIBUTING (add a saver), README section, saver issue form, 0.4.0
+474a5b95 test: manifests, community saver end to end, saver fixture convention
+9a6f7d9e feat(cli): --check-saver for saver authors; report skipped manifests
+d197ac85 feat(savers): savers as JSON manifests, loadable from ~/.saver-audit/savers
+5f5466e9 docs: replay accuracy study and 0.4.0 step 1 status
+997ac1f9 feat(report): measured savers only in the short view, card and post
+011b565f fix(savers): exact caveman replay above a size floor; headroom opt-in
+966714c5 docs(status): headroom install path verified end to end
+1361c50f docs: 0.3.0 install section, network exceptions, status
+611eaf0c test: installer verification on real release files, post variants, offline guard
+... (2 more commits)

@@ -1,0 +1,196 @@
+commit 1dcf033936e815cd486e95804918be4eeeb7c7ed
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 23:39:05 2026 +0200
+
+    docs: CONTRIBUTING (add a saver), README section, saver issue form, 0.4.0
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ .github/ISSUE_TEMPLATE/add-a-saver.yml | 39 +++++++++++++++
+ CONTRIBUTING.md                        | 88 ++++++++++++++++++++++++++++++++++
+ README.md                              |  8 +++-
+ STATUS.md                              | 17 +++++++
+ package.json                           |  2 +-
+ 5 files changed, 151 insertions(+), 3 deletions(-)
+
+commit 474a5b9514776e23977f0c906ca6d2d81a48beae
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 23:39:05 2026 +0200
+
+    test: manifests, community saver end to end, saver fixture convention
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ test/fixtures/bin/fake-trim           |  4 ++
+ test/fixtures/savers/rtk/command.txt  |  1 +
+ test/fixtures/savers/rtk/expected.txt | 16 +++++++
+ test/fixtures/savers/rtk/input.txt    | 61 +++++++++++++++++++++++++
+ test/manifest.test.ts                 | 84 +++++++++++++++++++++++++++++++++++
+ test/saver-fixtures.test.ts           | 29 ++++++++++++
+ 6 files changed, 195 insertions(+)
+
+commit 9a6f7d9e17c95831adfabc059ebef7b3da100d47
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 23:39:05 2026 +0200
+
+    feat(cli): --check-saver for saver authors; report skipped manifests
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ src/cli.ts             | 52 ++++++++++++++++++++++++++++++++++++++++++++++++--
+ src/report/terminal.ts |  2 +-
+ 2 files changed, 51 insertions(+), 3 deletions(-)
+
+commit d197ac85be61435dab861a86480da9b0b69fc4a8
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 23:39:05 2026 +0200
+
+    feat(savers): savers as JSON manifests, loadable from ~/.saver-audit/savers
+    
+    rtk, caveman engine, codegraph and context-mode become built-in manifests;
+    routes match outputs and give the program's arguments; replay and
+    detection are generic. Cache keys are unchanged.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ src/audit.ts                           |   3 +
+ src/savers/builtin/caveman-engine.json |  29 +++
+ src/savers/builtin/codegraph.json      |  33 ++++
+ src/savers/builtin/context-mode.json   |  18 ++
+ src/savers/builtin/rtk.json            | 314 +++++++++++++++++++++++++++++++++
+ src/savers/manifest.ts                 | 164 +++++++++++++++++
+ src/savers/registry.ts                 | 192 +++++++++-----------
+ src/savers/replay.ts                   |  35 +++-
+ src/savers/tracker.ts                  |   9 +-
+ src/savers/types.ts                    |   4 +-
+ 10 files changed, 683 insertions(+), 118 deletions(-)
+
+commit 5f5466e9995adb7284182f1c5379d15b8b8f45ce
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 23:32:25 2026 +0200
+
+    docs: replay accuracy study and 0.4.0 step 1 status
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ STATUS.md          | 15 +++++++++++++++
+ docs/tech-notes.md | 30 ++++++++++++++++++++++++++++++
+ 2 files changed, 45 insertions(+)
+
+commit 997ac1f9fbf79a13396272b2aefbf8966c5beee2
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 23:32:25 2026 +0200
+
+    feat(report): measured savers only in the short view, card and post
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ src/cli.ts             |  9 +++++----
+ src/report/card.ts     | 13 +++++++++++--
+ src/report/share.ts    | 19 ++++++-------------
+ src/report/terminal.ts | 30 ++++++++++++++++++++++++------
+ test/share.test.ts     |  2 +-
+ 5 files changed, 47 insertions(+), 26 deletions(-)
+
+commit 011b565f0f8d2ae2272e93ab38d8b7dd21b978c6
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 23:32:25 2026 +0200
+
+    fix(savers): exact caveman replay above a size floor; headroom opt-in
+    
+    Sampling was off by up to 40% against full replays (rare, spiky savings).
+    caveman is now replayed in full above 500 tokens (0% error above the floor,
+    ~5% conservative overall); headroom keeps a size-stratified sample with its
+    measured error stated, and is no longer offered by the default install.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ src/savers/install.ts  |  2 +-
+ src/savers/registry.ts | 11 ++++++++++-
+ src/savers/replay.ts   | 29 ++++++++++++++++++++++++-----
+ src/savers/tracker.ts  |  1 +
+ 4 files changed, 36 insertions(+), 7 deletions(-)
+
+commit 966714c5834f49a10fc6f8dfb187d3fcca87475b
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 23:00:06 2026 +0200
+
+    docs(status): headroom install path verified end to end
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ STATUS.md | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+commit 1361c50f717d9e5e627176c20f032f1e8bd64ac2
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 22:57:46 2026 +0200
+
+    docs: 0.3.0 install section, network exceptions, status
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ README.md    | 24 +++++++++++++++++++-----
+ STATUS.md    | 24 ++++++++++++++++++++++++
+ package.json |  2 +-
+ 3 files changed, 44 insertions(+), 6 deletions(-)
+
+commit 611eaf0c9eb21e543042c92b8b303f236d1723b0
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 22:57:46 2026 +0200
+
+    test: installer verification on real release files, post variants, offline guard
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ test/fixtures/installer/caveman-checksums.txt      | 36 ++++++++++++++++++++++
+ .../installer/caveman-checksums.txt.keysig         |  1 +
+ test/fixtures/installer/rtk-checksums.txt          |  9 ++++++
+ test/install.test.ts                               | 33 ++++++++++++++++++++
+ test/offline.test.ts                               |  9 ++++--
+ test/share.test.ts                                 | 16 ++++++++--
+ 6 files changed, 99 insertions(+), 5 deletions(-)
+
+commit e806ecc2a479c47d3596bbd7aeec6f53dda020c6
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 22:57:45 2026 +0200
+
+    feat(cli): [i] install key with re-run, clearer caveat, savings-first X post
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ src/cli.ts             | 172 +++++++++++++++++++++++++++++++++++++------------
+ src/report/present.ts  |  37 ++++++++---
+ src/report/share.ts    |  52 ++++++++++++---
+ src/report/terminal.ts |  12 ++--
+ 4 files changed, 209 insertions(+), 64 deletions(-)
+
+commit 9c36c6c580e061e61fd7f8173fb01d7d35d22f5f
+Author: VladUZH <25680204+VladUZH@users.noreply.github.com>
+Date:   Fri Sep 25 22:57:45 2026 +0200
+
+    feat(savers): verified one-step install of rtk, caveman engine and headroom
+    
+    Pinned official releases into ~/.saver-audit/tools; rtk checked against its
+    release checksums, the caveman engine against checksums signed with
+    caveman's key; headroom in its own venv with its model. No saver setup is
+    run. Detection now also looks in the tools folder.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_017dmgaMByAKwYp7ado9ov2D
+
+ src/savers/install.ts  | 196 +++++++++++++++++++++++++++++++++++++++++++++++++
+ src/savers/replay.ts   |  22 ++++--
+ src/savers/toolsdir.ts |  18 +++++
+ 3 files changed, 230 insertions(+), 6 deletions(-)

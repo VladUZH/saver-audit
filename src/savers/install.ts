@@ -12,7 +12,7 @@
 //   (caveman's engine is BSL-1.1).
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { toolPaths, toolsDir } from "./toolsdir.ts";
@@ -20,6 +20,11 @@ import { toolPaths, toolsDir } from "./toolsdir.ts";
 export const RTK_TAG = "v0.50.0";
 export const CAVEMAN_BIN_TAG = "bin-v1.1.7";
 export const HEADROOM_VERSION = "0.38.0";
+export const TOKEN_SAVER_TAG = "v3.0.0";
+// token-saver publishes no checksums; this is the SHA-256 of its v3.0.0 source archive
+// as downloaded on 2026-09-25 (tech-notes §8.10).
+const TOKEN_SAVER_SHA256 = "bf1531a061a557d428601a1e6ce232e8612cc41c7e532e15e79b06fa54bda025";
+export const LEAN_CTX_TAG = "v3.10.3";
 
 // caveman packages/cli/BINARY_SIGNING_PUBKEY.pub at v2.7.0.
 const CAVEMAN_PUBKEY = `-----BEGIN PUBLIC KEY-----
@@ -44,6 +49,13 @@ export function cavemanAsset(platform = process.platform, arch = process.arch as
   const os = platform === "darwin" ? "darwin" : platform === "linux" ? "linux" : platform === "win32" ? "win32" : undefined;
   const a = arch === "arm64" ? "arm64" : arch === "x64" ? "amd64" : undefined;
   return os && a ? `caveman-engine_${os}_${a}` : undefined;
+}
+
+export function leanCtxAsset(platform = process.platform, arch = process.arch as Arch): string | undefined {
+  if (platform === "darwin") return `lean-ctx-${arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin.tar.gz`;
+  if (platform === "linux") return `lean-ctx-${arch === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-musl.tar.gz`;
+  if (platform === "win32" && arch === "x64") return "lean-ctx-x86_64-pc-windows-msvc.zip";
+  return undefined;
 }
 
 /** SHA-256 for `name` from a checksums file ("<hex>  <name>" or "<hex> *<name>"). */
@@ -115,6 +127,60 @@ export async function installCaveman(say: Say): Promise<string> {
   return paths.caveman();
 }
 
+/** Extracts one file from a downloaded archive into the tools bin folder. */
+function unpack(archive: Buffer, name: string, member: string, target: string): void {
+  const tmp = mkdtempSync(join(tmpdir(), "saver-audit-dl-"));
+  try {
+    const file = join(tmp, name);
+    writeFileSync(file, archive);
+    const r = spawnSync("tar", ["-xf", file, "-C", tmp, member], { stdio: "ignore" });
+    if (r.status !== 0 || !existsSync(join(tmp, member))) throw new Error(`could not unpack ${name} (needs \`tar\`)`);
+    mkdirSync(join(toolsDir(), "bin"), { recursive: true });
+    writeFileSync(target, readFileSync(join(tmp, member)), { mode: 0o755 });
+    chmodSync(target, 0o755);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+export async function installLeanCtx(say: Say): Promise<string> {
+  const asset = leanCtxAsset();
+  if (!asset) throw new Error(`lean-ctx ${LEAN_CTX_TAG} has no release build for ${process.platform}/${process.arch}`);
+  const base = `https://github.com/yvgude/lean-ctx/releases/download/${LEAN_CTX_TAG}`;
+  say(`downloading lean-ctx ${LEAN_CTX_TAG} from github.com/yvgude/lean-ctx…`);
+  const [archive, sums] = await Promise.all([download(`${base}/${asset}`), download(`${base}/SHA256SUMS`)]);
+  const want = checksumFor(sums.toString("utf8"), asset);
+  if (!want || want !== sha256(archive)) throw new Error("lean-ctx: checksum mismatch, not installed");
+  const target = join(toolsDir(), "bin", `lean-ctx${EXE}`);
+  unpack(archive, asset, `lean-ctx${EXE}`, target);
+  return target;
+}
+
+/** token-saver runs from its source with Python; its own installer (which edits Claude Code settings) is not used. */
+export async function installTokenSaver(say: Say): Promise<string> {
+  if (process.platform === "win32") throw new Error("the token-saver installer here supports macOS and Linux");
+  if (!findPython()) throw new Error("token-saver needs Python 3.10 or newer on PATH");
+  say(`downloading token-saver ${TOKEN_SAVER_TAG} from github.com/ppgranger/token-saver…`);
+  const archive = await download(`https://github.com/ppgranger/token-saver/archive/refs/tags/${TOKEN_SAVER_TAG}.tar.gz`);
+  if (sha256(archive) !== TOKEN_SAVER_SHA256) throw new Error("token-saver: archive hash differs from the pinned one, not installed");
+  const dir = join(toolsDir(), "token-saver");
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const tmp = mkdtempSync(join(tmpdir(), "saver-audit-ts-"));
+  try {
+    const file = join(tmp, "token-saver.tar.gz");
+    writeFileSync(file, archive);
+    const r = spawnSync("tar", ["-xzf", file, "-C", dir, "--strip-components", "1"], { stdio: "ignore" });
+    if (r.status !== 0 || !existsSync(join(dir, "bin", "token-saver"))) throw new Error("token-saver: could not unpack the archive");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  mkdirSync(join(toolsDir(), "bin"), { recursive: true });
+  const wrapper = join(toolsDir(), "bin", "token-saver");
+  writeFileSync(wrapper, `#!/bin/sh\nexec python3 ${JSON.stringify(join(dir, "bin", "token-saver"))} "$@"\n`, { mode: 0o755 });
+  return wrapper;
+}
+
 /** A Python 3.10+ interpreter on PATH, or undefined. */
 export function findPython(): string | undefined {
   for (const cmd of process.platform === "win32" ? ["py", "python"] : ["python3", "python"]) {
@@ -172,7 +238,7 @@ export async function installHeadroom(say: Say): Promise<string> {
 }
 
 export interface InstallChoice {
-  id: "rtk" | "caveman-engine" | "headroom";
+  id: "rtk" | "caveman-engine" | "token-saver" | "lean-ctx" | "headroom";
   what: string;
   size: string;
   available: boolean;
@@ -185,6 +251,8 @@ export function installPlan(): InstallChoice[] {
   return [
     { id: "rtk", what: `rtk ${RTK_TAG}`, size: "about 4 MB, seconds", available: !!rtkAsset(), why: rtkAsset() ? undefined : "no build for this platform" },
     { id: "caveman-engine", what: `caveman engine ${CAVEMAN_BIN_TAG}`, size: "about 28 MB, seconds; its first measurement then takes about a minute, cached after", available: !!cavemanAsset(), why: cavemanAsset() ? undefined : "no build for this platform" },
+    { id: "token-saver", what: `token-saver ${TOKEN_SAVER_TAG}`, size: "under 1 MB, seconds; needs Python 3.10+; its first measurement takes a few minutes on a busy month, cached after", available: !!py && process.platform !== "win32", why: py ? (process.platform === "win32" ? "installer supports macOS and Linux" : undefined) : "needs Python 3.10+" },
+    { id: "lean-ctx", what: `lean-ctx ${LEAN_CTX_TAG}`, size: "about 23 MB, seconds; its first measurement takes a few minutes on a busy month, cached after", available: !!leanCtxAsset(), why: leanCtxAsset() ? undefined : "no build for this platform" },
     { id: "headroom", what: `headroom ${HEADROOM_VERSION} + its model`, size: "about 1.6 GB, a few minutes", available: !!py, why: py ? undefined : "needs Python 3.10+" },
   ];
 }
@@ -192,5 +260,7 @@ export function installPlan(): InstallChoice[] {
 export async function install(id: InstallChoice["id"], say: Say): Promise<string> {
   if (id === "rtk") return installRtk(say);
   if (id === "caveman-engine") return installCaveman(say);
+  if (id === "token-saver") return installTokenSaver(say);
+  if (id === "lean-ctx") return installLeanCtx(say);
   return installHeadroom(say);
 }
