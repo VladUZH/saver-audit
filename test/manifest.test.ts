@@ -82,3 +82,15 @@ test("a community saver is replayed and reported like a built-in one", async () 
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("{command} in a route's args passes the recorded command and keys the cache by it", async () => {
+  const { manifestAdapter } = await import("../src/savers/registry.ts");
+  const a = manifestAdapter({ ...COMMUNITY, routes: [{ name: "any", match: { categories: ["Shell"] }, args: ["compress", "{command}"] }] } as never);
+  const r1 = a.replayInput!(view({ command: "pytest -q" }))!;
+  const r2 = a.replayInput!(view({ command: "go test ./..." }))!;
+  assert.deepEqual(r1.args, ["compress", "pytest -q"]);
+  assert.notEqual(r1.arg, r2.arg, "different commands, different cache keys");
+  assert.equal(a.replayInput!(view({ command: undefined })), undefined, "no command, no replay");
+  const plain = manifestAdapter(COMMUNITY as never).replayInput!(view({ command: "pytest" }))!;
+  assert.equal(plain.arg, "tests", "savers without {command} keep their cache keys");
+});

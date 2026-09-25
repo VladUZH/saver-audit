@@ -31,7 +31,7 @@ export interface Route {
   /** Short name for this route (part of the replay cache key). */
   name?: string;
   match?: RouteMatch;
-  /** Arguments for the saver's program (replayed savers). */
+  /** Arguments for the saver's program (replayed savers); "{command}" is replaced by the recorded shell command. */
   args?: string[];
 }
 

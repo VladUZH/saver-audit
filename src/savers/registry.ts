@@ -75,7 +75,13 @@ export function manifestAdapter(m: SaverManifest): SaverAdapter {
     replayInput: (o) => {
       const route = findRoute(m, o);
       if (!route) return undefined;
-      return { input: inputFor(m.stage, o), arg: route.name, args: route.args ?? [] };
+      // "{command}" passes the recorded shell command (some filters pick their rules by
+      // it); it then becomes part of the cache key.
+      const usesCommand = (route.args ?? []).some((a) => a.includes("{command}"));
+      if (usesCommand && !o.command) return undefined;
+      const args = (route.args ?? []).map((a) => a.replaceAll("{command}", o.command ?? ""));
+      const arg = usesCommand ? `${route.name ?? ""}\0${o.command}` : route.name;
+      return { input: inputFor(m.stage, o), arg, args };
     },
   };
 }
