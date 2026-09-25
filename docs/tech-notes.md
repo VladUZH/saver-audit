@@ -686,3 +686,41 @@ Ground truth: full replays of every output (window 2026-08-26 → 2026-09-25T13:
   | 2,000 | −25.3% | −14.7% | 7,320 |
 
 - **Decision:** full replay above 1,000 tokens for both. It is exact above the floor, and each saver's note states how low the floor makes it. The first measurement takes about 2.7 min on this heavy month and is cached after.
+
+### 8.11 Quick and exact modes (2026-09-26, 0.6.0)
+
+**Problem (founder, 0.5.0):** with five replayed savers, a first run on a busy month took minutes. headroom alone could take hours.
+
+**Timings** (founder's logs, empty cache, before this change):
+
+| Run | Wall time |
+|---|---|
+| Report without savers | 6 s |
+| caveman engine alone | 17 s |
+| token-saver alone | 12 s |
+| lean-ctx alone | 12 s |
+| headroom alone | 174 s (its largest outputs are slow, and each output uses every core) |
+| All five in parallel | 198 s (1,141 s of CPU: they only compete) |
+
+**Quick mode (default):**
+- Savers run one at a time, fastest first, each against a wall-clock budget of about 6 s. rtk gets 15 s, enough to finish every output, so it is always exact.
+- What was not replayed in time is extrapolated and labelled "indicative".
+- **Cache-only savers.** caveman engine and headroom only use results cached by an exact run, and otherwise show "—, exact run needed":
+  - caveman: a quick sample was off by −35% to −73% (rare, spiky savings);
+  - headroom: it never reached 20 outputs in its budget.
+- **No number from too little data:** fewer than 20 replayed outputs gives no number.
+- **Result:** 20 s on the founder's month with an empty cache, 9.5 s warm.
+- **Quick errors seen** (quick vs exact, same window):
+
+  | Saver | Quick run 1 | Quick run 2 |
+  |---|---|---|
+  | lean-ctx | −2% | +5% |
+  | token-saver | −20% | −31% |
+
+  The note says "can be off by half".
+
+**Exact mode** (`--exact`, `[e]`):
+- Replays every output above the floors.
+- `[e]` estimates the time from the outputs not yet cached and measured throughput (rtk 800/s, caveman 250/s, token-saver and lean-ctx 45/s, headroom 4/s plus 6 s start-up).
+- It asks separately about headroom when headroom alone would take over 10 minutes.
+- Results are cached, so quick runs afterwards are exact.

@@ -77,7 +77,16 @@ The headroom number is a lower estimate (see below). On Codex alone, where shell
 
 - **replayed.** saver-audit sends the recorded tool output through *your installed copy* of the saver and counts what is left, measured against what the model actually saw.
   - For example, Claude Code cuts large Bash output down to a preview, so that preview is the baseline.
-  - rtk, the caveman engine, token-saver and lean-ctx replay every output above a size floor (caveman 500 tokens, token-saver and lean-ctx 1,000). Samples were checked against full replays and missed by up to 40%, so they're not used for these. The floors make caveman about 5%, token-saver about 10% and lean-ctx about 4% low, and the report says so. headroom, which runs an ML model per output, replays a sample of 300 by default and says so; `--full-replay` replays everything. Results are cached.
+  - **Quick by default:**
+    - A normal run gives each saver a few seconds; the first run on a busy month takes about 20 s, later runs a few seconds.
+    - rtk always finishes, so its number is **exact**.
+    - token-saver and lean-ctx are estimated from a sample and marked **indicative**. They can be off by up to half on a small period.
+    - The caveman engine and headroom show "—" until you ask for exact numbers: a quick sample was too far off for them.
+  - **Exact on request:** press `e` or pass `--exact`.
+    - It replays every output above each saver's size floor: caveman 500 tokens, token-saver and lean-ctx 1,000, headroom 200.
+    - It first shows how long that will take on your logs. headroom can take hours on a busy month, so it is asked about separately.
+    - Results are cached, so later quick runs are exact too.
+    - The floors make caveman about 5%, token-saver about 10% and lean-ctx about 4% low, and the report says so.
 - **modeled.** An estimate from a published measurement, with the assumption printed next to it.
 - **upper bound.** The saver changes how the agent behaves (which tools it calls), so replay can only give a ceiling: everything it could possibly remove.
 
@@ -101,7 +110,7 @@ Offline replay can't show whether a saver changes how the agent behaves: extra t
 
 ```
 saver-audit [--last 30d | --since 2026-09-01] [--until 2026-09-25] [--source claude-code|codex|all]
-            [--full | --short | --json] [--card [path] | --no-card] [--no-animation]
+            [--exact] [--full | --short | --json] [--card [path] | --no-card] [--no-animation]
             [--install-savers [--with-headroom] [--yes]] [--check-saver <manifest.json>]
             [--show-projects] [--update-prices]
             [--savers rtk,caveman-engine,headroom,caveman-skill,codegraph,context-mode]
@@ -151,4 +160,4 @@ What saver-audit adds:
 
 ## Status
 
-Early release (0.5.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Early release (0.6.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

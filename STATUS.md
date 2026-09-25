@@ -298,6 +298,14 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
   `--install-savers --yes`. Fixtures recorded with the real programs; `npm test` → 61/61.
   X post now lists all measured savers (compact variant keeps it under 280).
 
+- 2026-09-26 — **0.6.0: quick and exact modes** (founder: headroom ran too long in 0.5.0).
+  Default quick run: savers one at a time with wall-clock budgets; rtk always exact;
+  token-saver/lean-ctx "indicative" (≈ in the post); caveman engine and headroom "—, exact
+  run needed" unless cached (quick samples were off by 35–73% / too slow). `[e]` / `--exact`
+  with a time estimate from the user's own logs; headroom asked separately when > 10 min.
+  Verified: `npm test` → 62/62 (new quick/exact test); founder's logs, empty cache: quick
+  20 s (was 198 s), warm 9.5 s. Details in tech-notes §8.11.
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -403,7 +411,7 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
 
 ## Human steps waiting (GATE)
 
-- **Publish 0.5.0** from your own terminal: `cd ~/Documents/Programming/saver-audit && npm publish`.
+- **Publish 0.6.0** from your own terminal: `cd ~/Documents/Programming/saver-audit && npm publish`.
 - **Saver outreach**: send the messages in `docs/launch/saver-outreach.md` (edit in your
   voice; one per project; Discussions if enabled, else an issue).
 
