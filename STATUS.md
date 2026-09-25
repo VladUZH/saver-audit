@@ -5,8 +5,8 @@ what is blocked and why, and decisions made where the docs were silent.
 
 ## Current milestone
 
-M2 — saver adapters: **done** (acceptance met, see log 2026-09-25). Next: M3 (share card, README).
-Launch numbers still need one `--full-replay` run (see Human steps).
+M3 — share card and README: **done** (acceptance met, see log 2026-09-25). Next: M4 (launch prep).
+Launch numbers still need the headroom full replay (see Human steps); rtk and caveman are fully replayed.
 
 ## Log
 
@@ -123,6 +123,22 @@ Launch numbers still need one `--full-replay` run (see Human steps).
   (45 KB, did not exist before); my `rm -rf ~/.headroom` was blocked by the permission
   system, so it is still there (see Human steps).
 
+- 2026-09-25 — **M3 done.** `--card [path]` writes a 1200×675 PNG (SVG → PNG offline via
+  resvg WASM + bundled JetBrains Mono); README with the founder's measured results;
+  card privacy test. Verified:
+  - `npm test` → `ℹ tests 43 ℹ pass 43 ℹ fail 0` (card: SVG built from fixtures holds no
+    fixture text, paths, commands or project names; PNG signature and 1200×675 size).
+  - `npm pack` → package size 2.3 MB, 8 files. In an empty directory:
+    `npx --yes --package=<tgz> saver-audit --since 2026-08-26 --until 2026-09-25T13:00:00
+    --card` → report printed, `saver-audit.png` written, real 9.21 s.
+  - Card from the real run checked by eye: numbers, dates and fixed labels only.
+  - Full replays: rtk (5,513 outputs) and caveman-engine (60,341 outputs, 195 s) done
+    and cached; caveman full = $14.06 vs $9.69 from the 5% sample (tech-notes §8.8).
+- 2026-09-25 — Bug found and fixed (again): `test/card.test.ts` imported `src/cli.ts`
+  (which runs the CLI on import) and `test/savers.test.ts` (tests registered twice).
+  Helpers moved to `src/args.ts` / `test/helpers.ts`; new test fails if anything imports
+  `src/cli.ts`.
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -199,11 +215,26 @@ Launch numbers still need one `--full-replay` run (see Human steps).
 - 2026-09-25 (M2) — Added `--until` (not in the spec) so a fixed window can be re-run
   while new logs are being written; needed for the reproducibility check.
 
+- 2026-09-25 (M3) — Card rasterizer: @resvg/resvg-wasm (MPL-2.0, unmodified, shipped
+  with notice) + JetBrains Mono (OFL-1.1). Chosen over a hand-written PNG/bitmap-font
+  renderer for legibility; costs +1.2 MB in the package; loaded only with `--card`.
+- 2026-09-25 (M3) — The card never shows project names, even with `--show-projects`
+  (simpler than the spec's allowance). It shows "sample N%" under sampled savers because
+  the card travels without the report's notes.
+- 2026-09-25 (M3) — Replay sample = first N outputs by hash plus every output already
+  cached, so a `--full-replay` makes later default runs exact while two runs over the
+  same logs stay identical.
+- 2026-09-25 (M3) — README uses the founder's real run (2026-08-26 → 2026-09-25) and
+  marks headroom as a 1% sample; the card image in `assets/readme-card.png` is from the
+  same run (aggregates only).
+
 ## Human steps waiting (GATE)
 
 - **Delete one stray folder** (my delete was blocked): `rm -rf ~/.headroom` — it holds only
   `ccr_store.db`, created 2026-09-25 16:10 by my headroom test.
-- **Before writing launch copy: one full replay** (slow; cached afterwards). From the repo:
+- **headroom full replay: your OK needed** (about 30,000 outputs at up to ~1 s each on
+  CPU, so possibly several hours of one busy core; cached afterwards). rtk and caveman are
+  already fully replayed. Command, from the repo:
   ```
   T=~/.saver-audit-tools
   PATH=$T/bin:$PATH SAVER_AUDIT_HEADROOM_PYTHON=$T/headroom-venv/bin/python \

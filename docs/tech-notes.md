@@ -616,3 +616,12 @@ Installed in `~/.saver-audit-tools` (see STATUS). Behaviour seen while building 
 - **Sampling:** by default, each replayed saver runs on a deterministic sample: the first N unique outputs in hash order, drawn from *all* applicable outputs. The rest are extrapolated per (category, family) class. `--full-replay` replays everything. Results are cached by content hash, and the cache holds hashes and counts only.
 - **Reproducibility:** calibration is now fit only on calls inside the period. Fitting on everything let calls newer than `--until` shift k between runs. Two runs over the same window now give identical saver numbers.
 - **fast-jev-compaction:** not modeled. It acts only at compaction (46 compactions, 10 automatic, in all local history), and its keep/truncate/drop decisions need the hosted Jev API. Keeping even truncated tool pairs leaves more context than the built-in summary, so its effect on tokens is probably negative, and any number would be mostly assumption.
+
+### 8.8 M3 findings (2026-09-25)
+
+- **Sampling accuracy check.** caveman-engine on the same window:
+  - 5% sample (3,000 of 60,341 outputs, extrapolated per class): **$9.69**.
+  - Full replay: **$14.06**.
+  - The sample was about 31% low. Sampled numbers are labelled ("sample N%") everywhere, including on the card, but launch numbers need full replays.
+- **Card rendering.** SVG is rasterized with @resvg/resvg-wasm 2.6.2 (MPL-2.0, unmodified WASM shipped as `dist/resvg.wasm`) using a bundled JetBrains Mono 2.304 (OFL-1.1). Both load only for `--card`. The npm package grew from 1.1 MB to 2.3 MB (8 files).
+- **Packed install.** `npx --package=<tgz> saver-audit` from an empty directory, over 30 days of real logs with a warm replay cache, took 9.2 s including the npx install.
