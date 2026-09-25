@@ -5,9 +5,9 @@ what is blocked and why, and decisions made where the docs were silent.
 
 ## Current milestone
 
-M4 — launch prep: **nearly done**. Final numbers are in the README, card and launch kit.
-Terminal GIF done. Left: npm publish (founder authorised; needs `npm login` in their
-terminal), then writing and posting the launch posts (founder).
+M4 — launch prep: **done on Claude's side.** saver-audit 0.1.0 is on npm; README, card, GIF
+and launch kit carry the final numbers. Left for the founder: write and post the Show HN,
+Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 12:00–14:00 UTC).
 
 ## Log
 
@@ -180,6 +180,22 @@ terminal), then writing and posting the launch posts (founder).
   showing "sample 99%"). They can reach no in-period call, so the saver tracker now skips
   them. Savings unchanged; headroom coverage 57% → 56%. Test added (44/44 pass).
 
+- 2026-09-25 — **npm GATE done (founder authorised, founder authenticated).** `npm login`
+  ran in the session; `npm publish` hit `EOTP` from the session (non-interactive, so npm
+  cannot start its passkey/Touch ID prompt) and was completed by the founder in their own
+  terminal with `npm publish --ignore-scripts` (checks had just passed: 44/44, fresh build).
+  Verified:
+  - `npm view saver-audit` → 0.1.0, created 2026-09-25T19:33:31Z, maintainer vlpetrov.
+  - Published tarball unpacked and compared with the local build: all 10 files identical
+    (`cmp`). Its shasum differs from the one printed in the failed attempt only through
+    packing metadata.
+  - `npx --yes saver-audit@0.1.0` in an empty folder: `--version` → 0.1.0. New-user run
+    (no savers installed, empty cache): report printed, rtk/caveman engine/headroom listed
+    "not installed", real 14.39 s. With the founder's savers + `--card`: identical saver
+    numbers to the README, `saver-audit.png` written, real 16.08 s. Both include npx
+    resolving and unpacking the package on a busy machine; local report runs take 7–9 s.
+    Not claiming "under 10 s via npx" until measured on a quiet machine.
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -277,9 +293,8 @@ terminal), then writing and posting the launch posts (founder).
 
 ## Human steps waiting (GATE)
 
-- **Publish to npm** (after the final numbers are in the README, or now to reserve the
-  name): `npm login`, then from the repo `npm publish` (prepublishOnly runs typecheck,
-  tests and build). Verify with `npx saver-audit@0.1.0 --version` in an empty folder.
+- ~~Publish to npm~~ (done 2026-09-25, 0.1.0; see log). For the next release: run
+  `npm publish` in your own terminal (passkey 2FA needs an interactive prompt).
 - **Write the Show HN, Reddit posts and X thread yourself** from `docs/launch/` (HN and
   several subs ban AI-written text). Plan: Show HN Sunday 2026-10-04 12:00–14:00 UTC.
 
