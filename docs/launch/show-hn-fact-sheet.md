@@ -49,6 +49,8 @@ rtk, the caveman engine and headroom were all fully replayed.
 | rtk 0.50.0 | replayed, all 5,513 outputs | 15% of tool output | $47 | 1.1% |
 | caveman proxy engine | replayed, every output of 500+ tokens | all tool output | $13 | 0.3% |
 | headroom 0.38.0 | replayed, all ~30k outputs; a lower estimate | 56% | $151 | 3.6% |
+| lean-ctx 3.10.3 | replayed, every output of 1,000+ tokens (~4% low) | 67% | $122 | 2.9% |
+| token-saver 3.0.0 | replayed, every output of 1,000+ tokens (~10% low) | 51% | $65 | 1.5% |
 | caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $95 | 2.3% |
 | codegraph | upper bound (it changes agent behaviour) | 43% | ≤ $579 | ≤ 13.8% |
 | context-mode | upper bound (it changes agent behaviour) | 61% | ≤ $704 | ≤ 16.7% |
@@ -62,6 +64,8 @@ rtk, the caveman engine and headroom were all fully replayed.
 | Cost | $125 |
 | Largest content bucket | Shell output, $55 (44%) |
 | headroom | $13.05 (10.4% of the Codex bill) |
+| lean-ctx | $9.66 (7.7%, hypothetical on Codex) |
+| token-saver | $15.00 (12.0%, hypothetical on Codex: it works through Claude Code hooks) |
 | rtk | $5.20 (4.1% of the Codex bill) |
 | caveman engine | $0.59 |
 | codegraph ceiling | ≤ $19.51 |

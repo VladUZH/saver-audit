@@ -68,12 +68,12 @@
 
 Stdin modes were verified by reading each project's README and source, not by running the program. Anything marked "unverified" needs a real run before we publish a number.
 
-### Tier 1: replayable today. Add a manifest, verify it, then send template A
+### Tier 1: replayable today. Integrated in 0.5.0; send template A (method check)
 
 | Saver | ★ | Licence | Replay command (from source) | Channel | Note |
 |---|---|---|---|---|---|
-| [ppgranger/token-saver](https://github.com/ppgranger/token-saver) | 152 | Apache-2.0 | `token-saver compress '<cmd>'` reads stdin, never executes (README l.507) → route args `["compress", "{command}"]` | Issues, Discussions | Unverified whether its `gh` processor calls the network; check before listing |
-| [yvgude/lean-ctx](https://github.com/yvgude/lean-ctx) | 3.8k | Apache-2.0 | `lean-ctx compress diff - --shell "<cmd>" --json` (rust/src/cli/compress_cmd.rs) returns JSON, not the text | Discussions | Ask for a flag that prints only the compressed text; until then it needs a small JSON-aware adapter |
+| [ppgranger/token-saver](https://github.com/ppgranger/token-saver) | 152 | Apache-2.0 | `token-saver compress '<cmd>'` reads stdin, never executes → manifest args `["compress", "{command}"]` | Issues, Discussions | **Integrated.** Run from source (its own installer edits Claude Code plugin settings, so it isn't used), with HOME in a temp folder; writes nothing. The exit code isn't in the logs, so failure-aware routing isn't used. Ask: an exit-code-free default is fine? |
+| [yvgude/lean-ctx](https://github.com/yvgude/lean-ctx) | 3.8k | Apache-2.0 | `lean-ctx compress diff - --shell "<cmd>" --json` (shell) and `compress diff - --json` (reads) | Discussions | **Integrated** via `jsonRatio` (its own before/after counts scale ours). Ask: a flag that prints only the compressed text, so the numbers use one tokenizer throughout |
 | rtk, caveman engine | 81.7k / 107.8k | Apache-2.0 / BSL-1.1 | already in | Issues | No ask; announce the integration and invite a method check (template A) |
 
 ### Tier 2: a small change makes them replayable (template B)
@@ -101,7 +101,7 @@ Stdin modes were verified by reading each project's README and source, not by ru
 
 ### Suggested order
 
-1. **Now:** add and verify manifests for token-saver and lean-ctx. Claude can install them into `~/.saver-audit/tools` and test them on real logs. Then send template A to both.
+1. **Now:** template A to token-saver and lean-ctx (integrated in 0.5.0, with their numbers from your logs).
 2. **This week:** template B to headroom and lowfat (highest reach, smallest ask), then snip and token-optimizer.
 3. **Before launch:** template C to codebase-memory-mcp and code-review-graph. Their audiences are large, and a fair ceiling rule they endorse is launch material.
 4. **pxpipe:** after launch, once the image-token formula is confirmed.

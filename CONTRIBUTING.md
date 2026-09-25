@@ -23,6 +23,8 @@ It runs with `DO_NOT_TRACK=1`, a 60-second timeout per output, and a throwaway s
 Put it in `src/savers/builtin/<id>.json` for a pull request, or in `~/.saver-audit/savers/<id>.json` to try it on your own logs. Working examples:
 - [`rtk.json`](src/savers/builtin/rtk.json): a hook-stage filter with one route per command type.
 - [`caveman-engine.json`](src/savers/builtin/caveman-engine.json): a proxy-stage compressor with one route for everything.
+- [`token-saver.json`](src/savers/builtin/token-saver.json): passes the recorded command with `{command}`.
+- [`lean-ctx.json`](src/savers/builtin/lean-ctx.json): two routes (shell and file reads), and reports counts via `jsonRatio`.
 - [`codegraph.json`](src/savers/builtin/codegraph.json) and [`context-mode.json`](src/savers/builtin/context-mode.json): upper bounds.
 
 ```json
@@ -63,6 +65,7 @@ Put it in `src/savers/builtin/<id>.json` for a pull request, or in `~/.saver-aud
 | `minTokens` | Outputs smaller than this are counted as unchanged without running your program (saves time when small outputs are never touched). |
 | `codexHypothetical` | `true` if your saver works through Claude Code hooks: Codex hooks cannot rewrite tool input, so its Codex numbers are marked hypothetical. |
 | `install` | How to install it, shown when it is missing. |
+| `jsonRatio` | Only if your program prints counts instead of the filtered text, as JSON: `{ "before": "<field>", "after": "<field>", "afterBytes": "<field>" }`. saver-audit applies your before/after ratio to its own token count of the same output, and says so in the report. Printing the text is preferred. |
 
 **"Modeled" savers are not accepted as manifests.** These change the model's output style or rest on an estimate, and need a cited measurement, so they go through code review as code.
 

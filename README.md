@@ -61,6 +61,8 @@ Nothing leaves your machine. The network is used only when you ask: `--update-pr
 | [rtk](https://github.com/rtk-ai/rtk) 0.50.0 | replayed (all 5,513 outputs) | 15% of tool output | $47 | 1.1% |
 | [caveman](https://github.com/JuliusBrussee/caveman) proxy engine | replayed (every output of 500+ tokens) | all tool output | $13 | 0.3% |
 | [headroom](https://github.com/headroomlabs-ai/headroom) 0.38.0 | replayed (all ~30k outputs), lower estimate | 56% | $151 | 3.6% |
+| [lean-ctx](https://github.com/yvgude/lean-ctx) 3.10.3 | replayed (every output of 1,000+ tokens) | 67% | $122 | 2.9% |
+| [token-saver](https://github.com/ppgranger/token-saver) 3.0.0 | replayed (every output of 1,000+ tokens) | 51% | $65 | 1.5% |
 | caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $95 | 2.3% |
 | [codegraph](https://github.com/colbymchenry/codegraph) | upper bound | 43% | ≤ $579 | ≤ 13.8% |
 | [context-mode](https://github.com/mksglu/context-mode) | upper bound | 61% | ≤ $704 | ≤ 16.7% |
@@ -69,13 +71,13 @@ The two biggest items are things no tool-output saver touches:
 - **Re-reading earlier turns:** about a quarter of the cost is earlier assistant turns, thinking included, read again from cache on every call.
 - **The fixed system prompt and tool definitions:** another 16%.
 
-The headroom number is a lower estimate (see below). On Codex alone, where shell output is 44% of the cost, headroom would cut 10.4% and rtk 4.1%.
+The headroom number is a lower estimate (see below). On Codex alone, where shell output is 44% of the cost, headroom would cut 10.4% and rtk 4.1% (token-saver 12.0%, but it works through Claude Code hooks, so that figure is hypothetical).
 
 ## What the labels mean
 
 - **replayed.** saver-audit sends the recorded tool output through *your installed copy* of the saver and counts what is left, measured against what the model actually saw.
   - For example, Claude Code cuts large Bash output down to a preview, so that preview is the baseline.
-  - rtk and the caveman engine replay every output (caveman above 500 tokens, which leaves out about 5% of its savings). headroom, which runs an ML model per output, replays a sample of 300 by default and says so; `--full-replay` replays everything. Results are cached.
+  - rtk, the caveman engine, token-saver and lean-ctx replay every output above a size floor (caveman 500 tokens, token-saver and lean-ctx 1,000). Samples were checked against full replays and missed by up to 40%, so they're not used for these. The floors make caveman about 5%, token-saver about 10% and lean-ctx about 4% low, and the report says so. headroom, which runs an ML model per output, replays a sample of 300 by default and says so; `--full-replay` replays everything. Results are cached.
 - **modeled.** An estimate from a published measurement, with the assumption printed next to it.
 - **upper bound.** The saver changes how the agent behaves (which tools it calls), so replay can only give a ceiling: everything it could possibly remove.
 
@@ -110,10 +112,10 @@ In a terminal the default is the short view with the key menu, plus a card. When
 
 ## Installing the savers (one command)
 
-To get *measured* numbers for rtk, the caveman engine and headroom, they have to be on your machine: saver-audit runs your copy and never bundles saver code (caveman's engine is BSL-1.1).
+To get *measured* numbers for rtk, the caveman engine, token-saver, lean-ctx and headroom, they have to be on your machine: saver-audit runs your copy and never bundles saver code (caveman's engine is BSL-1.1).
 
 ```
-npx saver-audit --install-savers                  # rtk + caveman engine: ~32 MB, seconds
+npx saver-audit --install-savers                  # rtk, caveman engine, token-saver, lean-ctx: ~56 MB, seconds
 npx saver-audit --install-savers --with-headroom  # + headroom and its model: ~1.6 GB, minutes, Python 3.10+
 ```
 
@@ -149,4 +151,4 @@ What saver-audit adds:
 
 ## Status
 
-Early release (0.4.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Early release (0.5.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

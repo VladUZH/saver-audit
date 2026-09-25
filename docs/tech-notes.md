@@ -655,3 +655,34 @@ Ground truth: full replays of every output (window 2026-08-26 → 2026-09-25T13:
   - **Throughput:** caveman runs at about 250 calls/s whatever the concurrency (13, 26 or 52), so the first run on this month's logs takes about 75 s. A 200-token floor would take about 150 s.
 - **headroom:** floor 200 tokens (0% of its savings below it), plus a size-stratified sample of 300. Accurate over a month (−3%), but −20% to +37% on single weeks. It keeps the "sample" label and a note, and it is no longer offered by default.
 - **rtk:** replayed in full.
+
+### 8.10 token-saver and lean-ctx (2026-09-26, 0.5.0)
+
+- **token-saver v3.0.0** (ppgranger/token-saver, Apache-2.0, Python 3.10+).
+  - **Replay command:** `token-saver compress '<cmd>'` reads stdin and never executes the command (`src/quality_cli.py`).
+  - **Not network-bound:** its GitHub update check only runs on `update`.
+  - **Installation:** it runs from the source archive, pinned by SHA-256 (`bf1531a0…`), because the project publishes no checksums. Its own installer registers a Claude Code plugin, so it is not used.
+  - **Isolation:** HOME is set to the run's temp folder, so nothing is written to the user's home and settings are the defaults.
+  - **Speed:** about 0.49 s wall and 0.17 s CPU per call.
+- **lean-ctx v3.10.3** (yvgude/lean-ctx, Apache-2.0, Rust).
+  - **Replay command:** `compress diff - --shell "<cmd>" --json` (shell pipeline) and `compress diff - --json` (read pipeline). These print its own before/after token counts, not the text.
+  - **How it is scored:** the manifest's `jsonRatio` applies that ratio to our o200k count.
+  - **Cloud code:** its cloud features run only in its MCP server, publish, or when logged in; with an isolated HOME there are no credentials.
+  - **Verification:** release binaries are checked against `SHA256SUMS`.
+  - **Speed:** about 0.83 s wall and 0.13 s CPU per call.
+- **Sample vs full replay** (truth = every output of 200+ tokens, 2026-08-26 → 2026-09-25T13:00):
+
+  | Saver | Truth | Sample, month | Sample, weeks |
+  |---|---|---|---|
+  | token-saver | $72.24 | +5% | +6% … +319% |
+  | lean-ctx | $126.76 | +20% | −8% … +22% |
+
+- **Size floors priced against truth.** Throughput is about 84 outputs/s for both together, and both are CPU-bound (374 s for 31.5k outputs).
+
+  | Floor | token-saver | lean-ctx | Outputs replayed |
+  |---|---|---|---|
+  | 500 | −8.6% | −1.0% | 22,365 |
+  | 1,000 | −9.7% | −4.1% | 13,802 |
+  | 2,000 | −25.3% | −14.7% | 7,320 |
+
+- **Decision:** full replay above 1,000 tokens for both. It is exact above the floor, and each saver's note states how low the floor makes it. The first measurement takes about 2.7 min on this heavy month and is cached after.

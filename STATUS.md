@@ -284,6 +284,20 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
   codebase-memory-mcp 44.9k, code-review-graph 31.8k. `npm test` → 58/58.
   Sending any message is the founder's GATE.
 
+- 2026-09-26 — **0.5.0: token-saver and lean-ctx added** (founder: yes). Built-in
+  manifests + verified installers (token-saver: source archive pinned by SHA-256, run
+  from source with HOME isolated, its own plugin installer not used; lean-ctx: release
+  binary checked against SHA256SUMS, `jsonRatio` because its offline preview prints
+  counts). New manifest features: `{command}` placeholder, `jsonRatio`. Accuracy (tech-
+  notes §8.10): sampling off by up to +319% (token-saver, small week) / +22% (lean-ctx);
+  so full replay above a 1,000-token floor (−9.7% / −4.1% vs full truth, stated in notes).
+  First measurement for both ≈ 2.7 min on the founder's month, cached after.
+  Real numbers (2026-08-26 → 2026-09-25T13:00, $4,209): headroom $150.83 (3.6%),
+  lean-ctx $121.60 (2.9%), token-saver $65.22 (1.5%), rtk $47.07 (1.1%), caveman engine
+  $13.31 (0.3%). Installed for the founder into `~/.saver-audit/tools` via
+  `--install-savers --yes`. Fixtures recorded with the real programs; `npm test` → 61/61.
+  X post now lists all measured savers (compact variant keeps it under 280).
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -389,7 +403,7 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
 
 ## Human steps waiting (GATE)
 
-- **Publish 0.4.0** from your own terminal: `cd ~/Documents/Programming/saver-audit && npm publish`.
+- **Publish 0.5.0** from your own terminal: `cd ~/Documents/Programming/saver-audit && npm publish`.
 - **Saver outreach**: send the messages in `docs/launch/saver-outreach.md` (edit in your
   voice; one per project; Discussions if enabled, else an issue).
 

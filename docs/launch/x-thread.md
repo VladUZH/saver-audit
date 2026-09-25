@@ -23,6 +23,8 @@ Then I replayed the same sessions through the popular token savers, using my ins
 rtk: $47 (1.1%)
 caveman engine: $13 (0.3%)
 headroom: $151 (3.6%)
+lean-ctx: $122 (2.9%)
+token-saver: $65 (1.5%)
 caveman skill (modeled): $95 (2.3%)
 
 **3/**

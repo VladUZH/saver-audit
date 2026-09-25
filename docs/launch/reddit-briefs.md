@@ -35,6 +35,8 @@ Avoid:
 - **Saver numbers (Claude Code only):**
   - rtk $41.88 (1.0%);
   - caveman engine $12.72 (0.3%);
+  - lean-ctx $111.95 (2.7%);
+  - token-saver $50.21 (1.2%);
   - caveman skill $94.71 (2.3%, modeled);
   - headroom $137.77 (3.4%, a lower estimate);
   - ceilings: codegraph ≤ $560 (13.7%), context-mode ≤ $655 (16.0%).
