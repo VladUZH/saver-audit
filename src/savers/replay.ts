@@ -204,6 +204,7 @@ export interface ReplayOptions {
   full: boolean;
   concurrency: number;
   log?: (s: string) => void;
+  progress?: (saver: string, done: number, total: number) => void;
 }
 
 /**
@@ -253,6 +254,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         cache.set(key, { t: countProxy(out), c: out.length, p: countProxy(out.slice(0, PREVIEW_CHARS)) });
         st.ran++;
         dirty = true;
+        o.progress?.(saver, st.ran, todo.length);
         // Long replays save as they go, so an interrupted run resumes where it stopped.
         if (st.ran % CHECKPOINT === 0) {
           if (o.cacheFile) saveReplayCache(o.cacheFile, cache);

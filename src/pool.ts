@@ -22,11 +22,18 @@ interface Job {
  * Runs processFile over all files. `entry` is the URL of a module that calls
  * runWorker() when started as a worker (the CLI bundle itself).
  */
-export async function processAll(files: Array<{ file: string; source: Source }>, entry: URL | undefined, jobs: number, savers?: SaverConfig): Promise<FileResult[]> {
+export type Progress = (done: number, total: number) => void;
+
+export async function processAll(files: Array<{ file: string; source: Source }>, entry: URL | undefined, jobs: number, savers?: SaverConfig, progress?: Progress): Promise<FileResult[]> {
   const results: FileResult[] = new Array(files.length);
   const queue: Job[] = files.map((f, index) => ({ ...f, index, savers }));
+  let done = 0;
+  progress?.(0, files.length);
   if (!entry || jobs <= 1 || files.length < 2) {
-    for (const j of queue) results[j.index] = await processFile(j.file, j.source, j.index, j.savers);
+    for (const j of queue) {
+      results[j.index] = await processFile(j.file, j.source, j.index, j.savers);
+      progress?.(++done, files.length);
+    }
     return results;
   }
   // Largest files first, so one big file does not finish last on its own.
@@ -52,6 +59,7 @@ export async function processAll(files: Array<{ file: string; source: Source }>,
         };
         w.on("message", (r: FileResult & { index: number }) => {
           results[r.index] = r;
+          progress?.(++done, files.length);
           next();
         });
         w.on("error", reject);
@@ -86,9 +94,16 @@ export interface SaverOptions {
   log?: (s: string) => void;
 }
 
-export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJobs(), saverOpts?: SaverOptions): Promise<AuditResult> {
+export interface RunHooks {
+  /** Log files parsed so far. */
+  files?: Progress;
+  /** Outputs replayed so far, per saver. */
+  replay?: (saver: string, done: number, total: number) => void;
+}
+
+export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJobs(), saverOpts?: SaverOptions, hooks: RunHooks = {}): Promise<AuditResult> {
   const ids = saverOpts?.ids ?? [];
-  if (!ids.length) return summarize(opts, await processAll(findFiles(opts), entry, jobs));
+  if (!ids.length) return summarize(opts, await processAll(findFiles(opts), entry, jobs, undefined, hooks.files));
   const savers = saverIndex(ids);
   const tools = saverOpts?.tools ?? detectReplayTools();
   const config: SaverConfig = {
@@ -97,8 +112,8 @@ export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJo
     cacheFile: saverOpts?.cacheFile,
     until: new Date(opts.untilMs).toISOString(),
   };
-  const results = await processAll(findFiles(opts), entry, jobs, config);
-  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: Math.max(1, jobs), log: saverOpts?.log });
+  const results = await processAll(findFiles(opts), entry, jobs, config, hooks.files);
+  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: Math.max(1, jobs), log: saverOpts?.log, progress: hooks.replay });
   return summarize(opts, results, { savers, tools, stats });
 }
 

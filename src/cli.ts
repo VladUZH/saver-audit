@@ -6,7 +6,10 @@ import { SAVERS, saverIndex } from "./savers/registry.ts";
 import { claudeRoots } from "./sources/claude-code.ts";
 import { codexHome } from "./sources/codex.ts";
 import { loadPrices, userPricesPath } from "./prices/load.ts";
-import { renderTerminal } from "./report/terminal.ts";
+import { renderShort, renderTerminal } from "./report/terminal.ts";
+import { canAnimate, keyMenu, reveal, Spinner } from "./report/present.ts";
+import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
 import { renderJson } from "./report/json.ts";
 import type { Source } from "./sources/types.ts";
 import { parsePeriod, parseUntil } from "./period.ts";
@@ -22,8 +25,14 @@ Usage: saver-audit [options]
   --since <YYYY-MM-DD>   start date instead of --last
   --until <YYYY-MM-DD>   end date (default: now)
   --source <s>           claude-code | codex | all (default all)
+  --full                 print the full report (default in a terminal: a short one,
+                         with a key for the full report, sharing and the card)
+  --short                print only the short report (no key menu)
   --json                 machine-readable output
-  --card [path]          write a share card PNG (default saver-audit.png)
+  --card [path]          share card path (written by default in a terminal as
+                         saver-audit.png; elsewhere only with --card)
+  --no-card              don't write the share card
+  --no-animation         print at once instead of line by line
   --show-projects        include project names (hidden by default)
   --savers <a,b>         savers to audit (default: all; see list below)
   --no-savers            skip the saver section
@@ -49,6 +58,10 @@ async function main(argv: string[]): Promise<number> {
       source: { type: "string", default: "all" },
       json: { type: "boolean", default: false },
       card: { type: "string" },
+      "no-card": { type: "boolean", default: false },
+      full: { type: "boolean", default: false },
+      short: { type: "boolean", default: false },
+      "no-animation": { type: "boolean", default: false },
       "show-projects": { type: "boolean", default: false },
       "update-prices": { type: "boolean", default: false },
       savers: { type: "string" },
@@ -81,20 +94,94 @@ async function main(argv: string[]): Promise<number> {
   const sources: Source[] = src === "all" ? ["claude-code", "codex"] : [src];
   const now = Date.now();
   const t0 = performance.now();
+  const interactive = process.stdout.isTTY === true && !values.json;
+  const color = (process.stdout.isTTY === true || !!process.env.FORCE_COLOR) && !process.env.NO_COLOR;
+  const spinner = new Spinner(process.stderr, process.stderr.isTTY === true && !values.json && !process.env.CI);
+  const fmt = (n: number) => n.toLocaleString("en-US");
+  spinner.set("Reading your agent logs…");
   const result = await runAudit(
     { sinceMs: parsePeriod(values.last, values.since, now), untilMs: parseUntil(values.until, now), sources, claudeRoots: claudeRoots(), codexHome: codexHome(), prices: loadPrices() },
     new URL(import.meta.url),
     values.jobs ? Math.max(1, Number(values.jobs)) : defaultJobs(),
-    { ids: saverIndex(saverIds).map((x) => x.id), full: values["full-replay"], cacheFile: defaultReplayCachePath(), log },
+    // With a spinner, replay progress shows there instead of as log lines.
+    { ids: saverIndex(saverIds).map((x) => x.id), full: values["full-replay"], cacheFile: defaultReplayCachePath(), log: process.stderr.isTTY ? undefined : log },
+    {
+      files: (done, total) => spinner.set(`Reading logs… ${fmt(done)}/${fmt(total)} files`),
+      replay: (saver, done, total) => spinner.set(`Replaying through ${saver}… ${fmt(done)}/${fmt(total)} (cached next time)`),
+    },
   );
+  const elapsedMs = performance.now() - t0;
   const showProjects = values["show-projects"];
-  if (values.card !== undefined) {
+
+  // The share card: by default in a terminal (it is what people share), elsewhere on request.
+  let cardPath: string | undefined;
+  const wanted = values["no-card"] ? undefined : values.card ?? (interactive ? "saver-audit.png" : undefined);
+  if (wanted && result.calls > 0) {
+    spinner.set("Drawing your share card…");
     const { writeCard } = await import("./report/card.ts");
-    await writeCard(result, values.card);
-    log(`share card written to ${values.card} (numbers, model names and dates only)`);
+    for (const path of [wanted, join(tmpdir(), "saver-audit.png")]) {
+      try {
+        await writeCard(result, path);
+        cardPath = path;
+        break;
+      } catch {
+        // folder not writable: fall back to the temp folder
+      }
+    }
   }
-  if (values.json) process.stdout.write(renderJson(result, { showProjects, version: VERSION }));
-  else process.stdout.write(renderTerminal(result, { showProjects, verbose: values.verbose, color: (process.stdout.isTTY === true || !!process.env.FORCE_COLOR) && !process.env.NO_COLOR, elapsedMs: performance.now() - t0 }));
+  spinner.stop();
+
+  const opts = { showProjects, verbose: values.verbose, color, elapsedMs, cardPath };
+  if (values.json) {
+    if (cardPath) log(`share card written to ${cardPath} (numbers, model names and dates only)`);
+    process.stdout.write(renderJson(result, { showProjects, version: VERSION }));
+    return 0;
+  }
+  const animate = canAnimate(process.stdout, values["no-animation"]);
+  if (values.short) {
+    await reveal(process.stdout, renderShort(result, opts), animate);
+    return 0;
+  }
+  if (!interactive || values.full || result.calls === 0) {
+    await reveal(process.stdout, renderTerminal(result, opts), animate);
+    if (cardPath) log(`share card written to ${cardPath} (numbers, model names and dates only)`);
+    return 0;
+  }
+  await reveal(process.stdout, renderShort(result, opts), animate);
+  if (!process.stdin.isTTY) {
+    process.stdout.write("\nFull report: saver-audit --full\n");
+    return 0;
+  }
+  const { copyImage, intentUrl, openExternal, shareText } = await import("./report/share.ts");
+  await keyMenu(
+    process.stdout,
+    [
+      {
+        key: "f",
+        label: "full report",
+        run: async () => {
+          process.stdout.write("\n");
+          await reveal(process.stdout, renderTerminal(result, opts), animate);
+        },
+      },
+      {
+        key: "s",
+        label: "share on X",
+        run: () => {
+          const copied = cardPath ? copyImage(resolve(cardPath)) : false;
+          const opened = openExternal(intentUrl(shareText(result)));
+          process.stdout.write(`\n${opened ? "Opened X with your numbers filled in." : "Could not open a browser. Post this link: " + intentUrl(shareText(result))}\n`);
+          if (copied) process.stdout.write("Your card is on the clipboard: paste it into the post (⌘V / Ctrl+V), then Post.\n");
+          else if (cardPath) {
+            openExternal(resolve(cardPath), true);
+            process.stdout.write(`Attach your card to the post: ${resolve(cardPath)}\n`);
+          }
+        },
+      },
+      ...(cardPath ? [{ key: "o", label: "open card", run: () => void openExternal(resolve(cardPath!)) }] : []),
+    ],
+    color,
+  );
   return 0;
 }
 

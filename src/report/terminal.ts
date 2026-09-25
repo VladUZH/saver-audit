@@ -7,6 +7,74 @@ export interface TerminalOptions {
   color: boolean;
   verbose: boolean;
   elapsedMs?: number;
+  /** Where the share card was written, if it was. */
+  cardPath?: string;
+}
+
+const SHORT: Record<string, string> = {
+  "Earlier assistant turns, re-read": "Earlier turns, re-read",
+  "Not in logs: system prompt, tool definitions": "System prompt & tool defs",
+  "Reminders, attachments & command output": "Reminders & attachments",
+  "Assistant output (incl. thinking)": "Output incl. thinking",
+  "Recorded system prompt & instructions": "Instructions (Codex)",
+};
+
+/** Compact bucket label, shared by the short view and the share card. */
+export function shortLabel(label: string): string {
+  return SHORT[label] ?? label.replace(/^Tool output: /, "Tool: ");
+}
+
+function localDay(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * The default view: one screen with the headline, where it went, the saver table and
+ * the card. The full report (renderTerminal) is one key press away.
+ */
+export function renderShort(r: AuditResult, o: TerminalOptions): string {
+  if (r.calls === 0) return renderTerminal(r, o);
+  const bold = (s: string) => (o.color ? `\x1b[1m${s}\x1b[0m` : s);
+  const dim = (s: string) => (o.color ? `\x1b[2m${s}\x1b[0m` : s);
+  const accent = (s: string) => (o.color ? `\x1b[33m${s}\x1b[0m` : s);
+  const total = r.billing.total.cost;
+  const pct = (x: number) => (total ? `${Math.round((100 * x) / total)}%` : "—");
+  const out: string[] = [];
+  const agents = Object.keys(r.sessions.bySource).map((x) => (x === "claude-code" ? "Claude Code" : "Codex")).join(" + ");
+  out.push(bold(`saver-audit · ${localDay(r.period.since)} → ${localDay(r.period.until)} · ${agents}`));
+  const took = o.elapsedMs !== undefined ? ` · ${r.files.toLocaleString("en-US")} log files in ${(o.elapsedMs / 1000).toFixed(1)} s, nothing left your machine` : "";
+  out.push(dim(`${r.sessions.main} sessions · ${r.calls.toLocaleString("en-US")} API calls${took}`));
+  out.push("");
+  out.push(`${bold(accent(fmtUsd(total)))} ${bold("API-equivalent at list prices")} · ${fmtTokens(r.billing.total.tokens)} tokens`);
+  out.push(dim("Not your bill: on a subscription you pay the plan price."));
+  out.push("");
+
+  out.push(bold("Where it went"));
+  const top = r.buckets.filter((b) => b.cost > 0).slice(0, 5);
+  const shown = top.reduce((n, b) => n + b.cost, 0);
+  for (const b of top) {
+    const bar = "█".repeat(Math.max(1, Math.round((b.cost / total) * 20)));
+    out.push(`  ${pad(shortLabel(b.label), 28)} ${lpad(fmtUsd(b.cost), 8)} ${lpad(pct(b.cost), 4)}  ${accent(bar)}`);
+  }
+  if (total - shown > 0.005) out.push(dim(`  ${pad("Everything else", 28)} ${lpad(fmtUsd(total - shown), 8)} ${lpad(pct(total - shown), 4)}`));
+  out.push("");
+
+  if (r.savers.length) {
+    out.push(bold("What token savers would cut") + dim("  (on these sessions)"));
+    for (const x of r.savers.filter((y) => y.status === "ok")) {
+      const le = x.method === "upper-bound" ? "≤ " : "";
+      const cost = x.cost < 0 ? `-${fmtUsd(-x.cost)}` : `${le}${fmtUsd(x.cost)}`;
+      const share = total ? `${le}${((100 * x.cost) / total).toFixed(1)}%` : "—";
+      out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${pad(METHOD[x.method]!, 12)} ${lpad(cost, 9)} ${lpad(share, 8)}  ${dim(confidence(x))}`);
+    }
+    const missing = r.savers.filter((y) => y.status === "not installed");
+    if (missing.length) out.push(dim(`  Not installed: ${missing.map((y) => y.name.replace(" (proxy engine)", " engine")).join(", ")}. Install one to see its real number.`));
+    out.push(dim("  Offline replay can't see behaviour changes (extra turns, retries, quality)."));
+    out.push("");
+  }
+  if (o.cardPath) out.push(`Share card: ${bold(o.cardPath)}`);
+  return out.join("\n") + "\n";
 }
 
 const BAR = 24;

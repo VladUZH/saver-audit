@@ -4,7 +4,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AuditResult } from "../audit.ts";
-import { confidence, fmtTokens, fmtUsd } from "./terminal.ts";
+import { confidence, fmtTokens, fmtUsd, shortLabel } from "./terminal.ts";
 
 const W = 1200;
 const H = 675;
@@ -21,13 +21,6 @@ const C = {
   bound: "#6aa2ff",
 };
 
-const SHORT: Record<string, string> = {
-  "Earlier assistant turns, re-read": "Earlier turns, re-read",
-  "Not in logs: system prompt, tool definitions": "System prompt & tool defs",
-  "Reminders, attachments & command output": "Reminders & attachments",
-  "Assistant output (incl. thinking)": "Output incl. thinking",
-  "Recorded system prompt & instructions": "Instructions (Codex)",
-};
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -72,7 +65,7 @@ export function cardSvg(r: AuditResult): string {
   rows.forEach((b, i) => {
     const y = top + 82 + i * ROW;
     const share = total ? b.cost / total : 0;
-    const label = SHORT[b.label] ?? b.label.replace(/^Tool output: /, "Tool: ");
+    const label = shortLabel(b.label);
     parts.push(text(PAD + 4, y, label, 17, C.text));
     parts.push(text(PAD + leftW - 4, y, `${Math.round(share * 100)}%`, 17, C.muted, { anchor: "end" }));
     parts.push(`<rect x="${PAD + 4}" y="${y + 9}" width="${leftW - 8}" height="6" rx="3" fill="${C.faint}"/>`);
