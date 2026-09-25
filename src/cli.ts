@@ -94,7 +94,7 @@ async function main(argv: string[]): Promise<number> {
     log(`share card written to ${values.card} (numbers, model names and dates only)`);
   }
   if (values.json) process.stdout.write(renderJson(result, { showProjects, version: VERSION }));
-  else process.stdout.write(renderTerminal(result, { showProjects, verbose: values.verbose, color: process.stdout.isTTY === true && !process.env.NO_COLOR, elapsedMs: performance.now() - t0 }));
+  else process.stdout.write(renderTerminal(result, { showProjects, verbose: values.verbose, color: (process.stdout.isTTY === true || !!process.env.FORCE_COLOR) && !process.env.NO_COLOR, elapsedMs: performance.now() - t0 }));
   return 0;
 }
 
