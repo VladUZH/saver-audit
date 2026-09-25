@@ -410,3 +410,163 @@ This matches the lesson from the JetBrains and Quesma posts: tokens saved at the
 5. How to parse Codex `exec` custom-tool scripts into shell commands robustly? The format is undocumented. Fixtures from several versions are needed.
 6. Can the caveman engine be invoked by users under BSL-1.1? It is fine for the user's own local use under the Additional Use Grant. Don't redistribute it.
 7. Claude Code Desktop/Cowork sessions are kept forever by default, while CLI sessions last 30 days. Mixed-age corpora will skew toward Desktop.
+
+---
+
+## 8. M0 verification on this machine (2026-09-25)
+
+Method: `node scripts/probe-schema.mjs claude|codex` (prints key paths, value types,
+counts and a whitelist of discriminator values; masks non-identifier keys; never prints
+text) plus a one-off numeric check of usage fields. Local tools: Claude Code 2.1.282,
+codex-cli 0.146.0, Node 24.3.0. No `CLAUDE_CONFIG_DIR` / `CODEX_HOME` overrides set.
+
+### 8.1 Claude Code: verified
+
+- **Location confirmed:** `~/.claude/projects/**.jsonl`, 1,349 files (1,281 under
+  `<session>/subagents/`), 571 files under `<session>/tool-results/`. No
+  `.orphaned-*` / `.superseded-*` files and no `~/.config/claude/projects` here, so the
+  skip rule for those stays untested locally (cover it with a fixture).
+- **Versions seen:** 2.1.156 to 2.1.282. 303,018 lines, **15 unparseable** (the parser
+  must count and skip these, as planned).
+- **Record types** match §1.2. New ignorable types since the research pass:
+  `atis-latch`, `artifact-autoreact-ledger`, `artifact-comment-monitor`. New content
+  block type on assistant lines: `fallback` (4 blocks). Unknown types must stay ignored.
+- **Models seen:** `claude-opus-5-5`, `claude-opus-5`, `claude-fable-5`,
+  `claude-fable-5-1`, `claude-sonnet-5`, `claude-opus-4-8`, `claude-haiku-4-5-20251001`,
+  `<synthetic>` (318 lines; exclude from pricing).
+- **Usage fields** exactly as §1.3 on all 121,460 assistant lines:
+  `input_tokens`, `cache_creation_input_tokens`, `cache_creation{…}`,
+  `cache_read_input_tokens`, `output_tokens`; `output_tokens_details.thinking_tokens`
+  on a subset; `iterations[]` (`message`, `fallback_message`); `server_tool_use`,
+  `speed` and `service_tier` (all `standard` here); `inference_geo`.
+- **Dedupe:** 49,509 unique `message.id|requestId` keys; 38,524 span several lines.
+  Input/cache fields differed between copies in **6** keys (not 1), `output_tokens` in
+  3,809. **Rule: take the max of each usage field across copies.** 41 assistant lines
+  have no `requestId`; key those on `message.id` alone.
+- **Tool results:** 73,491 `tool_result` blocks; `content` is a string (66,631) or a
+  list (6,848) of `text` / `image` / `tool_reference` / `document` blocks. **569** start
+  with `<persisted-output>` (baseline = the preview, per §0.4). `toolUseResult` Bash keys
+  confirmed: `stdout`, `stderr`, `interrupted`, plus rare `persistedOutputPath` /
+  `persistedOutputSize` (40) and `returnCodeInterpretation` (83). No exit-code field.
+- **Compaction:** 46 `compact_boundary` lines (`manual` 36, `auto` 10) with
+  `compactMetadata.{trigger, preTokens, postTokens, durationMs, cumulativeDroppedTokens,
+  preservedSegment, preservedMessages, preCompactDiscoveredTools}`; 46
+  `isCompactSummary: true` user lines.
+- **Tool mix (tool_use names):** Bash 29,296; WebFetch 28,777; MCP tools 5,265
+  (names masked); Read 3,090; Edit 2,269; Write 1,096; WebSearch 1,037; long tail of
+  built-ins. Buckets must handle a heavy WebFetch share, not just Bash/Read.
+
+### 8.2 Codex: verified
+
+- **Location confirmed:** 1,262 rollouts under `~/.codex/sessions/YYYY/MM/DD/` plus 33
+  in `archived_sessions/`; no `.zst` files yet. 553,183 lines, **28 unparseable**.
+- **Versions seen:** 0.70.0-alpha.4 to 0.155.0-alpha.16.3 (session_meta `cli_version`).
+- **Line wrapper and types** match §2.2: `response_item`, `event_msg`, `turn_context`,
+  `session_meta`, `compacted` (631), `token_usage_record` (297), plus ignorable
+  `inter_agent_communication_metadata` (with `trigger_turn`) and `world_state`.
+- **Models seen (turn_context):** `codex-auto-review` (most frequent), `gpt-5.6-sol`,
+  `gpt-5.3-codex`, `gpt-5.6-terra`, `gpt-5.5`, `gpt-5.4`, `gpt-6-astra`, `gpt-5.6-luna`,
+  `gpt-5`, `gpt-5.2`, `gpt-5.1`, `gpt-5.1-codex(-mini/-max)`, `gpt-4.1-nano`,
+  `gpt-4.1-mini`. Price table needs archived prices for the retired ones.
+- **token_count:** 108,091 events with `info` (40 with `info: null`).
+  `cached_input_tokens ≤ input_tokens` on **every** event (cached is a subset of input,
+  confirmed). `total = input + output` on 107,329 (99.3%). `cache_write_input_tokens`
+  is 0 on every event. 4,106 events repeat the previous cumulative total (dedupe rule in
+  §2.3 stands).
+- **Tool calls:** `custom_tool_call` `exec` 51,619 (free-form script) vs
+  `function_call` `exec_command` 9,132; `apply_patch` 3,076; agent tools
+  (`wait_agent`, `send_message`, `spawn_agent`, …) are frequent. `function_call_output.output`
+  is a string (30,915) or an array (52,267): handle both.
+
+### 8.3 Performance note
+
+A full scan of *all* local history (about 2 GB per source) with plain `JSON.parse`
+took about 15–21 s wall time per pass. For the 10 s / 30-day target the parser must skip
+files whose mtime is before the period start, and avoid parsing record types it ignores
+(cheap prefix check on `"type":`) where possible.
+
+### 8.4 Tokenizer choice
+
+- **`gpt-tokenizer` 4.0.0** (MIT, zero dependencies, published 2026-08-16) confirmed.
+  `o200k_base` counted about 47 MB/s of synthetic mixed text on this Mac (Node 24).
+- Its npm tarball is **9.1 MB** (27 MB unpacked, all encodings). Importing only
+  `gpt-tokenizer/encoding/o200k_base` and bundling it into `dist/` at build time keeps
+  the published package to that one encoding (about 2.4 MB of ranks) with zero runtime
+  dependencies. Its MIT notice must ship in the package.
+
+### 8.5 Savers: verified from README and source (2026-09-25)
+
+Read from shallow clones at pinned commits; nothing was installed or executed. Commits:
+rtk `feac25d` (branch `develop`; `pipe_cmd.rs` identical at tag v0.50.0), caveman
+`2fd153c`, headroom `3aa5012`, codegraph `ba3c21e`, fast-jev-compaction `e3f262a`,
+context-mode `e80601e`. File/line references below are at those commits.
+**None of these tools is installed on this machine** (checked with `command -v`).
+
+| Saver | Version | Licence | Class | Replay command / basis |
+|---|---|---|---|---|
+| rtk | v0.50.0 (2026-09-24) | Apache-2.0 | **replayed** (partial) | `rtk pipe --filter <name>` on stdin |
+| caveman engine | engine bin `bin-v1.1.8`, repo v2.7.0 | **BSL-1.1** | **replayed** | user's own `caveman-engine compress [--type <t>]` on stdin |
+| headroom | v0.38.0 (2026-09-21) | Apache-2.0 | **replayed** | user's own `headroom-ai[ml]`, Python `headroom.compress(messages, model=…)` |
+| caveman skill | repo v2.7.0 | MIT | **modeled** | output style only |
+| fast-jev-compaction | no releases | MIT | **modeled** | range; decisions need the hosted Jev API |
+| codegraph | v1.6.0 (2026-08-26) | MIT | **upper bound** | changes agent behaviour |
+| context-mode | v1.0.169 (2026-06-29) | **Elastic-2.0** | **upper bound** | changes agent behaviour |
+
+**rtk.** Confirmed:
+- `rtk pipe --filter|-f <name>` reads stdin (10 MiB cap), filters and prints; no command runs and no network is used (`src/main.rs` L739-748, `src/cmds/system/pipe_cmd.rs` L256-289).
+- Without `--filter` it auto-detects from the first 1 KB.
+- Output passes through `never_worse()` (`src/core/guard.rs` L17), so a replay can never be worse than the input.
+- Filter names are hard-coded in `resolve_filter()` (`pipe_cmd.rs` L12-41): cargo-test/cargo, pytest, go-test, go-build, ctest, tsc, vitest, grep/rg, find/fd, git-log, git-diff, git-status, log, mypy, ruff-check, ruff-format, sqlfluff-lint, prettier, phpunit, pest/paratest/php-test, ecs, phpstan, pint.
+- The 63 TOML filters are **not** reachable from `pipe`.
+- `rtk rewrite "<cmd>"` prints the rewritten command and exits 0 (allow), 3 (ask), 1 (no equivalent) or 2 (deny).
+- The hook matcher is `Bash` only (`src/hooks/init.rs` L1716-1722); Codex also gets a Bash PreToolUse hook.
+- **Format mismatch:** live rtk runs `git status --porcelain -b` and injects a `git log --pretty=format:…---END---` format (`src/cmds/git/git_cmd.rs` L84-92, L1812). The `git-status` and `git-log` pipe filters expect those formats and just copy recorded human-format output.
+- Telemetry is opt-in.
+
+**caveman.**
+- The licence split in `LICENSING.md`:
+  - MIT: `skills/`, `packages/cli/`, SDKs, `evals/`.
+  - BSL-1.1: `engine/`, `proxy/`, `shrink/`, `mcp/`, `rewriter/`, `browse/`, `mem/`, `shared/platform/`. These convert to Apache-2.0 on 2030-06-21 or on a version's fourth anniversary.
+- **Engine usage:** `caveman-engine compress [--type <content-type>]` reads stdin (64 MiB cap) and writes the result to stdout. It writes a JSON report with `TokensBefore`/`TokensAfter` to stderr. `engine/` imports no networking (`engine/cmd/caveman-engine/main.go`).
+- **Side effect:** the engine creates `~/.caveman/ccr.db`. Run it with `CAVEMAN_HOME` (or `CAVEMAN_CCR_DB`) set to a temp dir.
+- **Install and lookup:** installed with `npm i -g @caveman-ai/cli && caveman setup --install`. The binary is looked up via `CAVEMAN_ENGINE_BIN`, then PATH, then `~/.caveman/bin`.
+- **Skill numbers:** `docs/HONEST-NUMBERS.md` now says the skill's output reduction is "Not published" and its input cost "Not measured here". The "~1–1.5k tokens per turn" line was removed on 2026-09-08, and the 65% output claim was withdrawn on 2026-08-16. `skills/caveman/SKILL.md` is 7,061 bytes.
+- **Correction to §3:** the "adds about 1k input tokens" figure is no longer caveman's own. Model the overhead from the SKILL.md size (tokenized) and state that assumption. The output reduction to model is JetBrains' −8.5% (§3), the only independent figure.
+
+**headroom.**
+- **API:** Python `headroom.compress(messages, model=…, model_limit=200000, optimize=True)` returns `CompressResult` (`.messages`, `.tokens_saved`, `.compression_ratio`). It is in `headroom/compress.py` L171 and takes Anthropic- or OpenAI-format message lists. There is no "compress this text" CLI.
+- **Kompress model:** `chopratejas/kompress-v2-base`, a ModernBERT fine-tune in ONNX, pinned to revision b1563631b35b. The default file is int8, about 261 MB. It needs the `[ml]` extra, and the ONNX Runtime may be fetched from `cdn.pyke.io` (unverified for prebuilt wheels).
+- **Offline:** `HEADROOM_OFFLINE=1` sets `HF_HUB_OFFLINE` and `TRANSFORMERS_OFFLINE`.
+- **Telemetry:** the anonymous beacon is **on by default**. Turn it off with `HEADROOM_BEACON=off`, `DO_NOT_TRACK=1` or `HEADROOM_OFFLINE=1`. saver-audit must set all three when it calls headroom.
+- **Overlap to watch:** `headroom audit-reads` (`headroom/cli/audit.py`) already reads `~/.claude/projects` and `~/.codex/sessions`.
+- **Correction to §3:** the model is a kompress-v2 fine-tune, not stock ModernBERT.
+
+**codegraph.**
+- **Mechanism:** confirmed. One MCP tool, `codegraph_explore`, over a local SQLite graph.
+- **Its own measurement** (README L196-253): −62% tokens and −44% cost. Method: `claude -p`, Opus 4.8, 7 repos × 4 runs, median, re-measured 2026-08-05. The same README says residual context is about 80% higher.
+- **Telemetry:** appears to be on by default (`CODEGRAPH_TELEMETRY=0` turns it off).
+- **Class:** upper bound. Cite their A/B only as their claim.
+
+**fast-jev-compaction.**
+- **Hosted API confirmed:** `https://api.typesafe.ai/v1/systemone` (`src/request.ts` L3). It needs `TYPESAFE_API_KEY`.
+- **Per decision:** for each non-pinned tool call, Jev chooses between:
+  - keep the call and result;
+  - truncate the result to the first 300 characters plus a note;
+  - **drop the call and result entirely**.
+- **Defaults:** `keepThreshold` 0.5. The first message and the last 6 messages are pinned (`src/compact.ts` L17-24).
+- **Fallback:** falls back to built-in compaction if the estimated reduction is under 25% or on any failure.
+- **Trigger:** triggers compaction itself at 60% of the context.
+- **Correction to §0/§3:** "every old result cut to 300 chars" is not a ceiling. The model range is:
+  - lower: built-in summary (no change when the reduction is under 25%);
+  - middle: every non-pinned result cut to 300 characters;
+  - upper: every non-pinned tool pair dropped.
+- **Caveat:** the earlier 60% trigger changes when compaction happens, which offline replay does not reproduce. State this.
+
+**context-mode.**
+- **Licence and mechanism:** Elastic-2.0. Hooks plus 11 `ctx_*` MCP tools run work in a sandbox. SessionStart injects routing instructions.
+- **Thresholds** (`src/server.ts` L1979-1980):
+  - `INTENT_SEARCH_THRESHOLD = 5_000` **bytes**: above this, and only when the agent passes an `intent`, the output is indexed and only matches are returned.
+  - `LARGE_OUTPUT_THRESHOLD = 102_400` bytes: above this, the output is always indexed and a pointer is returned.
+- **Correction to §3:** the "over 5KB indexed" rule applies only when the agent passes an `intent`. For the upper bound, assume every tool output over 5,000 bytes shrinks to a small excerpt, and say so.
+
+**Not verified:** whether headroom's library path ever sends the beacon; whether prebuilt headroom wheels still fetch ONNX Runtime; caveman CLI and codegraph telemetry defaults for users who skip the installers.
