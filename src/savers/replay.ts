@@ -34,7 +34,10 @@ export interface ReplayStats {
 /** Default number of unique outputs replayed per run and saver; --full-replay lifts it. */
 const CHECKPOINT = 250;
 
-export const DEFAULT_BUDGET: Record<string, number> = { rtk: 20_000, "caveman-engine": 3_000, headroom: 300 };
+// rtk and the caveman engine are replayed in full above their size floor (cheap and
+// exact; sampling missed caveman's rare, spiky savings by up to 40%). headroom runs an
+// ML model per output, so it stays a size-stratified sample unless --full-replay.
+export const DEFAULT_BUDGET: Record<string, number> = { rtk: Infinity, "caveman-engine": Infinity, headroom: 300 };
 
 function onPath(name: string): string | undefined {
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
@@ -235,10 +238,17 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       if (!cur || (!cur.input && j.input)) m.set(j.key, j);
     }
   }
-  // The sample: the first `budget` keys in hash order, drawn from ALL applicable
-  // outputs, plus every output already cached (e.g. by --full-replay). A run caches
-  // what it replays, so the next run over the same logs uses exactly the same set.
+  // The sample, drawn from ALL applicable outputs so every run over the same logs uses
+  // the same set (a run caches what it replays):
+  //  - the largest outputs (half the budget) are always replayed: savings concentrate
+  //    there, and a uniform sample misses them (it came out ~30% low for caveman);
+  //  - the rest of the budget is a hash-order sample of the smaller outputs, plus any
+  //    already cached (e.g. by --full-replay). Only small outputs are extrapolated,
+  //    from the small ones that were replayed.
+  // SAVER_AUDIT_STRICT_SAMPLE=1 ignores the cache when choosing (for checking accuracy).
+  const strict = process.env.SAVER_AUDIT_STRICT_SAMPLE === "1";
   const sampled = new Map<string, Set<string>>();
+  const smallSampled = new Map<string, Set<string>>();
   const state = mkdtempSync(join(tmpdir(), "saver-audit-"));
   const env = saverEnv(state);
   let dirty = false;
@@ -247,8 +257,14 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       const tool = o.tools.get(saver);
       const keys = [...unique.keys()].sort();
       const budget = o.full ? Infinity : DEFAULT_BUDGET[saver] ?? 1000;
-      const sample = keys.filter((k, n) => n < budget || cache.has(k));
+      const bySize = [...keys].sort((a, b) => unique.get(b)!.baseline - unique.get(a)!.baseline || (a < b ? -1 : 1));
+      const large = new Set(bySize.slice(0, Math.ceil(budget / 2)));
+      const small = keys.filter((k) => !large.has(k));
+      const smallBudget = budget - large.size;
+      const smallSample = small.filter((k, n) => n < smallBudget || (!strict && cache.has(k)));
+      const sample = [...large, ...smallSample];
       sampled.set(saver, new Set(sample));
+      smallSampled.set(saver, new Set(smallSample));
       const st: ReplayStats = { total: keys.length, ran: 0, extrapolated: keys.length - sample.length, failed: 0 };
       stats.set(saver, st);
       const todo = sample.filter((k) => !cache.has(k) && unique.get(k)!.input);
@@ -310,6 +326,9 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       }
       const d = j.baseline - presentedTokens(hit, j);
       r.savers!.timelines[j.timeline]!.blocks[j.block]!.d[idx.get(j.saver)!] = d;
+      // Extrapolation ratios come from the replayed small outputs only (unsampled
+      // outputs are all small); the large ones are exact and skew per-token ratios.
+      if (!smallSampled.get(j.saver)?.has(j.key)) continue;
       for (const cls of [`${j.saver}|${j.cls}`, `${j.saver}|*`]) {
         const a = ratios.get(cls) ?? { saved: 0, base: 0 };
         a.saved += d;

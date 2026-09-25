@@ -184,7 +184,7 @@ export function installPlan(): InstallChoice[] {
   const py = findPython();
   return [
     { id: "rtk", what: `rtk ${RTK_TAG}`, size: "about 4 MB, seconds", available: !!rtkAsset(), why: rtkAsset() ? undefined : "no build for this platform" },
-    { id: "caveman-engine", what: `caveman engine ${CAVEMAN_BIN_TAG}`, size: "about 28 MB, seconds", available: !!cavemanAsset(), why: cavemanAsset() ? undefined : "no build for this platform" },
+    { id: "caveman-engine", what: `caveman engine ${CAVEMAN_BIN_TAG}`, size: "about 28 MB, seconds; its first measurement then takes about a minute, cached after", available: !!cavemanAsset(), why: cavemanAsset() ? undefined : "no build for this platform" },
     { id: "headroom", what: `headroom ${HEADROOM_VERSION} + its model`, size: "about 1.6 GB, a few minutes", available: !!py, why: py ? undefined : "needs Python 3.10+" },
   ];
 }

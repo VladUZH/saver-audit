@@ -119,6 +119,7 @@ export class SaverTracker {
         return;
       }
       if (!s.replayInput || !this.replayable.has(s.id)) return;
+      if (s.minTokens && o.tokens < s.minTokens) return; // counted as unchanged
       const inp = s.replayInput(o);
       if (!inp || !inp.input) return;
       const key = replayKey(s, o.tool, inp.arg, inp.input);

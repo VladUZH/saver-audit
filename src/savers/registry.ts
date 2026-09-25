@@ -8,6 +8,12 @@ export interface SaverAdapter extends SaverInfo {
   replayInput?(o: OutputView): { input: string; arg?: string } | undefined;
   /** Upper-bound savers: o200k tokens removed from this output (the ceiling). */
   ceiling?(o: OutputView): number;
+  /**
+   * Replayed savers: outputs below this many o200k tokens are counted as unchanged
+   * without replaying them (tech-notes §8.9: they carry ~2% of caveman's savings and
+   * none of headroom's).
+   */
+  minTokens?: number;
 }
 
 // --- rtk ------------------------------------------------------------------
@@ -94,7 +100,9 @@ export const SAVERS: SaverAdapter[] = [
     licence: "BSL-1.1 (called as your installed binary, never bundled)",
     method: "replayed",
     covers: "every tool output in the request (the proxy compresses what is sent)",
+    assumption: "outputs under 500 tokens are not replayed and counted as unchanged; on the author's logs that left out about 5% of its savings, so this is slightly low",
     codexHypothetical: true,
+    minTokens: 500,
     appliesTo: (o) => o.text.length > 0,
     replayInput: (o) => ({ input: o.text }),
   },
@@ -106,8 +114,9 @@ export const SAVERS: SaverAdapter[] = [
     licence: "Apache-2.0",
     method: "replayed",
     covers: "tool outputs its router compresses (by default it leaves Read, Grep, Glob, Edit, Write and web tools alone)",
-    assumption: "each output replayed as the newest message; headroom also compresses older Read/Grep/Glob/Edit/Write outputs as they age, which is not replayed, so this is a lower estimate",
+    assumption: "an estimate from a sample of 300 outputs (the largest half always included); on the author's logs that was within 3% over a month but 20–37% off on single weeks, so use --full-replay for exact numbers. Each output is replayed as the newest message; headroom also compresses older Read/Grep/Glob/Edit/Write outputs as they age, which is not replayed",
     codexHypothetical: false,
+    minTokens: 200,
     appliesTo: (o) => o.text.length > 0 && !HEADROOM_EXCLUDED.has(o.tool),
     replayInput: (o) => ({ input: o.text }),
   },
