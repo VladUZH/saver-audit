@@ -305,6 +305,12 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
   with a time estimate from the user's own logs; headroom asked separately when > 10 min.
   Verified: `npm test` → 62/62 (new quick/exact test); founder's logs, empty cache: quick
   20 s (was 198 s), warm 9.5 s. Details in tech-notes §8.11.
+  Interactive `[e]` driven with `expect` (empty cache, default 30 days to 2026-09-26):
+  menu showed "exact numbers (about 85 min)"; breakdown headroom ~78 min, lean-ctx ~3 min,
+  token-saver ~2 min, caveman ~80 s; headroom declined; "about 7 min" confirmed; actual
+  whole session 250 s (estimate is cautious). After: lean-ctx $131 (3.1%), token-saver
+  $69.18 (1.6%), rtk $47.33 (1.1%), caveman engine $15.00 (0.4%), all "exact"; headroom
+  still offered via `[e]`. Quick-vs-exact on this run: lean-ctx −9%, token-saver −25%.
 
 ### Savers in scope for the launch (M0 acceptance)
 
