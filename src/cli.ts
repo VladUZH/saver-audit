@@ -14,6 +14,7 @@ import { renderJson } from "./report/json.ts";
 import type { Source } from "./sources/types.ts";
 import { parsePeriod, parseUntil } from "./period.ts";
 import { normalizeCardArg } from "./args.ts";
+import { exactSeconds } from "./savers/replay.ts";
 import { VERSION } from "./version.ts";
 
 
@@ -36,7 +37,9 @@ Usage: saver-audit [options]
   --show-projects        include project names (hidden by default)
   --savers <a,b>         savers to audit (default: all; see list below)
   --no-savers            skip the saver section
-  --full-replay          replay every output instead of a sample (slow first run; cached)
+  --exact                exact saver numbers: replay every output (can take minutes on a
+                         busy month; cached, so later runs are exact too). Default: a
+                         quick run whose sampled numbers are marked "indicative"
   --install-savers        download rtk and the caveman engine from their official
                          releases into ~/.saver-audit/tools (verified; asks first)
   --with-headroom        also install headroom + its model (about 1.6 GB, Python 3.10+)
@@ -77,6 +80,7 @@ async function main(argv: string[]): Promise<number> {
       savers: { type: "string" },
       "no-savers": { type: "boolean", default: false },
       "full-replay": { type: "boolean", default: false },
+      exact: { type: "boolean", default: false },
       verbose: { type: "boolean", default: false },
       jobs: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
@@ -121,8 +125,9 @@ async function main(argv: string[]): Promise<number> {
   }
 
   /** One full audit: logs → report data → share card. Re-run after an install. */
-  const audit = async () => {
+  const audit = async (exact: boolean | string[] = values.exact || values["full-replay"]) => {
     const t0 = performance.now();
+    const progress = new Map<string, string>();
     const spinner = new Spinner(process.stderr, showSpinner);
     spinner.set("Reading your agent logs…");
     const result = await runAudit(
@@ -130,10 +135,13 @@ async function main(argv: string[]): Promise<number> {
       new URL(import.meta.url),
       values.jobs ? Math.max(1, Number(values.jobs)) : defaultJobs(),
       // With a spinner, replay progress shows there instead of as log lines.
-      { ids: saverIndex(saverIds).map((x) => x.id), full: values["full-replay"], cacheFile: defaultReplayCachePath(), log: showSpinner ? undefined : log },
+      { ids: saverIndex(saverIds).map((x) => x.id), full: exact, cacheFile: defaultReplayCachePath(), log: showSpinner ? undefined : log },
       {
         files: (done, total) => spinner.set(`Reading logs… ${fmt(done)}/${fmt(total)} files`),
-        replay: (saver, done, total) => spinner.set(`Replaying through ${saver}… ${fmt(done)}/${fmt(total)} (cached next time)`),
+        replay: (saver, done, total) => {
+          progress.set(saver, `${saver} ${fmt(done)}/${fmt(total)}`);
+          spinner.set(`${exact ? "Exact replay" : "Quick check"}: ${[...progress.values()].join(" · ")}`);
+        },
       },
     );
     const elapsedMs = performance.now() - t0;
@@ -179,6 +187,7 @@ async function main(argv: string[]): Promise<number> {
   }
   const { copyImage, intentUrl, openExternal, shareText } = await import("./report/share.ts");
   const missing = () => result.savers.some((x) => x.status === "not installed" && x.id !== "headroom");
+  const exactWork = () => exactSeconds(new Map(result.savers.filter((x) => x.replay).map((x) => [x.id, x.replay!])));
   await keyMenu(
     process.stdout,
     () => [
@@ -205,6 +214,31 @@ async function main(argv: string[]): Promise<number> {
         },
       },
       ...(opts.cardPath ? [{ key: "o", label: "open card", run: () => void openExternal(resolve(opts.cardPath!)) }] : []),
+      ...(exactWork().total > 1
+        ? [
+            {
+              key: "e",
+              label: `exact numbers (${duration(exactWork().total)})`,
+              run: async (ask: (q: string) => Promise<boolean>) => {
+                const work = exactWork();
+                const hr = work.bySaver.find(([s]) => s === "headroom");
+                const rest = work.bySaver.filter(([s]) => s !== "headroom");
+                process.stdout.write(`\nExact numbers replay every output not measured yet: ${work.bySaver.map(([s, t]) => `${s} ${duration(t)}`).join(", ")}.\n`);
+                let only: string[] | true = true;
+                if (hr && hr[1] > 600) {
+                  const withHr = await ask(`  headroom alone takes ${duration(hr[1])}. Include it? [y/N] `);
+                  if (!withHr) only = rest.map(([s]) => s);
+                }
+                if (only !== true && !only.length) return;
+                const secs = only === true ? work.total : rest.reduce((n, [, t]) => n + t, 0);
+                if (!(await ask(`  Start (${duration(secs)}; you can stop with Ctrl+C and resume later)? [y/N] `))) return;
+                ({ result, opts } = await audit(only));
+                process.stdout.write("\n");
+                await reveal(process.stdout, renderShort(result, opts), animate);
+              },
+            },
+          ]
+        : []),
       ...(missing()
         ? [
             {
@@ -336,4 +370,11 @@ async function checkSaver(file: string): Promise<number> {
   out.write(`  sample run ok: ${sample.length} chars in, ${String(r.stdout).length} chars out, ${ms} ms\n`);
   out.write(`  To use it: copy the file into ~/.saver-audit/savers/, then run saver-audit.\n`);
   return 0;
+}
+
+/** "about 40 s", "about 6 min", "about 2 h". */
+function duration(secs: number): string {
+  if (secs < 90) return `about ${Math.max(5, Math.round(secs / 5) * 5)} s`;
+  if (secs < 90 * 60) return `about ${Math.round(secs / 60)} min`;
+  return `about ${(secs / 3600).toFixed(secs < 36000 ? 1 : 0)} h`;
 }

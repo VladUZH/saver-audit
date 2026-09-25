@@ -29,7 +29,7 @@ export function shareText(r: AuditResult): string {
   const agents = Object.keys(r.sessions.bySource).map((s) => (s === "claude-code" ? "Claude Code" : "Codex")).join(" + ");
   const pct = (x: number) => `${((100 * x) / total).toFixed(1)}%`;
   const ok = r.savers.filter((s) => s.status === "ok" && total > 0);
-  const measured = ok.filter((s) => s.method === "replayed").sort((a, b) => b.cost - a.cost);
+  const measured = ok.filter((s) => s.method === "replayed" && !s.replay?.insufficient).sort((a, b) => b.cost - a.cost);
   const ceiling = ok.filter((s) => s.method === "upper-bound").sort((a, b) => b.cost - a.cost)[0];
   const cut = (s: (typeof ok)[number]) => (s.cost >= 0 ? `−${pct(s.cost)} (${usd(s.cost)})` : `+${pct(-s.cost)} (costs ${usd(-s.cost)})`);
 
@@ -40,10 +40,12 @@ export function shareText(r: AuditResult): string {
   if (measured.length) {
     const longHead = `I replayed ${days} days of my ${agents} sessions through popular token savers:`;
     const shortHead = `Token savers on my ${agents} sessions:`;
-    const lines = measured.map((s) => `${short(s.name)} ${cut(s)}`);
+    // "≈" marks numbers from a quick sample (not every output replayed yet).
+    const approx = (s: (typeof ok)[number]) => (s.replay?.extrapolated ? "≈" : "");
+    const lines = measured.map((s) => `${short(s.name)} ${approx(s)}${cut(s)}`);
     const totalLine = `of ${usd(total)} API-equivalent spend.`;
     // Compact form: every measured saver with its % only, before falling back to the top 3.
-    const compact = measured.map((s) => `${short(s.name)} ${s.cost >= 0 ? "−" : "+"}${pct(Math.abs(s.cost))}`);
+    const compact = measured.map((s) => `${short(s.name)} ${approx(s)}${s.cost >= 0 ? "−" : "+"}${pct(Math.abs(s.cost))}`);
     candidates.push(
       [longHead, ...lines, totalLine, best],
       [longHead, ...lines, totalLine],

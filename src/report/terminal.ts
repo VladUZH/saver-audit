@@ -63,13 +63,16 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
   if (r.savers.length) {
     out.push(bold("What token savers would cut") + dim("  (on these sessions)"));
     // Only measured savers get a row: they are the numbers that differ person to person.
-    const measured = r.savers.filter((y) => y.status === "ok" && y.method === "replayed").sort((a, b) => b.cost - a.cost);
+    const measured = r.savers.filter((y) => y.status === "ok" && y.method === "replayed" && !tooLittleData(y)).sort((a, b) => b.cost - a.cost);
     for (const x of measured) {
       const cost = x.cost < 0 ? `-${fmtUsd(-x.cost)}` : fmtUsd(x.cost);
       const share = total ? `${((100 * x.cost) / total).toFixed(1)}%` : "—";
       out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad(cost, 9)} ${lpad(share, 7)}  ${dim(confidence(x))}`);
     }
-    if (!measured.length) out.push(dim("  None measured yet: no replayable saver is installed."));
+    const later = r.savers.filter((y) => y.status === "ok" && tooLittleData(y));
+    for (const x of later) out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad("—", 9)} ${lpad("", 7)}  ${dim("exact run needed: press [e]")}`);
+    if (!measured.length && !later.length) out.push(dim("  None measured yet: no replayable saver is installed."));
+    if (measured.some(isIndicative) || later.length) out.push(dim(`  "indicative" = from a quick sample; can be off by half. ${bold("Press [e]")} for exact numbers (once; cached).`));
     const rest = unmeasuredLine(r);
     if (rest) out.push(dim(`  Not measurable offline: ${rest}.`));
     const missing = r.savers.filter((y) => y.status === "not installed");
@@ -199,16 +202,29 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
 
 const METHOD: Record<string, string> = { replayed: "replayed", modeled: "modeled", "upper-bound": "upper bound" };
 
+/** Quick mode ran out of time before this saver could be estimated. */
+export function tooLittleData(s: AuditResult["savers"][number]): boolean {
+  return s.method === "replayed" && !!s.replay?.insufficient;
+}
+
+/** Whether a replayed number still rests on a quick sample (not every output replayed). */
+export function isIndicative(s: AuditResult["savers"][number]): boolean {
+  return s.method === "replayed" && !!s.replay?.extrapolated;
+}
+
 /** Short confidence label: how much of the number is measured. */
 export function confidence(s: AuditResult["savers"][number]): string {
   if (s.method === "upper-bound") return "ceiling";
   if (s.method === "modeled") return "assumed";
+  return isIndicative(s) ? "indicative" : "exact";
+}
+
+/** The share of outputs replayed, rounded down so a nearly complete replay never reads 100%. */
+export function replayedShare(s: AuditResult["savers"][number]): string {
   const r = s.replay;
-  if (!r || !r.extrapolated) return "high";
-  const replayed = s.replayTotal ? 1 - r.extrapolated / s.replayTotal : 0;
-  // Round down, so a nearly complete replay never reads as 100%.
-  const pct = replayed < 0.1 ? Math.max(Math.floor(replayed * 1000) / 10, 0.1).toFixed(1) : String(Math.floor(replayed * 100));
-  return `sample ${pct}%`;
+  if (!r || !s.replayTotal) return "100%";
+  const x = 1 - r.extrapolated / s.replayTotal;
+  return `${x < 0.1 ? Math.max(Math.floor(x * 1000) / 10, 0.1).toFixed(1) : Math.floor(x * 100)}%`;
 }
 
 function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => string, dim: (s: string) => string): string[] {
@@ -218,6 +234,10 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
   out.push(dim(`  ${pad("Saver", 24)} ${pad("Method", 12)} ${lpad("Covers", 7)} ${lpad("Tokens", 9)} ${lpad("Saved", 10)} ${lpad("of bill", 8)}  Confidence`));
   const shown = r.savers.filter((s) => s.status === "ok");
   for (const s of shown) {
+    if (tooLittleData(s)) {
+      out.push(`  ${pad(s.name, 24)} ${pad(METHOD[s.method]!, 12)} ${lpad("", 7)} ${lpad("", 9)} ${lpad("—", 10)} ${lpad("", 8)}  exact run needed: --exact`);
+      continue;
+    }
     const le = s.method === "upper-bound" ? "≤ " : "";
     const cost = s.cost < 0 ? `-${fmtUsd(-s.cost)}` : `${le}${fmtUsd(s.cost)}`;
     const tokens = s.tokens < 0 ? `-${fmtTokens(-s.tokens)}` : `${le}${fmtTokens(s.tokens)}`;
@@ -229,7 +249,7 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
   for (const s of shown) {
     if (s.replay && (s.replay.extrapolated || s.replay.failed)) {
       const parts = [];
-      if (s.replay.extrapolated) parts.push(`${s.replay.extrapolated.toLocaleString("en-US")} not yet replayed outputs extrapolated from the sample (--full-replay replays all)`);
+      if (s.replay.extrapolated) parts.push(`indicative: ${replayedShare(s)} of its outputs replayed (quick mode), the other ${s.replay.extrapolated.toLocaleString("en-US")} extrapolated; --exact replays all`);
       if (s.replay.failed) parts.push(`${s.replay.failed.toLocaleString("en-US")} failed`);
       notes.push(`${s.name}: ${parts.join("; ")}.`);
     }

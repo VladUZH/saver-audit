@@ -78,7 +78,7 @@ export function cardSvg(r: AuditResult): string {
   parts.push(`<rect x="${rx - 16}" y="${top}" width="${rightW + 32}" height="${panelH}" rx="14" fill="${C.panel}"/>`);
   parts.push(text(rx + 4, top + 40, "What token savers would cut", 22, C.text, { bold: true }));
   // Measured savers only; the rest are one muted line (they are not measurements).
-  const savers = r.savers.filter((s) => s.status === "ok" && s.method === "replayed").sort((a, b) => b.cost - a.cost).slice(0, 5);
+  const savers = r.savers.filter((s) => s.status === "ok" && s.method === "replayed" && !s.replay?.insufficient).sort((a, b) => b.cost - a.cost).slice(0, 5);
   if (!savers.length) {
     parts.push(text(rx + 4, top + 88, "No saver measured yet.", 17, C.muted));
     parts.push(text(rx + 4, top + 114, "npx saver-audit --install-savers", 15, C.muted));
@@ -97,7 +97,7 @@ export function cardSvg(r: AuditResult): string {
     parts.push(text(rx + 4, y, s.name.replace(" (proxy engine)", " engine").replace(" (skill)", " skill"), 17, C.text));
     // The card travels without the report's notes, so a sampled number says so here.
     const conf = confidence(s);
-    parts.push(text(rx + 4, y + 20, conf.startsWith("sample") ? `${METHOD[s.method]} · ${conf}` : METHOD[s.method]!, 13, C.muted));
+    parts.push(text(rx + 4, y + 20, conf === "indicative" ? `${METHOD[s.method]} · indicative` : METHOD[s.method]!, 13, C.muted));
     parts.push(text(rx + rightW - 4, y, val, 17, color, { anchor: "end", bold: true }));
   });
 
