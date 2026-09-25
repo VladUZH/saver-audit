@@ -625,3 +625,33 @@ Installed in `~/.saver-audit-tools` (see STATUS). Behaviour seen while building 
   - The sample was about 31% low. Sampled numbers are labelled ("sample N%") everywhere, including on the card, but launch numbers need full replays.
 - **Card rendering.** SVG is rasterized with @resvg/resvg-wasm 2.6.2 (MPL-2.0, unmodified WASM shipped as `dist/resvg.wasm`) using a bundled JetBrains Mono 2.304 (OFL-1.1). Both load only for `--card`. The npm package grew from 1.1 MB to 2.3 MB (8 files).
 - **Packed install.** `npx --package=<tgz> saver-audit` from an empty directory, over 30 days of real logs with a warm replay cache, took 9.2 s including the npx install.
+
+### 8.9 Replay accuracy: sampling vs size floors (2026-09-25, 0.4.0)
+
+Ground truth: full replays of every output (window 2026-08-26 → 2026-09-25T13:00). Each estimate was run with `SAVER_AUDIT_STRICT_SAMPLE=1`, so the cache could not help.
+
+| Window | Saver | Truth | Uniform sample | Largest-half + sample |
+|---|---|---|---|---|
+| month | caveman engine | $14.06 | −40% | −34% |
+| month | headroom | $152.05 | +5% | 0% |
+| week 1 | caveman / headroom | $7.00 / $50.92 | −28% / −1% | −6% / −21% |
+| week 2 | caveman / headroom | $0.20 / $5.18 | +173% / +7% | +8% / 0% |
+| week 3 | caveman / headroom | $1.39 / $27.68 | +48% / +27% | +2% / −7% |
+| week 4 | caveman / headroom | $5.67 / $67.81 | −4% / −4% | −23% / −21% |
+
+**Why sampling fails for caveman:** its savings are rare and spiky. Only 4–14% of outputs over 500 tokens change at all. Share of savings by output size (o200k tokens, before calibration):
+
+| Size | caveman: outputs | caveman: saved | headroom: outputs | headroom: saved |
+|---|---|---|---|---|
+| < 200 | 34% | 0% | 39% | 0% |
+| 200–500 | 34% | 2% | 20% | 1% |
+| 500–1k | 14% | 17% | 17% | 7% |
+| 1k–2k | 10% | 25% | 12% | 16% |
+| 2k–5k | 6% | 32% | 10% | 42% |
+| 5k+ | 2% | 24% | 3% | 32% |
+
+**Decision (0.4.0):**
+- **caveman engine:** replay every output of at least 500 tokens and count smaller ones as unchanged. This is exact above the floor: 0% error on every window. The floor costs about 5% in dollars ($13.31 vs $14.06), because small outputs stay in context longer.
+  - **Throughput:** caveman runs at about 250 calls/s whatever the concurrency (13, 26 or 52), so the first run on this month's logs takes about 75 s. A 200-token floor would take about 150 s.
+- **headroom:** floor 200 tokens (0% of its savings below it), plus a size-stratified sample of 300. Accurate over a month (−3%), but −20% to +37% on single weeks. It keeps the "sample" label and a note, and it is no longer offered by default.
+- **rtk:** replayed in full.

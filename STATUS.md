@@ -242,6 +242,21 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
   (y rtk, y caveman engine, n headroom → installed, re-run, view redrawn with both
   replayed and `[i]` still offered for headroom). Throwaway installs deleted afterwards.
 
+- 2026-09-25 — **0.4.0 step 1 (founder: headroom too slow; are the numbers right; is
+  "assumed" useful):**
+  - headroom removed from the default install (`[i]` offers rtk + caveman engine); still
+    available with `--install-savers --with-headroom`; the short view says why.
+  - Short view, card and X post show measured (replayed) savers only; modeled and
+    ceilings go on one grey "not measurable offline" line (full report keeps them).
+  - Accuracy: checked sampling against full-replay truth (tech-notes §8.9). Uniform and
+    size-stratified samples were off by up to 40% (caveman) and 37% (headroom, weekly).
+    Now: rtk full; caveman engine full above a 500-token floor (0% error above the floor
+    on every window; the floor makes it ~5% low, stated in its note; first run ~75 s,
+    then cached); headroom floor 200 + stratified sample of 300, labelled, with the
+    measured error range in its note.
+  Verified: `npm test` → 52/52; accuracy table re-run with the new defaults (caveman 0%
+  on month and each week; headroom −3% month, −20%…+37% weeks).
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
