@@ -42,7 +42,15 @@ export function shareText(r: AuditResult): string {
     const shortHead = `Token savers on my ${agents} sessions:`;
     const lines = measured.map((s) => `${short(s.name)} ${cut(s)}`);
     const totalLine = `of ${usd(total)} API-equivalent spend.`;
-    candidates.push([longHead, ...lines, totalLine, best], [longHead, ...lines, totalLine], [shortHead, ...lines.slice(0, 3), totalLine]);
+    // Compact form: every measured saver with its % only, before falling back to the top 3.
+    const compact = measured.map((s) => `${short(s.name)} ${s.cost >= 0 ? "−" : "+"}${pct(Math.abs(s.cost))}`);
+    candidates.push(
+      [longHead, ...lines, totalLine, best],
+      [longHead, ...lines, totalLine],
+      [shortHead, ...lines, totalLine],
+      [`${shortHead.replace(/:$/, "")} (of ${usd(total)} API-equivalent spend):`, ...compact],
+      [shortHead, ...lines.slice(0, 3), totalLine],
+    );
   } else {
     const head = `My AI coding agents (${agents}) used ${usd(total)} of API-equivalent tokens in ${days} days.`;
     candidates.push([head, best], [head]);
