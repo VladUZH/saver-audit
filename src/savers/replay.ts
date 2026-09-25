@@ -223,7 +223,8 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     }
   }
   // The sample: the first `budget` keys in hash order, drawn from ALL applicable
-  // outputs, so every run over the same logs uses the same sample.
+  // outputs, plus every output already cached (e.g. by --full-replay). A run caches
+  // what it replays, so the next run over the same logs uses exactly the same set.
   const sampled = new Map<string, Set<string>>();
   const state = mkdtempSync(join(tmpdir(), "saver-audit-"));
   const env = saverEnv(state);
@@ -233,7 +234,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       const tool = o.tools.get(saver);
       const keys = [...unique.keys()].sort();
       const budget = o.full ? Infinity : DEFAULT_BUDGET[saver] ?? 1000;
-      const sample = keys.slice(0, budget);
+      const sample = keys.filter((k, n) => n < budget || cache.has(k));
       sampled.set(saver, new Set(sample));
       const st: ReplayStats = { total: keys.length, ran: 0, extrapolated: keys.length - sample.length, failed: 0 };
       stats.set(saver, st);

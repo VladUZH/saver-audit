@@ -130,7 +130,9 @@ export function confidence(s: AuditResult["savers"][number]): string {
   const r = s.replay;
   if (!r || !r.extrapolated) return "high";
   const replayed = s.replayTotal ? 1 - r.extrapolated / s.replayTotal : 0;
-  return `sample ${Math.max(replayed * 100, 0.1).toFixed(replayed < 0.1 ? 1 : 0)}%`;
+  // Round down, so a nearly complete replay never reads as 100%.
+  const pct = replayed < 0.1 ? Math.max(Math.floor(replayed * 1000) / 10, 0.1).toFixed(1) : String(Math.floor(replayed * 100));
+  return `sample ${pct}%`;
 }
 
 function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => string, dim: (s: string) => string): string[] {
