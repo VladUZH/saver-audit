@@ -4,7 +4,7 @@
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { listFiles, readLines } from "./files.ts";
-import { emptyUsage, type Block, type Session, type SourceEvent, type UserKind, type Usage } from "./types.ts";
+import { emptyUsage, type Block, type Call, type Session, type SourceEvent, type UserKind, type Usage } from "./types.ts";
 import { shellFamily } from "../accounting/categories.ts";
 
 export function codexHome(): string {
@@ -27,7 +27,13 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
   let session: Session | undefined;
   let model = "";
   let multiplier = 1;
-  let billable = true;
+  // Forked and child threads open with the parent's history re-recorded as a dense
+  // burst of token_count events stamped with the fork instant; that usage was billed
+  // in the parent. Same rule as ccusage (rust/adapters/codex/src/parser.rs): if the
+  // first two usage events are ≤1 s apart, skip the run of events ≤1 s apart.
+  let replay: "none" | "first" | "second" | "burst" = "none";
+  let firstCall: Call | undefined;
+  let lastMs = 0;
   let prevTotal = -1;
   let index = 0;
   let lineNo = 0;
@@ -57,9 +63,7 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
           isSubagent: typeof p.parent_thread_id === "string",
           started: timestamp,
         };
-        // Child and forked threads replay the parent's history first; that usage
-        // was billed in the parent. Bill only after the thread's own first turn.
-        billable = !child;
+        if (child) replay = "first";
         yield { t: "session", session };
         const base = p.base_instructions?.text;
         if (typeof base === "string" && base) {
@@ -69,9 +73,6 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
       }
       case "turn_context":
         if (typeof p.model === "string") model = p.model;
-        break;
-      case "inter_agent_communication_metadata":
-        if (p.trigger_turn === true) billable = true;
         break;
       case "compacted": {
         yield { t: "compact", timeline: "main" };
@@ -84,8 +85,8 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
         break;
       }
       case "event_msg":
-        if (p.type === "task_started") billable = true;
-        else if (p.type === "thread_settings_applied") multiplier = tierMultiplier(p.thread_settings?.service_tier);
+        // A settings event without a service_tier key leaves the tier unchanged.
+        if (p.type === "thread_settings_applied" && p.thread_settings && "service_tier" in p.thread_settings) multiplier = tierMultiplier(p.thread_settings.service_tier);
         else if (p.type === "token_count") {
           const info = p.info;
           if (!info || typeof info !== "object") break;
@@ -95,7 +96,24 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
           if (typeof total === "number") prevTotal = total;
           const usage = codexUsage(info.last_token_usage);
           if (usage.input + usage.cacheRead + usage.cacheWrite === 0 && usage.output === 0) break;
-          const call = { key: `${file}#${lineNo}`, model: model || "gpt-5", usage, multiplier, billable };
+          const call: Call = { key: `${file}#${lineNo}`, model: model || "gpt-5", usage, multiplier, billable: true };
+          const ms = timestamp ? Date.parse(timestamp) : NaN;
+          const inBurst = Number.isFinite(ms) && ms - lastMs >= 0 && ms - lastMs <= BURST_GAP_MS;
+          if (replay === "first") {
+            call.billable = false;
+            firstCall = call;
+            replay = Number.isFinite(ms) ? "second" : "none";
+            if (replay === "none") call.billable = true;
+          } else if (replay === "second" || replay === "burst") {
+            if (inBurst) call.billable = false;
+            else {
+              // A pause right after the first event: no replayed burst, bill it after all.
+              if (replay === "second") firstCall!.billable = true;
+              replay = "none";
+            }
+            if (replay === "second") replay = "burst";
+          }
+          lastMs = ms;
           yield { t: "turn", turn: { index: index++, role: "assistant", timeline: "main", timestamp, blocks: [], call } };
         }
         break;
@@ -106,7 +124,11 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
       }
     }
   }
+  // A fork with a single usage event had no burst.
+  if (replay === "second") firstCall!.billable = true;
 }
+
+const BURST_GAP_MS = 1000;
 
 type PartialTurn = { role: "user" | "assistant"; blocks: Block[]; userKind?: UserKind };
 

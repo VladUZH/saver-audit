@@ -9,7 +9,7 @@ const thr2 = join(CODEX_HOME, "sessions", "2026", "09", "21", "rollout-2026-09-2
 
 test("finder prefers sessions/ over an archived copy", () => {
   const files = findCodexFiles(CODEX_HOME, 0);
-  assert.equal(files.length, 2);
+  assert.equal(files.length, 3);
   assert.equal(files.some((f) => f.includes("archived_sessions")), false);
 });
 
@@ -32,10 +32,16 @@ test("tool outputs are labelled with the tool and a shell family", async () => {
   assert.deepEqual(kinds, ["system", "injected", "prompt", "tool-results", "tool-results", "compaction-summary"]);
 });
 
-test("forked threads bill only after their own first turn", async () => {
+test("forked threads: the replayed burst is not billed, the thread's own usage is", async () => {
   const ev = await collect(parseCodexFile(thr2));
   const calls = ev.flatMap((e) => (e.t === "turn" && e.turn.call ? [e.turn.call] : []));
-  assert.deepEqual(calls.map((c) => c.billable), [false, true]);
+  assert.deepEqual(calls.map((c) => c.billable), [false, false, false, true]);
+});
+
+test("a fork with a single usage event had no burst and is billed", async () => {
+  const ev = await collect(parseCodexFile(join(CODEX_HOME, "sessions", "2026", "09", "22", "rollout-2026-09-22T08-00-00-thr3.jsonl")));
+  const calls = ev.flatMap((e) => (e.t === "turn" && e.turn.call ? [e.turn.call] : []));
+  assert.deepEqual(calls.map((c) => c.billable), [true]);
 });
 
 test("codexUsage and shellCommand edge cases", () => {

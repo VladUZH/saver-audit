@@ -97,13 +97,25 @@ write("codex/archived_sessions/rollout-2026-09-20T10-00-00-thr1.jsonl", [
   tc("2026-09-20T10:00:01.100Z", 999999, u(999999, 0, 0)),
 ]);
 
-// Forked thread: replayed parent history is not billed again.
+// Forked thread: Codex re-records the parent's history as a dense burst stamped with
+// the fork instant (after task_started). Only the thread's own usage is billed.
 write("codex/sessions/2026/09/21/rollout-2026-09-21T08-00-00-thr2.jsonl", [
   { timestamp: "2026-09-21T08:00:00.000Z", type: "session_meta", payload: { id: "thr2", forked_from_id: "thr1", cwd: "/home/dev/SECRET-codex-proj" } },
+  { timestamp: "2026-09-21T08:00:00.001Z", type: "event_msg", payload: { type: "task_started" } },
   { timestamp: "2026-09-21T08:00:00.100Z", type: "turn_context", payload: { model: "gpt-5.6-terra" } },
-  tc("2026-09-21T08:00:00.200Z", 5000, u(5000, 0, 0)),
-  { timestamp: "2026-09-21T08:00:01.000Z", type: "event_msg", payload: { type: "task_started" } },
-  tc("2026-09-21T08:00:02.000Z", 5330, u(300, 0, 30)),
+  tc("2026-09-21T08:00:00.200Z", 1100, u(1000, 0, 100)),
+  tc("2026-09-21T08:00:00.210Z", 3400, u(2200, 1000, 100)),
+  tc("2026-09-21T08:00:00.220Z", 5000, u(1500, 0, 100)),
+  tc("2026-09-21T08:00:10.000Z", 5330, u(300, 0, 30)),
+]);
+
+// Forked thread with a single usage event: no burst, so it is billed.
+write("codex/sessions/2026/09/22/rollout-2026-09-22T08-00-00-thr3.jsonl", [
+  { timestamp: "2026-09-22T08:00:00.000Z", type: "session_meta", payload: { id: "thr3", forked_from_id: "thr1", cwd: "/home/dev/SECRET-codex-proj" } },
+  { timestamp: "2026-09-22T08:00:00.100Z", type: "turn_context", payload: { model: "gpt-5.6-terra" } },
+  { timestamp: "2026-09-22T08:00:00.200Z", type: "event_msg", payload: { type: "thread_settings_applied", thread_settings: { service_tier: "priority" } } },
+  { timestamp: "2026-09-22T08:00:00.300Z", type: "event_msg", payload: { type: "thread_settings_applied", thread_settings: { model: "gpt-5.6-terra" } } }, // no tier key: stays priority
+  tc("2026-09-22T08:00:05.000Z", 50, u(40, 0, 10)),
 ]);
 
 console.log("fixtures written under", root);

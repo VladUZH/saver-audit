@@ -13,16 +13,16 @@
     "claude-code",
     "codex"
   ],
-  "files": 5,
+  "files": 6,
   "sessions": {
-    "main": 3,
+    "main": 4,
     "subagent": 1,
     "bySource": {
       "claude-code": 1,
-      "codex": 2
+      "codex": 3
     }
   },
-  "calls": 8,
+  "calls": 9,
   "models": [
     {
       "model": "claude-sonnet-5",
@@ -41,9 +41,9 @@
     {
       "model": "gpt-5.6-terra",
       "pricedAs": "gpt-5.6-terra",
-      "calls": 3,
-      "tokens": 3730,
-      "cost": 0.00796
+      "calls": 4,
+      "tokens": 3780,
+      "cost": 0.00836
     },
     {
       "model": "claude-haiku-4-5-20251001",
@@ -62,8 +62,8 @@
   ],
   "billing": {
     "input": {
-      "tokens": 2620,
-      "cost": 0.005065
+      "tokens": 2660,
+      "cost": 0.005225
     },
     "cacheWrite": {
       "tokens": 1700,
@@ -74,16 +74,16 @@
       "cost": 0.0008
     },
     "output": {
-      "tokens": 335,
-      "cost": 0.004472
+      "tokens": 345,
+      "cost": 0.004712
     },
     "webSearch": {
       "requests": 2,
       "cost": 0.02
     },
     "total": {
-      "tokens": 8655,
-      "cost": 0.041087
+      "tokens": 8705,
+      "cost": 0.041487
     }
   },
   "buckets": [
@@ -98,15 +98,15 @@
       "key": "residual",
       "label": "Not in logs: system prompt, tool definitions",
       "group": "context",
-      "tokens": 7573,
-      "cost": 0.013627
+      "tokens": 7313,
+      "cost": 0.013187
     },
     {
       "key": "output",
       "label": "Assistant output (incl. thinking)",
       "group": "output",
-      "tokens": 335,
-      "cost": 0.004472
+      "tokens": 345,
+      "cost": 0.004712
     },
     {
       "key": "tool:Shell",
@@ -119,8 +119,8 @@
       "key": "assistant",
       "label": "Earlier assistant turns, re-read",
       "group": "context",
-      "tokens": 116.141479,
-      "cost": 0.000281
+      "tokens": 416.141479,
+      "cost": 0.000881
     },
     {
       "key": "prompt",
@@ -215,7 +215,7 @@
     "unreadableFiles": 0,
     "duplicateCalls": 1,
     "outsidePeriod": 0,
-    "notBillable": 1
+    "notBillable": 3
   },
   "projects": 2,
   "waste": [

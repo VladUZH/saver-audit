@@ -56,30 +56,38 @@ for (const c of claude.values()) {
   sum.in += c.in; sum.cw += c.cw; sum.cr += c.cr; sum.out += c.out;
 }
 
-// Codex: last_token_usage when the cumulative total changed; skip replayed fork history.
+// Codex: last_token_usage when the cumulative total changed. Forked/child threads open
+// with a burst of replayed parent usage (events ≤1 s apart from the first two on);
+// that burst is skipped, as in ccusage.
 const codexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex");
 const live = walk(join(codexHome, "sessions")).filter((f) => /^rollout-.*\.jsonl$/.test(basename(f)));
 const names = new Set(live.map((f) => basename(f)));
 const archived = walk(join(codexHome, "archived_sessions")).filter((f) => /^rollout-.*\.jsonl$/.test(basename(f)) && !names.has(basename(f)));
 for (const f of [...live, ...archived]) {
   let prev = -1;
-  let billable = true;
+  let fork = false;
+  const events = [];
   for await (const o of lines(f)) {
     const p = o.payload;
-    if (o.type === "session_meta") { if (p?.forked_from_id || p?.parent_thread_id) billable = false; continue; }
-    if (o.type === "inter_agent_communication_metadata" && p?.trigger_turn === true) billable = true;
-    if (o.type !== "event_msg") continue;
-    if (p?.type === "task_started") billable = true;
-    if (p?.type !== "token_count" || !p.info) continue;
+    if (o.type === "session_meta" && (p?.forked_from_id || p?.parent_thread_id)) fork = true;
+    if (o.type !== "event_msg" || p?.type !== "token_count" || !p.info) continue;
     const t = p.info.total_token_usage?.total_tokens;
     if (typeof t === "number" && t === prev) continue;
     if (typeof t === "number") prev = t;
     const u = p.info.last_token_usage ?? {};
-    const input = n(u.input_tokens), cached = Math.min(input, n(u.cached_input_tokens)), out = n(u.output_tokens);
-    if (!billable || (input === 0 && out === 0)) continue;
-    if (o.timestamp && (o.timestamp < sinceIso || o.timestamp > untilIso)) continue;
-    const cw = Math.min(input - cached, n(u.cache_write_input_tokens));
-    sum.in += input - cached - cw; sum.cr += cached; sum.cw += cw; sum.out += out;
+    const input = n(u.input_tokens), out = n(u.output_tokens);
+    if (input === 0 && out === 0) continue;
+    events.push({ ts: o.timestamp, ms: Date.parse(o.timestamp), input, cached: Math.min(input, n(u.cached_input_tokens)), cw: n(u.cache_write_input_tokens), out });
+  }
+  let skip = 0;
+  if (fork && events.length > 1 && events[1].ms - events[0].ms >= 0 && events[1].ms - events[0].ms <= 1000) {
+    skip = 1;
+    while (skip < events.length && events[skip].ms - events[skip - 1].ms >= 0 && events[skip].ms - events[skip - 1].ms <= 1000) skip++;
+  }
+  for (const e of events.slice(skip)) {
+    if (e.ts && (e.ts < sinceIso || e.ts > untilIso)) continue;
+    const cw = Math.min(e.input - e.cached, e.cw);
+    sum.in += e.input - e.cached - cw; sum.cr += e.cached; sum.cw += cw; sum.out += e.out;
   }
 }
 
