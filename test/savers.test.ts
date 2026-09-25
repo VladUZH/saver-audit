@@ -3,23 +3,15 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { summarize, type FileResult } from "../src/audit.ts";
 import type { CallRecord } from "../src/accounting/buckets.ts";
 import { runAudit } from "../src/pool.ts";
 import { rtkFilter, SAVERS, saverIndex, splitCodexHeader } from "../src/savers/registry.ts";
 import { persistedHeader, presentedTokens } from "../src/savers/tracker.ts";
-import type { ReplayTool } from "../src/savers/replay.ts";
 import { emptyUsage } from "../src/sources/types.ts";
 import type { OutputView } from "../src/savers/types.ts";
-import { fixtureOptions } from "./helpers.ts";
+import { FAKE_TOOLS, fixtureOptions } from "./helpers.ts";
 
-const BIN = fileURLToPath(new URL("./fixtures/bin/", import.meta.url));
-export const FAKE_TOOLS = new Map<string, ReplayTool>([
-  ["rtk", { saver: "rtk", command: join(BIN, "rtk"), version: "0.50.0" }],
-  ["caveman-engine", { saver: "caveman-engine", command: join(BIN, "caveman-engine") }],
-  ["headroom", { saver: "headroom", command: join(BIN, "headroom-python"), version: "0.38.0" }],
-]);
 
 test("rtk filter chosen from the command; git status/log excluded", () => {
   const cases: Array<[string, string | undefined]> = [

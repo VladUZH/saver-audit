@@ -35,3 +35,12 @@ test("an audit run makes no fetch call", async () => {
   }
   assert.equal(calls, 0);
 });
+
+test("only the CLI entry has side effects: nothing imports src/cli.ts except as a worker URL", () => {
+  const cli = readFileSync(join(SRC, "cli.ts"), "utf8");
+  assert.match(cli, /if \(!isMainThread && workerData\?\.\[WORKER_FLAG\]\) \{[\s\S]*\} else if \(isMainThread\) \{\s*main\(/);
+  const TEST = fileURLToPath(new URL(".", import.meta.url));
+  const importers = [...files(SRC).map((f) => join(SRC, f)), ...files(TEST).map((f) => join(TEST, f))]
+    .filter((f) => f.endsWith(".ts") && /from\s+["'][^"']*\/cli\.ts["']/.test(readFileSync(f, "utf8")));
+  assert.deepEqual(importers, [], "import helpers from a side-effect-free module instead");
+});
