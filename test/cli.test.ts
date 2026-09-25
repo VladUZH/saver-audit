@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parsePeriod } from "../src/period.ts";
+import { parsePeriod, parseUntil } from "../src/period.ts";
 
 test("period parsing", () => {
   const now = Date.parse("2026-09-25T12:00:00Z");
@@ -10,4 +10,11 @@ test("period parsing", () => {
   assert.equal(parsePeriod(undefined, "2026-09-01T00:00:00Z", now), Date.parse("2026-09-01T00:00:00Z"));
   assert.throws(() => parsePeriod("30 days", undefined, now));
   assert.throws(() => parsePeriod(undefined, "yesterday", now));
+});
+
+test("--until parsing", () => {
+  const now = Date.parse("2026-09-25T12:00:00Z");
+  assert.equal(parseUntil(undefined, now), now);
+  assert.equal(parseUntil("2026-09-20T10:00:00Z", now), Date.parse("2026-09-20T10:00:00Z"));
+  assert.throws(() => parseUntil("soon", now));
 });

@@ -1,0 +1,14 @@
+#!/usr/bin/env node
+// Fake headroom sidecar for tests: speaks the JSON-lines protocol of
+// src/savers/replay.ts and keeps the first quarter of each text.
+if ((process.argv[3] ?? "").includes("__version__")) {
+  console.log("0.38.0");
+  process.exit(0);
+}
+import("node:readline").then(({ createInterface }) => {
+  console.log(JSON.stringify({ ready: true }));
+  createInterface({ input: process.stdin }).on("line", (line) => {
+    const req = JSON.parse(line);
+    console.log(JSON.stringify({ i: req.i, out: req.text.slice(0, Math.floor(req.text.length / 4)) }));
+  });
+});

@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+// Fake rtk for tests: `rtk pipe --filter <name>` keeps the first 3 lines of stdin.
+let s = "";
+process.stdin.on("data", (d) => (s += d)).on("end", () => {
+  if (process.argv[2] !== "pipe") process.exit(2);
+  process.stdout.write(s.split("\n").slice(0, 3).join("\n"));
+});

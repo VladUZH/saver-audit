@@ -3,13 +3,23 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { CLAUDE_ROOT, CODEX_HOME, SECRET } from "./helpers.ts";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+const BIN = fileURLToPath(new URL("./fixtures/bin/", import.meta.url));
+// Savers on: the fake saver binaries replay the fixtures, so the saver section is
+// covered by the privacy checks too.
+const SAVER_ENV = {
+  SAVER_AUDIT_RTK: join(BIN, "rtk"),
+  CAVEMAN_ENGINE_BIN: join(BIN, "caveman-engine"),
+  SAVER_AUDIT_HEADROOM_PYTHON: join(BIN, "headroom-python"),
+};
 
 function run(...args: string[]): string {
   return execFileSync(process.execPath, [CLI, "--since", "2026-09-01", ...args], {
-    env: { ...process.env, CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, HOME: "/nonexistent", XDG_CACHE_HOME: "/nonexistent", NO_COLOR: "1" },
+    env: { ...process.env, ...SAVER_ENV, CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, HOME: "/nonexistent", XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "sa-priv-")), NO_COLOR: "1" },
     encoding: "utf8",
   });
 }
@@ -17,6 +27,8 @@ function run(...args: string[]): string {
 test("default terminal report holds no text, paths, commands or project names from logs", () => {
   const out = run();
   assert.match(out, /API-equivalent/);
+  assert.match(out, /What each token saver would have cut/);
+  assert.match(out, /rtk\s+replayed/);
   assert.doesNotMatch(out, SECRET);
 });
 

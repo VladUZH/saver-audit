@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+// Fake caveman-engine for tests: `compress` keeps the first half of stdin.
+let s = "";
+process.stdin.on("data", (d) => (s += d)).on("end", () => {
+  if (process.argv[2] !== "compress") process.exit(2);
+  process.stdout.write(s.slice(0, Math.floor(s.length / 2)));
+});
