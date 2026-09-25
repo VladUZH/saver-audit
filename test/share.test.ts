@@ -12,7 +12,7 @@ import { FAKE_TOOLS, fixtureOptions, SECRET } from "./helpers.ts";
 async function fixtureResult() {
   const dir = mkdtempSync(join(tmpdir(), "sa-share-"));
   try {
-    return await runAudit(fixtureOptions(), undefined, 1, { ids: SAVERS.map((s) => s.id), tools: FAKE_TOOLS, cacheFile: join(dir, "c.json") });
+    return await runAudit(fixtureOptions(), undefined, 1, { ids: SAVERS.map((s) => s.id), tools: FAKE_TOOLS, cacheFile: join(dir, "c.json"), full: true });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

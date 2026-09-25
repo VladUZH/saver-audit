@@ -90,8 +90,8 @@ test("replay through (fake) saver binaries: labelled, cached and reproducible", 
   try {
     const cacheFile = join(dir, "replay.json");
     const ids = SAVERS.map((s) => s.id);
-    const a = await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile });
-    const b = await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile });
+    const a = await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile, full: true });
+    const b = await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile, full: true });
     const byId = new Map(a.savers.map((s) => [s.id, s]));
     for (const s of a.savers) assert.ok(["replayed", "modeled", "upper-bound"].includes(s.method), s.id);
     assert.ok(byId.get("rtk")!.cost > 0, "pytest output filtered by the fake rtk");
@@ -118,4 +118,24 @@ test("outputs after the period end are not replayed or counted", async () => {
   const rtk = early.savers.find((s) => s.id === "rtk")!;
   assert.equal(rtk.replay?.total ?? 0, 0, "the pytest output at 10:00:10 is after the period end");
   assert.equal(rtk.coverage, 0);
+});
+
+test("quick mode: rtk exact; cache-only savers wait for an exact run, which then carries over", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sa-quick-"));
+  try {
+    const cacheFile = join(dir, "replay.json");
+    const ids = ["rtk", "caveman-engine", "headroom"];
+    const quick = await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile });
+    const q = new Map(quick.savers.map((s) => [s.id, s]));
+    assert.equal(q.get("rtk")!.replay!.extrapolated, 0, "rtk always finishes");
+    assert.equal(q.get("caveman-engine")!.replay!.insufficient, true, "caveman is not estimated from a quick sample");
+    assert.equal(q.get("headroom")!.replay!.insufficient, true);
+    await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile, full: ["caveman-engine"] });
+    const after = new Map((await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile })).savers.map((s) => [s.id, s]));
+    assert.equal(after.get("caveman-engine")!.replay!.extrapolated, 0, "exact results are reused by quick runs");
+    assert.ok(after.get("caveman-engine")!.cost > 0);
+    assert.equal(after.get("headroom")!.replay!.insufficient, true, "only the savers asked for were made exact");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

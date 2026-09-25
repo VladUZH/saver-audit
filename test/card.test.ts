@@ -12,7 +12,7 @@ import { FAKE_TOOLS, fixtureOptions, SECRET } from "./helpers.ts";
 test("the share card holds numbers, model names, dates and fixed labels only", async () => {
   const dir = mkdtempSync(join(tmpdir(), "sa-card-"));
   try {
-    const r = await runAudit(fixtureOptions(), undefined, 1, { ids: SAVERS.map((s) => s.id), tools: FAKE_TOOLS, cacheFile: join(dir, "c.json") });
+    const r = await runAudit(fixtureOptions(), undefined, 1, { ids: SAVERS.map((s) => s.id), tools: FAKE_TOOLS, cacheFile: join(dir, "c.json"), full: true });
     const svg = cardSvg(r);
     assert.doesNotMatch(svg, SECRET);
     for (const p of r.projects) assert.equal(svg.includes(p), false, "no project names, even though the result has them");
