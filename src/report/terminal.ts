@@ -69,8 +69,9 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
       out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${pad(METHOD[x.method]!, 12)} ${lpad(cost, 9)} ${lpad(share, 8)}  ${dim(confidence(x))}`);
     }
     const missing = r.savers.filter((y) => y.status === "not installed");
-    if (missing.length) out.push(dim(`  Not installed: ${missing.map((y) => y.name.replace(" (proxy engine)", " engine")).join(", ")}. Install one to see its real number.`));
-    out.push(dim("  Offline replay can't see behaviour changes (extra turns, retries, quality)."));
+    if (missing.length) out.push(`  ${accent("Not installed:")} ${missing.map((y) => y.name.replace(" (proxy engine)", " engine")).join(", ")}. ${bold("Press [i]")} to install and measure ${missing.length === 1 ? "it" : "them"}.`);
+    out.push(dim("  These numbers replay your past sessions as they happened. A saver can also change"));
+    out.push(dim("  how the agent works (e.g. extra steps to get cut output back); that isn't measured."));
     out.push("");
   }
   if (o.cardPath) out.push(`Share card: ${bold(o.cardPath)}`);
@@ -174,8 +175,9 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   if (r.calibration.some((c) => c.basis === "tokenizer")) out.push("  OpenAI models: o200k_base is their tokenizer (assumed for gpt-6).");
   out.push("  Claude Code attachments are sized from their stored fields; system prompt and tool definitions are not logged.");
   if (r.savers.length) {
-    out.push("  Savers: offline replay cannot show whether a saver changes how the agent behaves");
-    out.push("  (extra turns, retries, recalls, answer quality). Savings assume the same cache pattern.");
+    out.push("  Savers: measured by replaying your past sessions as they happened. A saver can also change");
+    out.push("  how the agent works: e.g. extra steps to fetch back what it cut, different answers. That");
+    out.push("  can raise or lower the real saving and is not measured here. Same prompt-cache pattern assumed.");
   }
   const unpriced = r.models.filter((m) => !m.pricedAs);
   if (unpriced.length) out.push(`  No price for: ${unpriced.map((m) => m.model).join(", ")} (tokens counted, $0).`);
@@ -232,7 +234,7 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
   if (codex.length) notes.push(`On Codex, hooks cannot rewrite tool input, so these Codex savings are hypothetical: ${codex.map((s) => `${s.name} ${fmtUsd(Math.abs(s.codexCost))}`).join(", ")}.`);
   notes.push("fast-jev-compaction is not in this table: it acts only at compaction and its keep/drop decisions need its hosted API, so offline replay has nothing honest to measure.");
   const missing = r.savers.filter((s) => s.status === "not installed");
-  if (missing.length) notes.push(`Not installed, so not replayed: ${missing.map((s) => s.name).join(", ")}. saver-audit calls your installed copy; it never bundles saver code.`);
+  if (missing.length) notes.push(`Not installed, so not replayed: ${missing.map((s) => s.name).join(", ")}. Install with --install-savers (or [i] in the short view); saver-audit never bundles saver code.`);
   for (const n of notes) out.push(dim(`  · ${n}`));
   out.push("");
   return out;

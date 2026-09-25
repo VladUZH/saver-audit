@@ -37,7 +37,11 @@ Usage: saver-audit [options]
   --savers <a,b>         savers to audit (default: all; see list below)
   --no-savers            skip the saver section
   --full-replay          replay every output instead of a sample (slow first run; cached)
-  --update-prices        fetch a fresh public price list (the only network call)
+  --install-savers        download rtk and the caveman engine from their official
+                         releases into ~/.saver-audit/tools (verified; asks first)
+  --with-headroom        also install headroom + its model (about 1.6 GB, Python 3.10+)
+  -y, --yes              don't ask before installing
+  --update-prices        fetch a fresh public price list
   --verbose              more detail about skipped records
   -h, --help / -v, --version
 
@@ -45,6 +49,7 @@ Savers: rtk, caveman-engine, headroom (replayed on your installed copies),
 caveman-skill (modeled), codegraph, context-mode (upper bounds).
 
 Reads ~/.claude/projects and ~/.codex/sessions locally. Nothing leaves your machine.
+Network only when you ask: --update-prices, --install-savers / [i], and [s] opens x.com.
 Dollar figures are API-equivalent list prices, not a subscription bill.
 `;
 
@@ -62,6 +67,9 @@ async function main(argv: string[]): Promise<number> {
       full: { type: "boolean", default: false },
       short: { type: "boolean", default: false },
       "no-animation": { type: "boolean", default: false },
+      "install-savers": { type: "boolean", default: false },
+      "with-headroom": { type: "boolean", default: false },
+      yes: { type: "boolean", short: "y", default: false },
       "show-projects": { type: "boolean", default: false },
       "update-prices": { type: "boolean", default: false },
       savers: { type: "string" },
@@ -93,47 +101,58 @@ async function main(argv: string[]): Promise<number> {
   if (src !== "all" && src !== "claude-code" && src !== "codex") throw new Error(`--source: expected claude-code, codex or all, got ${src}`);
   const sources: Source[] = src === "all" ? ["claude-code", "codex"] : [src];
   const now = Date.now();
-  const t0 = performance.now();
   const interactive = process.stdout.isTTY === true && !values.json;
   const color = (process.stdout.isTTY === true || !!process.env.FORCE_COLOR) && !process.env.NO_COLOR;
-  const spinner = new Spinner(process.stderr, process.stderr.isTTY === true && !values.json && !process.env.CI);
+  const showSpinner = process.stderr.isTTY === true && !values.json && !process.env.CI;
   const fmt = (n: number) => n.toLocaleString("en-US");
-  spinner.set("Reading your agent logs…");
-  const result = await runAudit(
-    { sinceMs: parsePeriod(values.last, values.since, now), untilMs: parseUntil(values.until, now), sources, claudeRoots: claudeRoots(), codexHome: codexHome(), prices: loadPrices() },
-    new URL(import.meta.url),
-    values.jobs ? Math.max(1, Number(values.jobs)) : defaultJobs(),
-    // With a spinner, replay progress shows there instead of as log lines.
-    { ids: saverIndex(saverIds).map((x) => x.id), full: values["full-replay"], cacheFile: defaultReplayCachePath(), log: process.stderr.isTTY ? undefined : log },
-    {
-      files: (done, total) => spinner.set(`Reading logs… ${fmt(done)}/${fmt(total)} files`),
-      replay: (saver, done, total) => spinner.set(`Replaying through ${saver}… ${fmt(done)}/${fmt(total)} (cached next time)`),
-    },
-  );
-  const elapsedMs = performance.now() - t0;
   const showProjects = values["show-projects"];
-
-  // The share card: by default in a terminal (it is what people share), elsewhere on request.
-  let cardPath: string | undefined;
   const wanted = values["no-card"] ? undefined : values.card ?? (interactive ? "saver-audit.png" : undefined);
-  if (wanted && result.calls > 0) {
-    spinner.set("Drawing your share card…");
-    const { writeCard } = await import("./report/card.ts");
-    for (const path of [wanted, join(tmpdir(), "saver-audit.png")]) {
-      try {
-        await writeCard(result, path);
-        cardPath = path;
-        break;
-      } catch {
-        // folder not writable: fall back to the temp folder
+
+  // Optional, explicit install of the replayed savers (downloads; says so first).
+  if (values["install-savers"]) {
+    const ok = await installFlow({ all: values["with-headroom"], assumeYes: values.yes, color });
+    if (!ok) return 1;
+  }
+
+  /** One full audit: logs → report data → share card. Re-run after an install. */
+  const audit = async () => {
+    const t0 = performance.now();
+    const spinner = new Spinner(process.stderr, showSpinner);
+    spinner.set("Reading your agent logs…");
+    const result = await runAudit(
+      { sinceMs: parsePeriod(values.last, values.since, now), untilMs: parseUntil(values.until, now), sources, claudeRoots: claudeRoots(), codexHome: codexHome(), prices: loadPrices() },
+      new URL(import.meta.url),
+      values.jobs ? Math.max(1, Number(values.jobs)) : defaultJobs(),
+      // With a spinner, replay progress shows there instead of as log lines.
+      { ids: saverIndex(saverIds).map((x) => x.id), full: values["full-replay"], cacheFile: defaultReplayCachePath(), log: showSpinner ? undefined : log },
+      {
+        files: (done, total) => spinner.set(`Reading logs… ${fmt(done)}/${fmt(total)} files`),
+        replay: (saver, done, total) => spinner.set(`Replaying through ${saver}… ${fmt(done)}/${fmt(total)} (cached next time)`),
+      },
+    );
+    const elapsedMs = performance.now() - t0;
+    // The share card: by default in a terminal (it is what people share), elsewhere on request.
+    let cardPath: string | undefined;
+    if (wanted && result.calls > 0) {
+      spinner.set("Drawing your share card…");
+      const { writeCard } = await import("./report/card.ts");
+      for (const path of [wanted, join(tmpdir(), "saver-audit.png")]) {
+        try {
+          await writeCard(result, path);
+          cardPath = path;
+          break;
+        } catch {
+          // folder not writable: fall back to the temp folder
+        }
       }
     }
-  }
-  spinner.stop();
+    spinner.stop();
+    return { result, opts: { showProjects, verbose: values.verbose, color, elapsedMs, cardPath } };
+  };
 
-  const opts = { showProjects, verbose: values.verbose, color, elapsedMs, cardPath };
+  let { result, opts } = await audit();
   if (values.json) {
-    if (cardPath) log(`share card written to ${cardPath} (numbers, model names and dates only)`);
+    if (opts.cardPath) log(`share card written to ${opts.cardPath} (numbers, model names and dates only)`);
     process.stdout.write(renderJson(result, { showProjects, version: VERSION }));
     return 0;
   }
@@ -144,7 +163,7 @@ async function main(argv: string[]): Promise<number> {
   }
   if (!interactive || values.full || result.calls === 0) {
     await reveal(process.stdout, renderTerminal(result, opts), animate);
-    if (cardPath) log(`share card written to ${cardPath} (numbers, model names and dates only)`);
+    if (opts.cardPath) log(`share card written to ${opts.cardPath} (numbers, model names and dates only)`);
     return 0;
   }
   await reveal(process.stdout, renderShort(result, opts), animate);
@@ -153,9 +172,10 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   const { copyImage, intentUrl, openExternal, shareText } = await import("./report/share.ts");
+  const missing = () => result.savers.some((x) => x.status === "not installed");
   await keyMenu(
     process.stdout,
-    [
+    () => [
       {
         key: "f",
         label: "full report",
@@ -168,17 +188,32 @@ async function main(argv: string[]): Promise<number> {
         key: "s",
         label: "share on X",
         run: () => {
-          const copied = cardPath ? copyImage(resolve(cardPath)) : false;
+          const copied = opts.cardPath ? copyImage(resolve(opts.cardPath)) : false;
           const opened = openExternal(intentUrl(shareText(result)));
           process.stdout.write(`\n${opened ? "Opened X with your numbers filled in." : "Could not open a browser. Post this link: " + intentUrl(shareText(result))}\n`);
           if (copied) process.stdout.write("Your card is on the clipboard: paste it into the post (⌘V / Ctrl+V), then Post.\n");
-          else if (cardPath) {
-            openExternal(resolve(cardPath), true);
-            process.stdout.write(`Attach your card to the post: ${resolve(cardPath)}\n`);
+          else if (opts.cardPath) {
+            openExternal(resolve(opts.cardPath), true);
+            process.stdout.write(`Attach your card to the post: ${resolve(opts.cardPath)}\n`);
           }
         },
       },
-      ...(cardPath ? [{ key: "o", label: "open card", run: () => void openExternal(resolve(cardPath!)) }] : []),
+      ...(opts.cardPath ? [{ key: "o", label: "open card", run: () => void openExternal(resolve(opts.cardPath!)) }] : []),
+      ...(missing()
+        ? [
+            {
+              key: "i",
+              label: "install savers",
+              run: async (ask: (q: string) => Promise<boolean>) => {
+                const ok = await installFlow({ all: false, assumeYes: false, color, ask });
+                if (!ok) return;
+                ({ result, opts } = await audit());
+                process.stdout.write("\n");
+                await reveal(process.stdout, renderShort(result, opts), animate);
+              },
+            },
+          ]
+        : []),
     ],
     color,
   );
@@ -195,4 +230,61 @@ if (!isMainThread && workerData?.[WORKER_FLAG]) {
       process.exitCode = 1;
     },
   );
+}
+
+interface InstallFlowOptions {
+  /** Include headroom (large) without asking about it separately. */
+  all: boolean;
+  assumeYes: boolean;
+  color: boolean;
+  /** Yes/no question; defaults to a line-based prompt on stdin. */
+  ask?: (q: string) => Promise<boolean>;
+}
+
+/** Explains, asks, then installs the missing savers. Returns false if nothing was installed. */
+async function installFlow(o: InstallFlowOptions): Promise<boolean> {
+  const { install, installPlan } = await import("./savers/install.ts");
+  const { detectReplayTools } = await import("./savers/replay.ts");
+  const { toolsDir } = await import("./savers/toolsdir.ts");
+  const have = detectReplayTools();
+  const out = process.stdout;
+  const bold = (x: string) => (o.color ? `\x1b[1m${x}\x1b[0m` : x);
+  const ask = o.ask ?? askLine;
+  const plan = installPlan().filter((c) => !have.has(c.id));
+  if (!plan.length) {
+    out.write("\nAll replayed savers are already installed.\n");
+    return false;
+  }
+  out.write(`\n${bold("Install savers so saver-audit can replay your sessions through them")}\n`);
+  out.write(`Downloads from each saver's official release into ${toolsDir()}, verified before use.\n`);
+  out.write("Your Claude Code and Codex settings are not touched. Delete that folder to uninstall.\n");
+  let installed = 0;
+  for (const c of plan) {
+    if (!c.available) {
+      out.write(`  ${c.what}: skipped (${c.why})\n`);
+      continue;
+    }
+    const yes = o.assumeYes ? c.id !== "headroom" || o.all : await ask(`  Install ${c.what} (${c.size})? [y/N] `);
+    if (!yes) continue;
+    const spinner = new Spinner(process.stderr, process.stderr.isTTY === true);
+    try {
+      await install(c.id, (msg) => spinner.set(msg));
+      spinner.stop();
+      out.write(`  ${c.what}: installed\n`);
+      installed++;
+    } catch (err) {
+      spinner.stop();
+      out.write(`  ${c.what}: not installed (${err instanceof Error ? err.message : String(err)})\n`);
+    }
+  }
+  return installed > 0;
+}
+
+async function askLine(q: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return false;
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const a = await rl.question(q);
+  rl.close();
+  return /^y(es)?$/i.test(a.trim());
 }

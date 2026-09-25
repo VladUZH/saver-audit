@@ -66,19 +66,36 @@ export async function reveal(out: NodeJS.WriteStream, text: string, animate: boo
 export interface MenuItem {
   key: string;
   label: string;
-  /** Runs the action; return true to close the menu afterwards. */
-  run: () => Promise<boolean | void> | boolean | void;
+  /**
+   * Runs the action; return true to close the menu afterwards. `ask` asks a yes/no
+   * question with a single key press while the menu owns the keyboard.
+   */
+  run: (ask: (question: string) => Promise<boolean>) => Promise<boolean | void> | boolean | void;
 }
 
-/** A single-key menu on an interactive terminal. Resolves when the user quits. */
-export async function keyMenu(out: NodeJS.WriteStream, items: MenuItem[], color: boolean): Promise<void> {
+/**
+ * A single-key menu on an interactive terminal. `items` is re-read after every
+ * action, so entries can come and go. Resolves when the user quits.
+ */
+export async function keyMenu(out: NodeJS.WriteStream, items: () => MenuItem[], color: boolean): Promise<void> {
   const stdin = process.stdin;
   if (!stdin.isTTY) return;
   const b = (s: string) => (color ? `\x1b[1;33m${s}\x1b[0m` : s);
-  const prompt = () => out.write(`\n${items.map((i) => `${b(`[${i.key}]`)} ${i.label}`).join("   ")}   ${b("[q]")} quit\n`);
+  const prompt = () => out.write(`\n${items().map((i) => `${b(`[${i.key}]`)} ${i.label}`).join("   ")}   ${b("[q]")} quit\n`);
   prompt();
   stdin.setRawMode(true);
   stdin.resume();
+  let answer: ((k: string) => void) | undefined;
+  const ask = (question: string) =>
+    new Promise<boolean>((resolve) => {
+      out.write(question);
+      answer = (k) => {
+        answer = undefined;
+        const yes = k === "y";
+        out.write(yes ? "yes\n" : "no\n");
+        resolve(yes);
+      };
+    });
   await new Promise<void>((resolve) => {
     let busy = false;
     const done = () => {
@@ -88,13 +105,15 @@ export async function keyMenu(out: NodeJS.WriteStream, items: MenuItem[], color:
       resolve();
     };
     const onKey = async (buf: Buffer) => {
-      if (busy) return;
       const k = buf.toString("utf8").toLowerCase();
-      if (k === "q" || k === "\u0003" || k === "\u001b" || k === "\r") return done();
-      const item = items.find((i) => i.key === k);
+      if (k === "\u0003") return done();
+      if (answer) return answer(k);
+      if (busy) return;
+      if (k === "q" || k === "\u001b" || k === "\r") return done();
+      const item = items().find((i) => i.key === k);
       if (!item) return;
       busy = true;
-      const close = await item.run();
+      const close = await item.run(ask);
       busy = false;
       if (close) return done();
       prompt();
