@@ -2,7 +2,7 @@
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { parseArgs } from "node:util";
 import { runAudit, runWorker, defaultJobs, defaultReplayCachePath, WORKER_FLAG } from "./pool.ts";
-import { SAVERS, saverIndex } from "./savers/registry.ts";
+import { allSavers, saverIndex } from "./savers/registry.ts";
 import { claudeRoots } from "./sources/claude-code.ts";
 import { codexHome } from "./sources/codex.ts";
 import { loadPrices, userPricesPath } from "./prices/load.ts";
@@ -41,6 +41,7 @@ Usage: saver-audit [options]
                          releases into ~/.saver-audit/tools (verified; asks first)
   --with-headroom        also install headroom + its model (about 1.6 GB, Python 3.10+)
   -y, --yes              don't ask before installing
+  --check-saver <file>   validate a saver manifest and try its program (for saver authors)
   --update-prices        fetch a fresh public price list
   --verbose              more detail about skipped records
   -h, --help / -v, --version
@@ -70,6 +71,7 @@ async function main(argv: string[]): Promise<number> {
       "install-savers": { type: "boolean", default: false },
       "with-headroom": { type: "boolean", default: false },
       yes: { type: "boolean", short: "y", default: false },
+      "check-saver": { type: "string" },
       "show-projects": { type: "boolean", default: false },
       "update-prices": { type: "boolean", default: false },
       savers: { type: "string" },
@@ -91,11 +93,15 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   const log = (s: string) => process.stderr.write(s + "\n");
+  if (values["check-saver"]) return checkSaver(values["check-saver"]);
   if (values["update-prices"]) {
     const { updatePrices } = await import("./prices/update.ts");
     await updatePrices(userPricesPath(), log);
   }
-  const saverIds = values["no-savers"] ? [] : values.savers ? values.savers.split(",").map((x) => x.trim()).filter(Boolean) : SAVERS.map((x) => x.id);
+  // Community manifests that could not be loaded: say so once, details with --verbose.
+  const problems = values["no-savers"] ? [] : allSavers().problems;
+  if (problems.length) log(values.verbose ? `saver manifests skipped:\n${problems.map((p) => `  - ${p}`).join("\n")}` : `saver-audit: ${problems.length} saver manifest(s) in ~/.saver-audit/savers skipped (--verbose for details)`);
+  const saverIds = values["no-savers"] ? [] : values.savers ? values.savers.split(",").map((x) => x.trim()).filter(Boolean) : allSavers().savers.map((x) => x.id);
 
   const src = values.source;
   if (src !== "all" && src !== "claude-code" && src !== "codex") throw new Error(`--source: expected claude-code, codex or all, got ${src}`);
@@ -288,4 +294,46 @@ async function askLine(q: string): Promise<boolean> {
   const a = await rl.question(q);
   rl.close();
   return /^y(es)?$/i.test(a.trim());
+}
+
+/** For saver authors: validate a manifest, find its program, run it once on a sample. */
+async function checkSaver(file: string): Promise<number> {
+  const { readFileSync } = await import("node:fs");
+  const { spawnSync } = await import("node:child_process");
+  const { validateManifest } = await import("./savers/manifest.ts");
+  const { manifestAdapter } = await import("./savers/registry.ts");
+  const { detectReplayTools } = await import("./savers/replay.ts");
+  const out = process.stdout;
+  let m: any;
+  try {
+    m = JSON.parse(readFileSync(file, "utf8"));
+  } catch (err) {
+    out.write(`${file}: not valid JSON (${err instanceof Error ? err.message : String(err)})\n`);
+    return 1;
+  }
+  const problems = validateManifest(m);
+  if (problems.length) {
+    out.write(`${file}: ${problems.length} problem(s)\n${problems.map((p) => `  - ${p}`).join("\n")}\n`);
+    return 1;
+  }
+  out.write(`${file}: valid ${m.method} manifest for "${m.id}" (${m.routes.length} route${m.routes.length === 1 ? "" : "s"})\n`);
+  if (m.method !== "replayed") return 0;
+  const tool = detectReplayTools([manifestAdapter(m)]).get(m.id);
+  if (!tool) {
+    out.write(`  program "${m.binary}" not found on PATH or in ~/.saver-audit/tools/bin${m.binaryEnv ? ` (or set ${m.binaryEnv})` : ""}\n`);
+    return 1;
+  }
+  out.write(`  program: ${tool.command}${tool.version ? ` (${tool.version})` : ""}\n`);
+  const sample = Array.from({ length: 40 }, (_, i) => `line ${i}: PASSED tests/test_example.py::test_${i}`).join("\n");
+  const args = m.routes[0].args ?? [];
+  const t0 = performance.now();
+  const r = spawnSync(tool.command, args, { input: sample, encoding: "utf8", timeout: 30_000, env: { ...process.env, DO_NOT_TRACK: "1" } });
+  const ms = Math.round(performance.now() - t0);
+  if (r.status !== 0) {
+    out.write(`  sample run failed: exit ${r.status ?? "?"}${r.stderr ? `: ${String(r.stderr).trim().split("\n").pop()}` : ""}\n`);
+    return 1;
+  }
+  out.write(`  sample run ok: ${sample.length} chars in, ${String(r.stdout).length} chars out, ${ms} ms\n`);
+  out.write(`  To use it: copy the file into ~/.saver-audit/savers/, then run saver-audit.\n`);
+  return 0;
 }

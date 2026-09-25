@@ -240,7 +240,7 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
   if (codex.length) notes.push(`On Codex, hooks cannot rewrite tool input, so these Codex savings are hypothetical: ${codex.map((s) => `${s.name} ${fmtUsd(Math.abs(s.codexCost))}`).join(", ")}.`);
   notes.push("fast-jev-compaction is not in this table: it acts only at compaction and its keep/drop decisions need its hosted API, so offline replay has nothing honest to measure.");
   const missing = r.savers.filter((s) => s.status === "not installed");
-  if (missing.length) notes.push(`Not installed, so not replayed: ${missing.map((s) => s.name).join(", ")}. Install with --install-savers (or [i] in the short view); saver-audit never bundles saver code.`);
+  if (missing.length) notes.push(`Not installed, so not replayed: ${missing.map((s) => (s.install ? `${s.name} (${s.install})` : s.name)).join(", ")}. saver-audit never bundles saver code.`);
   for (const n of notes) out.push(dim(`  · ${n}`));
   out.push("");
   return out;
