@@ -11,11 +11,14 @@ import type { FileResult } from "../audit.ts";
 import { readReplayCache, saveReplayCache } from "./cache.ts";
 import { presentedTokens, PREVIEW_CHARS, type ReplayResult } from "./tracker.ts";
 import type { ReplayJob } from "./types.ts";
+import { toolPaths } from "./toolsdir.ts";
 
 export interface ReplayTool {
   saver: string;
   command: string;
   version?: string;
+  /** Extra environment for this saver (a headroom installed by --install-savers keeps its model in the tools folder). */
+  env?: Record<string, string>;
 }
 
 export interface ReplayStats {
@@ -47,17 +50,24 @@ function firstLine(cmd: string, args: string[]): string | undefined {
   return r.status === 0 && out ? out : undefined;
 }
 
-/** Finds the installed saver binaries. Missing tools are simply absent. */
+/**
+ * Finds the installed saver binaries: explicit overrides, then your PATH (your own
+ * installs), then the folder --install-savers uses. Missing tools are simply absent.
+ */
 export function detectReplayTools(): Map<string, ReplayTool> {
   const found = new Map<string, ReplayTool>();
-  const rtk = process.env.SAVER_AUDIT_RTK ?? onPath("rtk");
+  const exists = (p: string) => (existsSync(p) ? p : undefined);
+  const rtk = process.env.SAVER_AUDIT_RTK ?? onPath("rtk") ?? exists(toolPaths.rtk());
   if (rtk) found.set("rtk", { saver: "rtk", command: rtk, version: firstLine(rtk, ["--version"])?.replace(/^rtk\s+/, "") });
-  const cave = process.env.CAVEMAN_ENGINE_BIN ?? onPath("caveman-engine") ?? [join(homedir(), ".caveman", "bin", "caveman-engine")].find((p) => existsSync(p));
+  const cave = process.env.CAVEMAN_ENGINE_BIN ?? onPath("caveman-engine") ?? exists(join(homedir(), ".caveman", "bin", "caveman-engine")) ?? exists(toolPaths.caveman());
   if (cave) found.set("caveman-engine", { saver: "caveman-engine", command: cave }); // no version flag
-  const py = process.env.SAVER_AUDIT_HEADROOM_PYTHON ?? headroomPython();
+  const own = process.env.SAVER_AUDIT_HEADROOM_PYTHON ?? headroomPython();
+  const ours = own ? undefined : exists(toolPaths.headroomPython());
+  const py = own ?? ours;
   if (py) {
     const v = firstLine(py, ["-c", "import headroom; print(getattr(headroom, '__version__', 'unknown'))"]);
-    if (v) found.set("headroom", { saver: "headroom", command: py, version: v });
+    const env = ours ? { HF_HOME: toolPaths.hfHome() } : undefined;
+    if (v) found.set("headroom", { saver: "headroom", command: py, version: v, env });
   }
   return found;
 }
@@ -262,7 +272,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         }
       };
       if (saver === "headroom") {
-        const side = new HeadroomSidecar(tool.command, env);
+        const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(state, "headroom") });
         if (!(await side.ready)) {
           side.close();
           st.failed = todo.length;
