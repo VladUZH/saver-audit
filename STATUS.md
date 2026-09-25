@@ -6,7 +6,8 @@ what is blocked and why, and decisions made where the docs were silent.
 ## Current milestone
 
 M4 — launch prep: **nearly done**. Final numbers are in the README, card and launch kit.
-Left: the terminal GIF (needs a recorder; asked the founder), then the human GATEs below.
+Terminal GIF done. Left: npm publish (founder authorised; needs `npm login` in their
+terminal), then writing and posting the launch posts (founder).
 
 ## Log
 
@@ -168,6 +169,16 @@ Left: the terminal GIF (needs a recorder; asked the founder), then the human GAT
   `docs/launch/*` and `docs/04-launch.md`; no `⟦HEADROOM⟧` placeholders left. The full
   replay overturned a draft claim: on Codex the largest measured cut is headroom (10.4%),
   not rtk; rtk's Codex share corrected from 4.2% to 4.1% ($5.20 of $125.39).
+
+- 2026-09-25 — Terminal GIF (M4): `scripts/make-demo-gif.mjs` runs the real CLI, writes
+  an asciinema v2 recording and renders it with agg 1.9.0 (installed to
+  `~/.saver-audit-tools/bin`, SHA-256 matched GitHub's asset digest; GPL-3.0, dev-only,
+  not shipped). `assets/demo.gif`: 21.8 s, 124×44 terminal, 2.2 MB; recording contains no
+  home paths or project names. The CLI now honours `FORCE_COLOR`.
+- 2026-09-25 — Bug found via the GIF's last frame and fixed: outputs written after
+  `--until` were still replayed and counted in coverage (so this live session kept
+  showing "sample 99%"). They can reach no in-period call, so the saver tracker now skips
+  them. Savings unchanged; headroom coverage 57% → 56%. Test added (44/44 pass).
 
 ### Savers in scope for the launch (M0 acceptance)
 

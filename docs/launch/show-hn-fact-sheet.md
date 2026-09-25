@@ -48,7 +48,7 @@ rtk, the caveman engine and headroom were all fully replayed.
 |---|---|---|---|---|
 | rtk 0.50.0 | replayed, all 5,513 outputs | 15% of tool output | $47 | 1.1% |
 | caveman proxy engine | replayed, 60,339 of 60,341 outputs | all tool output | $14 | 0.3% |
-| headroom 0.38.0 | replayed, all ~30k outputs; a lower estimate | 57% | $152 | 3.6% |
+| headroom 0.38.0 | replayed, all ~30k outputs; a lower estimate | 56% | $152 | 3.6% |
 | caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $95 | 2.3% |
 | codegraph | upper bound (it changes agent behaviour) | 43% | ≤ $579 | ≤ 13.8% |
 | context-mode | upper bound (it changes agent behaviour) | 61% | ≤ $704 | ≤ 16.7% |

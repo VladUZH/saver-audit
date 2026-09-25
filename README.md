@@ -16,6 +16,8 @@ saver-audit reads the session logs that Claude Code (`~/.claude/projects`) and C
 
 Nothing leaves your machine. The only network call is the one you ask for with `--update-prices`.
 
+![saver-audit running on the author's logs](https://raw.githubusercontent.com/VladUZH/saver-audit/main/assets/demo.gif)
+
 ## Results on the author's own logs
 
 30 days of the author's own work (2026-08-26 → 2026-09-25):
@@ -49,7 +51,7 @@ Nothing leaves your machine. The only network call is the one you ask for with `
 |---|---|---|---|---|
 | [rtk](https://github.com/rtk-ai/rtk) 0.50.0 | replayed (all 5,513 outputs) | 15% of tool output | $47 | 1.1% |
 | [caveman](https://github.com/JuliusBrussee/caveman) proxy engine | replayed (60,339 of 60,341 outputs) | all tool output | $14 | 0.3% |
-| [headroom](https://github.com/headroomlabs-ai/headroom) 0.38.0 | replayed (all ~30k outputs), lower estimate | 57% | $152 | 3.6% |
+| [headroom](https://github.com/headroomlabs-ai/headroom) 0.38.0 | replayed (all ~30k outputs), lower estimate | 56% | $152 | 3.6% |
 | caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $95 | 2.3% |
 | [codegraph](https://github.com/colbymchenry/codegraph) | upper bound | 43% | ≤ $579 | ≤ 13.8% |
 | [context-mode](https://github.com/mksglu/context-mode) | upper bound | 61% | ≤ $704 | ≤ 16.7% |
@@ -118,4 +120,4 @@ What saver-audit adds:
 
 ## Status
 
-Pre-release (M3 of 4). Requires Node ≥ 20. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Early release (0.1.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
