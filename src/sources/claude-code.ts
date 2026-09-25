@@ -25,10 +25,11 @@ export function findClaudeFiles(roots: string[], sinceMs: number): string[] {
 }
 
 interface OpenCall { key: string; turn: Turn }
+interface ToolMeta { tool: string; family: string; command?: string }
 
 export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent> {
   const isSubagentFile = file.includes(`${sep}subagents${sep}`);
-  const tools = new Map<string, { tool: string; family: string }>();
+  const tools = new Map<string, ToolMeta>();
   const calls = new Map<string, Call>();
   let session: Session | undefined;
   let open: OpenCall | undefined;
@@ -125,7 +126,9 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
         if (b.type === "text" && typeof b.text === "string") blocks.push({ kind: "text", text: b.text });
         else if (b.type === "tool_result") {
           const meta = tools.get(b.tool_use_id) ?? { tool: "unknown", family: "" };
-          blocks.push({ kind: "tool_result", tool: meta.tool, family: meta.family, text: resultText(b.content), id: b.tool_use_id, isError: b.is_error === true });
+          const text = resultText(b.content);
+          const raw = text.startsWith("<persisted-output>") ? rawOutput(o.toolUseResult) : undefined;
+          blocks.push({ kind: "tool_result", tool: meta.tool, family: meta.family, text, id: b.tool_use_id, isError: b.is_error === true, command: meta.command, raw });
         }
       }
     }
@@ -136,7 +139,14 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
   yield* flush();
 }
 
-function assistantBlocks(content: unknown, tools: Map<string, { tool: string; family: string }>): Block[] {
+/** Full Bash output from the structured result, when Claude Code kept it. */
+function rawOutput(r: any): string | undefined {
+  if (!r || typeof r !== "object" || typeof r.stdout !== "string") return undefined;
+  const err = typeof r.stderr === "string" && r.stderr ? `\n${r.stderr}` : "";
+  return r.stdout + err;
+}
+
+function assistantBlocks(content: unknown, tools: Map<string, ToolMeta>): Block[] {
   const out: Block[] = [];
   if (!Array.isArray(content)) return out;
   for (const b of content) {
@@ -144,7 +154,7 @@ function assistantBlocks(content: unknown, tools: Map<string, { tool: string; fa
     if (b.type === "text" && typeof b.text === "string") out.push({ kind: "text", text: b.text });
     else if (b.type === "tool_use" && typeof b.name === "string") {
       const cmd = b.name === "Bash" && typeof b.input?.command === "string" ? b.input.command : undefined;
-      if (typeof b.id === "string") tools.set(b.id, { tool: b.name, family: cmd ? shellFamily(cmd) : "" });
+      if (typeof b.id === "string") tools.set(b.id, { tool: b.name, family: cmd ? shellFamily(cmd) : "", command: cmd });
       out.push({ kind: "tool_use", tool: b.name, id: b.id, input: b.input });
     }
   }

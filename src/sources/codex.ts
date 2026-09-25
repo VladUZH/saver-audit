@@ -23,7 +23,7 @@ export function findCodexFiles(home: string, sinceMs: number): string[] {
 const INJECTED = /^\s*(<environment_context|<user_instructions|<permissions|<INSTRUCTIONS|<turn_aborted|<user_shell_command|# AGENTS\.md|<skill|<subagent_notification)/;
 
 export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent> {
-  const tools = new Map<string, { tool: string; family: string }>();
+  const tools = new Map<string, { tool: string; family: string; command?: string }>();
   let session: Session | undefined;
   let model = "";
   let multiplier = 1;
@@ -132,7 +132,7 @@ const BURST_GAP_MS = 1000;
 
 type PartialTurn = { role: "user" | "assistant"; blocks: Block[]; userKind?: UserKind };
 
-function responseItem(p: any, tools: Map<string, { tool: string; family: string }>): PartialTurn | undefined {
+function responseItem(p: any, tools: Map<string, { tool: string; family: string; command?: string }>): PartialTurn | undefined {
   switch (p.type) {
     case "message": {
       const texts = contentTexts(p.content);
@@ -148,7 +148,7 @@ function responseItem(p: any, tools: Map<string, { tool: string; family: string 
       const tool = p.type === "local_shell_call" ? "local_shell_call" : String(p.name ?? "unknown");
       const input = p.type === "function_call" ? parseJson(p.arguments) : p.type === "custom_tool_call" ? p.input : p.action;
       const cmd = shellCommand(tool, input);
-      if (typeof p.call_id === "string") tools.set(p.call_id, { tool, family: cmd !== undefined ? shellFamily(cmd) : "" });
+      if (typeof p.call_id === "string") tools.set(p.call_id, { tool, family: cmd !== undefined ? shellFamily(cmd) : "", command: cmd || undefined });
       return { role: "assistant", blocks: [{ kind: "tool_use", tool, id: p.call_id, input }] };
     }
     case "function_call_output":
@@ -156,7 +156,7 @@ function responseItem(p: any, tools: Map<string, { tool: string; family: string 
       const meta = tools.get(p.call_id) ?? { tool: "unknown", family: "" };
       const out = p.output;
       const text = typeof out === "string" ? out : Array.isArray(out) ? contentTexts(out).join("\n") : typeof out?.content === "string" ? out.content : "";
-      return { role: "user", userKind: "tool-results", blocks: [{ kind: "tool_result", tool: meta.tool, family: meta.family, text, id: p.call_id }] };
+      return { role: "user", userKind: "tool-results", blocks: [{ kind: "tool_result", tool: meta.tool, family: meta.family, text, id: p.call_id, command: meta.command }] };
     }
     default:
       return undefined;

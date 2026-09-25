@@ -17,7 +17,19 @@ export interface Session {
 export type Block =
   | { kind: "text"; text: string }
   | { kind: "tool_use"; tool: string; id?: string; input: unknown }
-  | { kind: "tool_result"; tool: string; family: string; text: string; id?: string; isError?: boolean };
+  | {
+      kind: "tool_result";
+      tool: string;
+      family: string;
+      /** What the model saw. */
+      text: string;
+      id?: string;
+      isError?: boolean;
+      /** Shell command that produced it (shell tools only). */
+      command?: string;
+      /** Full output when `text` is a <persisted-output> preview (Claude Bash). */
+      raw?: string;
+    };
 
 /**
  * Usage of one API call, normalized to Claude semantics: `input` is the uncached
