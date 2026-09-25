@@ -6,7 +6,7 @@
 npx saver-audit
 ```
 
-![saver-audit share card: 30 days of the author's own sessions](assets/readme-card.png)
+![saver-audit share card: 30 days of the author's own sessions](https://raw.githubusercontent.com/VladUZH/saver-audit/main/assets/readme-card.png)
 
 saver-audit reads the session logs that Claude Code (`~/.claude/projects`) and Codex (`~/.codex/sessions`) already keep on your machine. It then prints three things:
 

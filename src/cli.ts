@@ -11,8 +11,8 @@ import { renderJson } from "./report/json.ts";
 import type { Source } from "./sources/types.ts";
 import { parsePeriod, parseUntil } from "./period.ts";
 import { normalizeCardArg } from "./args.ts";
+import { VERSION } from "./version.ts";
 
-export const VERSION = "0.0.0";
 
 const HELP = `saver-audit — where your Claude Code and Codex tokens really go
 

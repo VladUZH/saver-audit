@@ -1,7 +1,27 @@
 {
   "name": "saver-audit",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Where your Claude Code and Codex tokens really go, priced with cache costs, and what token savers would cut. Offline.",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "tokens",
+    "cost",
+    "prompt-caching",
+    "rtk",
+    "caveman",
+    "headroom"
+  ],
+  "homepage": "https://github.com/VladUZH/saver-audit#readme",
+  "bugs": {
+    "url": "https://github.com/VladUZH/saver-audit/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VladUZH/saver-audit.git"
+  },
+  "license": "MIT",
+  "author": "VladUZH",
   "type": "module",
   "bin": {
     "saver-audit": "dist/cli.js"
@@ -17,19 +37,9 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test --test-reporter=spec \"test/**/*.test.ts\""
+    "test": "node --test --test-reporter=spec \"test/**/*.test.ts\"",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
-  "keywords": [
-    "claude-code",
-    "codex",
-    "tokens",
-    "cost",
-    "prompt-caching",
-    "rtk",
-    "caveman",
-    "headroom"
-  ],
-  "license": "MIT",
   "devDependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
     "@types/node": "^24.13.6",
