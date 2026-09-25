@@ -18,9 +18,10 @@ const LIMIT = 280;
 const short = (name: string) => name.replace(" (proxy engine)", " engine").replace(" (skill)", " skill");
 
 /**
- * The pre-filled post, savings first: what each saver would cut on the user's own
- * sessions, measured ones first, with the total they were measured against. Numbers,
- * saver names and agent names only.
+ * The pre-filled post, savings first: what each measured saver would cut on the
+ * user's own sessions, with the total they were measured against. Modeled numbers are
+ * left out (they barely differ between people); a best case is labelled as such.
+ * Numbers, saver names and agent names only.
  */
 export function shareText(r: AuditResult): string {
   const total = r.billing.total.cost;
@@ -29,12 +30,10 @@ export function shareText(r: AuditResult): string {
   const pct = (x: number) => `${((100 * x) / total).toFixed(1)}%`;
   const ok = r.savers.filter((s) => s.status === "ok" && total > 0);
   const measured = ok.filter((s) => s.method === "replayed").sort((a, b) => b.cost - a.cost);
-  const modeled = ok.filter((s) => s.method === "modeled").sort((a, b) => b.cost - a.cost);
   const ceiling = ok.filter((s) => s.method === "upper-bound").sort((a, b) => b.cost - a.cost)[0];
   const cut = (s: (typeof ok)[number]) => (s.cost >= 0 ? `−${pct(s.cost)} (${usd(s.cost)})` : `+${pct(-s.cost)} (costs ${usd(-s.cost)})`);
 
   const best = ceiling ? `Best case (changes how the agent works): at most −${pct(ceiling.cost)} (${ceiling.name}).` : "";
-  const modeledLines = modeled.map((s) => `${short(s.name)} ${cut(s)}, modeled`);
   const tail = ["", measured.length ? "What would they cut for you? npx saver-audit" : "What would savers cut for you? npx saver-audit"];
   // Candidates in priority order; the first that fits a post (with the link) wins.
   const candidates: string[][] = [];
@@ -43,16 +42,10 @@ export function shareText(r: AuditResult): string {
     const shortHead = `Token savers on my ${agents} sessions:`;
     const lines = measured.map((s) => `${short(s.name)} ${cut(s)}`);
     const totalLine = `of ${usd(total)} API-equivalent spend.`;
-    candidates.push(
-      [longHead, ...lines, ...modeledLines, totalLine, best],
-      [longHead, ...lines, ...modeledLines, totalLine],
-      [longHead, ...lines, totalLine],
-      [shortHead, ...lines.slice(0, 3), totalLine],
-    );
+    candidates.push([longHead, ...lines, totalLine, best], [longHead, ...lines, totalLine], [shortHead, ...lines.slice(0, 3), totalLine]);
   } else {
     const head = `My AI coding agents (${agents}) used ${usd(total)} of API-equivalent tokens in ${days} days.`;
-    const modeledLine = modeledLines.length ? `Token savers: ${modeledLines.join("; ")}.` : "";
-    candidates.push([head, modeledLine, best], [head, best], [head, modeledLine], [head]);
+    candidates.push([head, best], [head]);
   }
   for (const c of candidates) {
     const text = [...c.filter(Boolean), ...tail].join("\n");

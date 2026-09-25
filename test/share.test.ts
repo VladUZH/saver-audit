@@ -54,7 +54,7 @@ test("without installed savers the post uses modeled and best-case numbers, labe
   const text = shareText(r);
   assert.match(text, /^My AI coding agents \(Claude Code \+ Codex\) used \$0\.04/);
   assert.match(text, /Best case \(changes how the agent works\): at most −[\d.]+% \(context-mode\)/);
-  if (/caveman skill/.test(text)) assert.match(text, /caveman skill [−+][\d.]+% [^\n]*modeled/);
+  assert.doesNotMatch(text, /caveman skill/, "modeled numbers are not posted");
   assert.doesNotMatch(text, /replayed/);
   assert.ok(text.length + 1 + 23 <= 280);
 });

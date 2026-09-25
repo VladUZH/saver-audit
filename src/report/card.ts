@@ -77,8 +77,17 @@ export function cardSvg(r: AuditResult): string {
   const rightW = W - PAD - rx;
   parts.push(`<rect x="${rx - 16}" y="${top}" width="${rightW + 32}" height="${panelH}" rx="14" fill="${C.panel}"/>`);
   parts.push(text(rx + 4, top + 40, "What token savers would cut", 22, C.text, { bold: true }));
-  const savers = r.savers.filter((s) => s.status === "ok").slice(0, 6);
-  if (!savers.length) parts.push(text(rx + 4, top + 88, "run without --no-savers to compare", 17, C.muted));
+  // Measured savers only; the rest are one muted line (they are not measurements).
+  const savers = r.savers.filter((s) => s.status === "ok" && s.method === "replayed").sort((a, b) => b.cost - a.cost).slice(0, 5);
+  if (!savers.length) {
+    parts.push(text(rx + 4, top + 88, "No saver measured yet.", 17, C.muted));
+    parts.push(text(rx + 4, top + 114, "npx saver-audit --install-savers", 15, C.muted));
+  }
+  const bounds = r.savers.filter((s) => s.status === "ok" && s.method === "upper-bound");
+  if (bounds.length && total) {
+    const line = `best case, not measured: ${bounds.map((s) => `${s.name} ≤ ${((100 * s.cost) / total).toFixed(0)}%`).join(" · ")}`;
+    parts.push(text(rx + 4, top + panelH - 22, line, 13, C.muted));
+  }
   savers.forEach((s, i) => {
     const y = top + 82 + i * ROW;
     const le = s.method === "upper-bound" ? "≤ " : "";

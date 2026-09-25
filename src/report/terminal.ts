@@ -62,14 +62,20 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
 
   if (r.savers.length) {
     out.push(bold("What token savers would cut") + dim("  (on these sessions)"));
-    for (const x of r.savers.filter((y) => y.status === "ok")) {
-      const le = x.method === "upper-bound" ? "≤ " : "";
-      const cost = x.cost < 0 ? `-${fmtUsd(-x.cost)}` : `${le}${fmtUsd(x.cost)}`;
-      const share = total ? `${le}${((100 * x.cost) / total).toFixed(1)}%` : "—";
-      out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${pad(METHOD[x.method]!, 12)} ${lpad(cost, 9)} ${lpad(share, 8)}  ${dim(confidence(x))}`);
+    // Only measured savers get a row: they are the numbers that differ person to person.
+    const measured = r.savers.filter((y) => y.status === "ok" && y.method === "replayed").sort((a, b) => b.cost - a.cost);
+    for (const x of measured) {
+      const cost = x.cost < 0 ? `-${fmtUsd(-x.cost)}` : fmtUsd(x.cost);
+      const share = total ? `${((100 * x.cost) / total).toFixed(1)}%` : "—";
+      out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad(cost, 9)} ${lpad(share, 7)}  ${dim(confidence(x))}`);
     }
+    if (!measured.length) out.push(dim("  None measured yet: no replayable saver is installed."));
+    const rest = unmeasuredLine(r);
+    if (rest) out.push(dim(`  Not measurable offline: ${rest}.`));
     const missing = r.savers.filter((y) => y.status === "not installed");
-    if (missing.length) out.push(`  ${accent("Not installed:")} ${missing.map((y) => y.name.replace(" (proxy engine)", " engine")).join(", ")}. ${bold("Press [i]")} to install and measure ${missing.length === 1 ? "it" : "them"}.`);
+    const quick = missing.filter((y) => y.id !== "headroom");
+    if (quick.length) out.push(`  ${accent("Not installed:")} ${quick.map((y) => y.name.replace(" (proxy engine)", " engine")).join(", ")}. ${bold("Press [i]")} to install and measure ${quick.length === 1 ? "it" : "them"} (seconds).`);
+    if (missing.some((y) => y.id === "headroom")) out.push(dim("  headroom is a 1.6 GB install; add it with: saver-audit --install-savers --with-headroom"));
     out.push(dim("  These numbers replay your past sessions as they happened. A saver can also change"));
     out.push(dim("  how the agent works (e.g. extra steps to get cut output back); that isn't measured."));
     out.push("");
@@ -238,4 +244,16 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
   for (const n of notes) out.push(dim(`  · ${n}`));
   out.push("");
   return out;
+}
+
+/** One line for the savers that are not measured: the modeled one and the ceilings. */
+export function unmeasuredLine(r: AuditResult): string {
+  const total = r.billing.total.cost;
+  if (!total) return "";
+  const pct = (x: number) => `${((100 * x) / total).toFixed(1)}%`;
+  const parts: string[] = [];
+  for (const x of r.savers.filter((y) => y.status === "ok" && y.method === "modeled")) parts.push(`${x.name.replace(" (skill)", " skill")} ≈ ${pct(x.cost)} by JetBrains' figure`);
+  const bounds = r.savers.filter((y) => y.status === "ok" && y.method === "upper-bound");
+  if (bounds.length) parts.push(`${bounds.map((x) => `${x.name} ≤ ${pct(x.cost)}`).join(", ")} (best case)`);
+  return parts.join("; ");
 }

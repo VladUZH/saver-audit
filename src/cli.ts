@@ -172,7 +172,7 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   const { copyImage, intentUrl, openExternal, shareText } = await import("./report/share.ts");
-  const missing = () => result.savers.some((x) => x.status === "not installed");
+  const missing = () => result.savers.some((x) => x.status === "not installed" && x.id !== "headroom");
   await keyMenu(
     process.stdout,
     () => [
@@ -250,9 +250,10 @@ async function installFlow(o: InstallFlowOptions): Promise<boolean> {
   const out = process.stdout;
   const bold = (x: string) => (o.color ? `\x1b[1m${x}\x1b[0m` : x);
   const ask = o.ask ?? askLine;
-  const plan = installPlan().filter((c) => !have.has(c.id));
+  // headroom is 1.6 GB and minutes of waiting: only on explicit request (--with-headroom).
+  const plan = installPlan().filter((c) => !have.has(c.id) && (c.id !== "headroom" || o.all));
   if (!plan.length) {
-    out.write("\nAll replayed savers are already installed.\n");
+    out.write(have.has("headroom") || o.all ? "\nAll replayed savers are already installed.\n" : "\nThe quick savers are installed. headroom (1.6 GB, minutes): saver-audit --install-savers --with-headroom\n");
     return false;
   }
   out.write(`\n${bold("Install savers so saver-audit can replay your sessions through them")}\n`);
@@ -264,7 +265,7 @@ async function installFlow(o: InstallFlowOptions): Promise<boolean> {
       out.write(`  ${c.what}: skipped (${c.why})\n`);
       continue;
     }
-    const yes = o.assumeYes ? c.id !== "headroom" || o.all : await ask(`  Install ${c.what} (${c.size})? [y/N] `);
+    const yes = o.assumeYes || (await ask(`  Install ${c.what} (${c.size})? [y/N] `));
     if (!yes) continue;
     const spinner = new Spinner(process.stderr, process.stderr.isTTY === true);
     try {
