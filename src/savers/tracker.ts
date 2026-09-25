@@ -77,8 +77,10 @@ export class SaverTracker {
   private replayable: Set<string>;
   private lookup: ReplayLookup;
   private skillIdx: number;
+  private until?: string;
 
-  constructor(savers: SaverAdapter[], replayable: Set<string>, lookup: ReplayLookup) {
+  constructor(savers: SaverAdapter[], replayable: Set<string>, lookup: ReplayLookup, until?: string) {
+    this.until = until;
     this.savers = savers;
     this.replayable = replayable;
     this.lookup = lookup;
@@ -100,11 +102,14 @@ export class SaverTracker {
     t.pendStart = t.blocks.length;
   }
 
-  output(timeline: string, o: OutputView): void {
+  output(timeline: string, timestamp: string | undefined, o: OutputView): void {
     const t = this.tl(timeline);
     const block = this.zero();
     const index = t.blocks.length;
     t.blocks.push(block);
+    // Context only flows forward: an output after the period end can reach no call in
+    // the period, so it is neither replayed nor counted in coverage.
+    if (this.until && timestamp && timestamp > this.until) return;
     this.toolTokens += o.tokens;
     this.savers.forEach((s, i) => {
       if (!s.appliesTo(o)) return;

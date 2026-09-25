@@ -90,7 +90,7 @@ export class ContextTracker {
         const n = countProxy(b.kind === "text" || b.kind === "tool_result" ? b.text : "");
         if (n) t.pendRaw[bucket] = (t.pendRaw[bucket] ?? 0) + n;
         if (this.savers && b.kind === "tool_result" && b.text) {
-          this.savers.output(turn.timeline, {
+          this.savers.output(turn.timeline, turn.timestamp, {
             source: this.source,
             tool: b.tool,
             category: toolCategory(b.tool),

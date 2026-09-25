@@ -112,3 +112,10 @@ test("savers not installed are reported, not guessed", async () => {
   assert.equal(rtk.cost, 0);
   assert.equal(r.savers.find((s) => s.id === "codegraph")!.status, "ok");
 });
+
+test("outputs after the period end are not replayed or counted", async () => {
+  const early = await runAudit(fixtureOptions({ untilMs: Date.parse("2026-09-20T10:00:05Z") }), undefined, 1, { ids: ["rtk"], tools: FAKE_TOOLS });
+  const rtk = early.savers.find((s) => s.id === "rtk")!;
+  assert.equal(rtk.replay?.total ?? 0, 0, "the pytest output at 10:00:10 is after the period end");
+  assert.equal(rtk.coverage, 0);
+});
