@@ -570,3 +570,26 @@ context-mode `e80601e`. File/line references below are at those commits.
 - **Correction to §3:** the "over 5KB indexed" rule applies only when the agent passes an `intent`. For the upper bound, assume every tool output over 5,000 bytes shrinks to a small excerpt, and say so.
 
 **Not verified:** whether headroom's library path ever sends the beacon; whether prebuilt headroom wheels still fetch ONNX Runtime; caveman CLI and codegraph telemetry defaults for users who skip the installers.
+
+### 8.6 M1 findings from the real logs (2026-09-25)
+
+Measured on this machine's last 30 days: 1,207 files, 38.9k deduplicated calls.
+Aggregates only; no content was read by a person.
+
+- **Claude calibration (open question in §4.2):**
+  - A plain median of A/L drifted with step size, from 2.6 for small steps to 1.5 for large ones on Opus 5.5. That pattern means a fixed per-step overhead that is not logged, not a tokenizer ratio.
+  - A Theil–Sen fit of A = k·L + c gives stable values:
+    - k ≈ 1.48–1.62 for the 4.7+ tokenizer (Opus 5 1.48, Opus 5.5 1.54, Fable 5 1.62, Opus 4.8 1.61), all "good" with thousands of pairs;
+    - c ≈ 565 tokens per step for Opus 5.5 and about 10–110 for the others.
+  - Haiku 4.5 (old tokenizer) had only 12 pairs, with a ratio of about 1.3.
+  - So Claude 4.7+ uses about 1.5× the o200k count, consistent with "about 30% more than the previous Claude tokenizer" if the old one was about 1.2× o200k (inference).
+- **Claude thinking is re-sent:** assuming earlier output tokens (including thinking) stay in the next prompt gave tighter fits than assuming thinking is dropped. The report therefore treats earlier output, including thinking, as re-read context.
+- **Codex (open question 3):** per-pair deltas are unusable for gpt-5.6-sol. About half the pairs show the prompt growing only by the previous output plus about 28 tokens, while about 930 tokens of shell output were logged in between. The output then turns up one call later: Codex sometimes writes `token_count` after the next tool output. Attribution is cumulative, so this only shifts content by one call. OpenAI models use k = 1 (o200k_base is their tokenizer; assumed for gpt-6). `codex-auto-review` pairs gave exactly 1.00.
+- **Attachments:** Claude Code `attachment` records carry reminders, skill listings, CLAUDE.md, deferred-tool lists and attached files. They are sized from their string fields. Three types are excluded as not new prompt text (an assumption, unverified):
+  - `prompt_snapshot`: about 33k chars each, 29% of attachment text, presumably a system-prompt snapshot;
+  - `hook_success`;
+  - `structured_output`.
+- **Performance:**
+  - BPE is quadratic in the length of a single pre-token, so base64 blobs and minified code dominated CPU. Counting non-space runs of 400+ characters in 400-character slices halved single-thread time (90 s → 48 s) and adds at most one token per slice.
+  - Worker threads (cores − 1) bring a 30-day run to 6.8–7.2 s wall time here.
+  - One Claude transcript is 587 MB, so readers must stream (it breaks `readFileSync`).
