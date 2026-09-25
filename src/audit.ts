@@ -1,11 +1,16 @@
 // Orchestration: files → call records → dedupe → calibrate → price → aggregate.
 import { ContextTracker, type BucketKey, type CallRecord } from "./accounting/buckets.ts";
-import { attribute, callCost, RESIDUAL } from "./accounting/cost.ts";
+import { attribute, callCost, contextRates, RESIDUAL } from "./accounting/cost.ts";
 import { calibrate, type Calibration } from "./accounting/tokens.ts";
 import { findClaudeFiles, parseClaudeFile } from "./sources/claude-code.ts";
 import { findCodexFiles, parseCodexFile } from "./sources/codex.ts";
 import { promptTokens, type Session, type Source, type SourceEvent } from "./sources/types.ts";
 import { ratesFor, resolveModel, type PriceTable } from "./prices/table.ts";
+import { CAVEMAN_SKILL_OUTPUT_CUT, CAVEMAN_SKILL_TOKENS, saverIndex, type SaverAdapter } from "./savers/registry.ts";
+import type { ReplayStats, ReplayTool } from "./savers/replay.ts";
+import { SaverTracker, type SaverBlock } from "./savers/tracker.ts";
+import { loadReplayCache } from "./savers/cache.ts";
+import type { ReplayJob } from "./savers/types.ts";
 import { join } from "node:path";
 
 export interface AuditOptions {
@@ -24,6 +29,23 @@ export interface FileResult {
   records: CallRecord[];
   skippedLines: number;
   unreadable?: boolean;
+  savers?: FileSavers;
+}
+
+/** Saver data from one file: per-timeline blocks, unresolved replays, coverage. */
+export interface FileSavers {
+  timelines: Record<string, { blocks: SaverBlock[] }>;
+  jobs: ReplayJob[];
+  covered: number[];
+  toolTokens: number;
+}
+
+/** Which savers to audit, passed to the parsing workers. */
+export interface SaverConfig {
+  ids: string[];
+  /** Replayed savers whose binary is installed. */
+  replayable: string[];
+  cacheFile?: string;
 }
 
 export interface Amount {
@@ -48,6 +70,39 @@ export interface ModelRow extends Amount {
   calls: number;
 }
 
+export interface SaverRow {
+  id: string;
+  name: string;
+  repo: string;
+  method: "replayed" | "modeled" | "upper-bound";
+  /** Saver version the adapter matches. */
+  version: string;
+  licence: string;
+  /** Replayed savers: the installed version, or undefined when not installed. */
+  installed?: string;
+  status: "ok" | "not installed";
+  covers: string;
+  assumption?: string;
+  /** Share of tool-output tokens the saver could act on. */
+  coverage: number;
+  /** Billed tokens saved, re-reads included (negative = the saver adds tokens). */
+  tokens: number;
+  cost: number;
+  /** Part of `cost` from Codex sessions (hypothetical when codexHypothetical). */
+  codexCost: number;
+  codexHypothetical: boolean;
+  replay?: ReplayStats;
+  /** Unique outputs the replayed saver applies to (sampled + extrapolated). */
+  replayTotal?: number;
+}
+
+/** Saver audit inputs gathered by the caller (tool detection, replay stats). */
+export interface SaverRun {
+  savers: SaverAdapter[];
+  tools: Map<string, ReplayTool>;
+  stats: Map<string, ReplayStats>;
+}
+
 export interface AuditResult {
   period: { since: string; until: string };
   looked: string[];
@@ -61,12 +116,14 @@ export interface AuditResult {
   waste: WasteRow[];
   projects: string[];
   calibration: Calibration[];
+  savers: SaverRow[];
   prices: { date: string; sources: string[] };
   skipped: { lines: number; unreadableFiles: number; duplicateCalls: number; outsidePeriod: number; notBillable: number };
 }
 
-export async function processFile(file: string, source: Source, index: number): Promise<FileResult> {
-  const tracker = new ContextTracker(index);
+export async function processFile(file: string, source: Source, index: number, savers?: SaverConfig): Promise<FileResult> {
+  const st = savers && savers.ids.length ? new SaverTracker(saverIndex(savers.ids), new Set(savers.replayable), loadReplayCache(savers.cacheFile)) : undefined;
+  const tracker = new ContextTracker(index, source, st);
   const res: FileResult = { file, source, records: tracker.records, skippedLines: 0 };
   const events: AsyncGenerator<SourceEvent> = source === "claude-code" ? parseClaudeFile(file) : parseCodexFile(file);
   try {
@@ -80,6 +137,7 @@ export async function processFile(file: string, source: Source, index: number): 
     // Unreadable file (deleted mid-run, permissions): keep what was parsed.
     res.unreadable = true;
   }
+  if (st) res.savers = { timelines: st.timelines, jobs: st.jobs, covered: st.covered, toolTokens: st.toolTokens };
   return res;
 }
 
@@ -122,7 +180,20 @@ function amount(): Amount {
   return { tokens: 0, cost: 0 };
 }
 
-export function summarize(opts: AuditOptions, results: FileResult[]): AuditResult {
+/** Prefix sums of a timeline's saver deltas: pd (o200k, ×k later) and pr (real tokens). */
+function prefixes(blocks: SaverBlock[], n: number): { pd: number[][]; pr: number[][] } {
+  const pd = Array.from({ length: n }, () => new Array<number>(blocks.length + 1).fill(0));
+  const pr = Array.from({ length: n }, () => new Array<number>(blocks.length + 1).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let b = 0; b < blocks.length; b++) {
+      pd[i]![b + 1] = pd[i]![b]! + blocks[b]!.d[i]!;
+      pr[i]![b + 1] = pr[i]![b]! + blocks[b]!.r[i]!;
+    }
+  }
+  return { pd, pr };
+}
+
+export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: SaverRun): AuditResult {
   // Dedupe calls across and within files; keep the copy with the largest totals.
   const byKey = new Map<string, CallRecord>();
   let duplicateCalls = 0;
@@ -139,10 +210,15 @@ export function summarize(opts: AuditOptions, results: FileResult[]): AuditResul
   }
   const records = [...byKey.values()];
 
-  // Calibrate on every unique call with a comparable predecessor.
+  const since = new Date(opts.sinceMs).toISOString();
+  const until = new Date(opts.untilMs).toISOString();
+  const inPeriod = (rec: CallRecord) => !rec.timestamp || (rec.timestamp >= since && rec.timestamp <= until);
+
+  // Calibrate on unique calls in the period with a comparable predecessor, so the same
+  // period always gives the same fit.
   const pairs = [];
   for (const rec of records) {
-    if (!rec.prev) continue;
+    if (!rec.prev || !inPeriod(rec)) continue;
     const appended = promptTokens(rec.call.usage) - promptTokens(rec.prev.call.usage) - rec.prev.call.usage.output;
     pairs.push({ model: rec.model, appended, proxy: rec.proxyAppended });
   }
@@ -155,9 +231,10 @@ export function summarize(opts: AuditOptions, results: FileResult[]): AuditResul
   const counted = new Set<number>();
   let outsidePeriod = 0;
   let notBillable = 0;
-  const since = new Date(opts.sinceMs).toISOString();
-  const until = new Date(opts.untilMs).toISOString();
-
+  const savers = saverRun?.savers ?? [];
+  const saved = savers.map(() => ({ tokens: 0, cost: 0, codexCost: 0 }));
+  const prefixCache = new Map<string, { pd: number[][]; pr: number[][] }>();
+  const skillIdx = savers.findIndex((sv) => sv.id === "caveman-skill");
   const addBucket = (key: BucketKey, tokens: number, cost: number, file: number) => {
     let b = buckets.get(key);
     if (!b) buckets.set(key, (b = { tokens: 0, cost: 0, projects: new Set() }));
@@ -171,7 +248,7 @@ export function summarize(opts: AuditOptions, results: FileResult[]): AuditResul
       notBillable++;
       continue;
     }
-    if (rec.timestamp && (rec.timestamp < since || rec.timestamp > until)) {
+    if (!inPeriod(rec)) {
       outsidePeriod++;
       continue;
     }
@@ -202,7 +279,39 @@ export function summarize(opts: AuditOptions, results: FileResult[]): AuditResul
     billing.cacheRead.cost += c.cacheRead;
     billing.output.cost += c.output;
     billing.webSearch.cost += c.webSearch;
-    for (const [key, share] of attribute(rec, calib.get(rec.model)!.k, c)) addBucket(key, share.tokens, share.cost, rec.file);
+    const k = calib.get(rec.model)!.k;
+    for (const [key, share] of attribute(rec, k, c)) addBucket(key, share.tokens, share.cost, rec.file);
+    const fs = results[rec.file]?.savers;
+    if (savers.length && rec.range && fs) {
+      const tl = fs.timelines[rec.range.tl];
+      const pk = `${rec.file}\0${rec.range.tl}`;
+      let pre = prefixCache.get(pk);
+      if (!pre && tl) prefixCache.set(pk, (pre = prefixes(tl.blocks, savers.length)));
+      const rates = contextRates(rec, k, c);
+      const { ctxStart, newStart, newEnd } = rec.range;
+      const codex = results[rec.file]!.source === "codex";
+      for (let i = 0; i < savers.length; i++) {
+        let tok = 0;
+        let usd = 0;
+        if (pre) {
+          const oldD = k * (pre.pd[i]![newStart]! - pre.pd[i]![ctxStart]!) + (pre.pr[i]![newStart]! - pre.pr[i]![ctxStart]!);
+          const newD = k * (pre.pd[i]![newEnd]! - pre.pd[i]![newStart]!) + (pre.pr[i]![newEnd]! - pre.pr[i]![newStart]!);
+          tok += oldD * rates.oldTokens + newD * rates.newTokens;
+          usd += oldD * rates.oldCost + newD * rates.newCost;
+        }
+        if (i === skillIdx) {
+          // Output style: fewer output tokens now; the skill text is in every prompt.
+          tok += u.output * CAVEMAN_SKILL_OUTPUT_CUT;
+          usd += c.output * CAVEMAN_SKILL_OUTPUT_CUT;
+          const overhead = CAVEMAN_SKILL_TOKENS * k;
+          tok -= overhead * (rec.range.first ? rates.newTokens : rates.oldTokens);
+          usd -= overhead * (rec.range.first ? rates.newCost : rates.oldCost);
+        }
+        saved[i]!.tokens += tok;
+        saved[i]!.cost += usd;
+        if (codex) saved[i]!.codexCost += usd;
+      }
+    }
     addBucket("output", u.output, c.output, rec.file);
     if (u.webSearches) addBucket("fees", 0, c.webSearch, rec.file);
   }
@@ -252,7 +361,41 @@ export function summarize(opts: AuditOptions, results: FileResult[]): AuditResul
     waste,
     projects: [...projects].sort(),
     calibration: modelNames.filter((m) => models.has(m)).map((m) => calib.get(m)!),
+    savers: saverRows(savers, saved, results, saverRun),
     prices: { date: opts.prices.date, sources: opts.prices.sources },
     skipped: { lines: results.reduce((n, r) => n + r.skippedLines, 0), unreadableFiles: results.filter((r) => r.unreadable).length, duplicateCalls, outsidePeriod, notBillable },
   };
+}
+
+function saverRows(savers: SaverAdapter[], saved: Array<{ tokens: number; cost: number; codexCost: number }>, results: FileResult[], run?: SaverRun): SaverRow[] {
+  let toolTokens = 0;
+  const covered = savers.map(() => 0);
+  for (const r of results) {
+    if (!r.savers) continue;
+    toolTokens += r.savers.toolTokens;
+    r.savers.covered.forEach((n, i) => (covered[i]! += n));
+  }
+  return savers.map((sv, i) => {
+    const tool = run?.tools.get(sv.id);
+    const notInstalled = sv.method === "replayed" && !tool;
+    return {
+      id: sv.id,
+      name: sv.name,
+      repo: sv.repo,
+      method: sv.method,
+      version: sv.version,
+      licence: sv.licence,
+      installed: sv.method === "replayed" && tool ? tool.version ?? "version unknown" : undefined,
+      status: notInstalled ? "not installed" : "ok",
+      covers: sv.covers,
+      assumption: sv.assumption,
+      coverage: toolTokens ? covered[i]! / toolTokens : 0,
+      tokens: notInstalled ? 0 : saved[i]!.tokens,
+      cost: notInstalled ? 0 : saved[i]!.cost,
+      codexCost: notInstalled ? 0 : saved[i]!.codexCost,
+      codexHypothetical: sv.codexHypothetical,
+      replay: run?.stats.get(sv.id),
+      replayTotal: run?.stats.get(sv.id)?.total,
+    };
+  });
 }

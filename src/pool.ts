@@ -3,7 +3,10 @@
 import { statSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { Worker } from "node:worker_threads";
-import { findFiles, processFile, summarize, type AuditOptions, type AuditResult, type FileResult } from "./audit.ts";
+import { findFiles, processFile, summarize, type AuditOptions, type AuditResult, type FileResult, type SaverConfig } from "./audit.ts";
+import { saverIndex } from "./savers/registry.ts";
+import { detectReplayTools, runReplays, type ReplayTool } from "./savers/replay.ts";
+import { defaultReplayCachePath } from "./savers/cache.ts";
 import type { Source } from "./sources/types.ts";
 
 export const WORKER_FLAG = "saver-audit-worker";
@@ -12,17 +15,18 @@ interface Job {
   file: string;
   source: Source;
   index: number;
+  savers?: SaverConfig;
 }
 
 /**
  * Runs processFile over all files. `entry` is the URL of a module that calls
  * runWorker() when started as a worker (the CLI bundle itself).
  */
-export async function processAll(files: Array<{ file: string; source: Source }>, entry: URL | undefined, jobs: number): Promise<FileResult[]> {
+export async function processAll(files: Array<{ file: string; source: Source }>, entry: URL | undefined, jobs: number, savers?: SaverConfig): Promise<FileResult[]> {
   const results: FileResult[] = new Array(files.length);
-  const queue: Job[] = files.map((f, index) => ({ ...f, index }));
+  const queue: Job[] = files.map((f, index) => ({ ...f, index, savers }));
   if (!entry || jobs <= 1 || files.length < 2) {
-    for (const j of queue) results[j.index] = await processFile(j.file, j.source, j.index);
+    for (const j of queue) results[j.index] = await processFile(j.file, j.source, j.index, j.savers);
     return results;
   }
   // Largest files first, so one big file does not finish last on its own.
@@ -65,11 +69,36 @@ export function defaultJobs(): number {
 /** Worker side: parse each file it is sent and post the result back. */
 export function runWorker(port: { on(ev: "message", f: (j: Job) => void): void; postMessage(v: unknown): void }): void {
   port.on("message", async (job: Job) => {
-    const r = await processFile(job.file, job.source, job.index);
+    const r = await processFile(job.file, job.source, job.index, job.savers);
     port.postMessage({ ...r, index: job.index });
   });
 }
 
-export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJobs()): Promise<AuditResult> {
-  return summarize(opts, await processAll(findFiles(opts), entry, jobs));
+export interface SaverOptions {
+  /** Saver ids to audit; empty = none. */
+  ids: string[];
+  /** Replay every output instead of a sample. */
+  full?: boolean;
+  /** Replay cache file; undefined disables the cache. */
+  cacheFile?: string;
+  /** Installed saver binaries; detected when undefined. */
+  tools?: Map<string, ReplayTool>;
+  log?: (s: string) => void;
 }
+
+export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJobs(), saverOpts?: SaverOptions): Promise<AuditResult> {
+  const ids = saverOpts?.ids ?? [];
+  if (!ids.length) return summarize(opts, await processAll(findFiles(opts), entry, jobs));
+  const savers = saverIndex(ids);
+  const tools = saverOpts?.tools ?? detectReplayTools();
+  const config: SaverConfig = {
+    ids: savers.map((s) => s.id),
+    replayable: savers.filter((s) => s.method === "replayed" && tools.has(s.id)).map((s) => s.id),
+    cacheFile: saverOpts?.cacheFile,
+  };
+  const results = await processAll(findFiles(opts), entry, jobs, config);
+  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: Math.max(1, jobs), log: saverOpts?.log });
+  return summarize(opts, results, { savers, tools, stats });
+}
+
+export { defaultReplayCachePath };

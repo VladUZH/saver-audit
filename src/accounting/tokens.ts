@@ -44,8 +44,9 @@ export interface CalibrationPair {
 }
 
 export interface Calibration {
-  /** Model id, or a tokenizer family when the model had too few pairs. */
   model: string;
+  /** What k was fitted on: the model itself, or its tokenizer family when it had too few pairs. */
+  fittedOn: string;
   /** Multiply o200k counts by k to estimate the model's tokens. */
   k: number;
   /** Fitted per-step tokens not in the logs (Claude). */
@@ -111,7 +112,7 @@ function fit(label: string, points: Array<[number, number]>, basis: Calibration[
   const spread = (p75 - p25) / k;
   const n = points.length;
   const quality = k > 0 && n >= MIN_PAIRS && spread <= 0.5 ? "good" : k > 0 && n >= 10 && spread <= 1 ? "fair" : "poor";
-  return { model: label, k: k > 0 ? k : 1, c, n, p25, p75, basis, quality };
+  return { model: label, fittedOn: label, k: k > 0 ? k : 1, c, n, p25, p75, basis, quality };
 }
 
 /**
@@ -135,14 +136,14 @@ export function calibrate(pairs: CalibrationPair[], models: string[]): Map<strin
   const out = new Map<string, Calibration>();
   for (const model of models) {
     if (!model.startsWith("claude")) {
-      out.set(model, { model, k: 1, c: 0, n: 0, p25: 1, p75: 1, basis: "tokenizer", quality: "good" });
+      out.set(model, { model, fittedOn: "o200k_base", k: 1, c: 0, n: 0, p25: 1, p75: 1, basis: "tokenizer", quality: "good" });
       continue;
     }
     const own = byModel.get(model) ?? [];
     const fam = byFamily.get(tokenizerFamily(model)) ?? [];
     if (own.length >= MIN_PAIRS) out.set(model, fit(model, own, "model"));
-    else if (fam.length >= 10) out.set(model, fit(tokenizerFamily(model), fam, "family"));
-    else out.set(model, { model, k: 1, c: 0, n: own.length, p25: 1, p75: 1, basis: "none", quality: "poor" });
+    else if (fam.length >= 10) out.set(model, { ...fit(tokenizerFamily(model), fam, "family"), model });
+    else out.set(model, { model, fittedOn: "none", k: 1, c: 0, n: own.length, p25: 1, p75: 1, basis: "none", quality: "poor" });
   }
   return out;
 }

@@ -4,7 +4,8 @@
 // counts; calibration and prices are applied later in attribute().
 import { toolCategory } from "./categories.ts";
 import { countProxy } from "./tokens.ts";
-import type { Block, Call, Turn, UserKind } from "../sources/types.ts";
+import type { Block, Call, Source, Turn, UserKind } from "../sources/types.ts";
+import type { CallRange, SaverTracker } from "../savers/tracker.ts";
 
 /** Bucket keys: fixed labels, or `tool:<Category>|<shell family>`. */
 export type BucketKey = string;
@@ -24,6 +25,8 @@ export interface CallRecord {
   /** Calibration: previous call in the same context and model, if any. */
   prev?: CallRecord;
   proxyAppended: number;
+  /** Saver block range, when savers are being audited. */
+  range?: CallRange;
 }
 
 interface Timeline {
@@ -58,9 +61,13 @@ export class ContextTracker {
   readonly records: CallRecord[] = [];
   private timelines = new Map<string, Timeline>();
   private file: number;
+  private source: Source;
+  private savers?: SaverTracker;
 
-  constructor(file: number) {
+  constructor(file: number, source: Source = "claude-code", savers?: SaverTracker) {
     this.file = file;
+    this.source = source;
+    this.savers = savers;
   }
 
   private tl(name: string): Timeline {
@@ -71,6 +78,7 @@ export class ContextTracker {
 
   compact(timeline: string): void {
     this.timelines.set(timeline, { ctxRaw: {}, ctxReal: 0, pendRaw: {}, pendReal: 0 });
+    this.savers?.compact(timeline);
   }
 
   turn(turn: Turn): void {
@@ -81,6 +89,18 @@ export class ContextTracker {
         if (!bucket) continue;
         const n = countProxy(b.kind === "text" || b.kind === "tool_result" ? b.text : "");
         if (n) t.pendRaw[bucket] = (t.pendRaw[bucket] ?? 0) + n;
+        if (this.savers && b.kind === "tool_result" && b.text) {
+          this.savers.output(turn.timeline, {
+            source: this.source,
+            tool: b.tool,
+            category: toolCategory(b.tool),
+            family: b.family,
+            command: b.command,
+            text: b.text,
+            raw: b.raw,
+            tokens: n,
+          });
+        }
       }
       return;
     }
@@ -100,6 +120,7 @@ export class ContextTracker {
       newReal: t.pendReal,
       prev: t.prev && t.prev.model === call.model ? t.prev : undefined,
       proxyAppended,
+      range: this.savers?.call(turn.timeline, call.usage.output),
     };
     this.records.push(rec);
     add(t.ctxRaw, t.pendRaw);
