@@ -7,18 +7,23 @@ import { runAudit } from "../src/pool.ts";
 import { fixtureOptions } from "./helpers.ts";
 
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
-const ALLOWED = new Set(["prices/update.ts"]); // only reached with --update-prices
+// Only reached on explicit request: --update-prices, and --install-savers / the [i] key.
+const ALLOWED = new Set(["prices/update.ts", "savers/install.ts"]);
 const NETWORK = /\bfetch\s*\(|from\s+["']node:(http|https|http2|net|tls|dgram|dns)["']|from\s+["'](http|https|net|undici|axios|node-fetch)["']|WebSocket|XMLHttpRequest/;
 
 function files(dir: string, rel = ""): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name), `${rel}${e.name}/`) : [`${rel}${e.name}`]));
 }
 
-test("runtime code never touches the network outside --update-prices", () => {
+test("runtime code never touches the network outside --update-prices and --install-savers", () => {
   const offenders = files(SRC).filter((f) => !ALLOWED.has(f) && NETWORK.test(readFileSync(join(SRC, f), "utf8")));
   assert.deepEqual(offenders, []);
   const cli = readFileSync(join(SRC, "cli.ts"), "utf8");
   assert.match(cli, /if \(values\["update-prices"\]\) \{\s*const \{ updatePrices \} = await import\("\.\/prices\/update\.ts"\)/, "update module loaded only behind the flag");
+  // The network modules are never imported statically, only loaded on request.
+  const staticImporters = files(SRC).filter((f) => /^import[^;]*from\s+["'][^"']*(prices\/update|savers\/install)\.ts["']/m.test(readFileSync(join(SRC, f), "utf8")));
+  assert.deepEqual(staticImporters, []);
+  assert.match(cli, /await import\("\.\/savers\/install\.ts"\)/);
 });
 
 test("an audit run makes no fetch call", async () => {

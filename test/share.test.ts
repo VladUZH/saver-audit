@@ -23,9 +23,9 @@ test("the pre-filled post holds numbers only and fits a post", async () => {
   const text = shareText(r);
   assert.doesNotMatch(text, SECRET);
   for (const p of r.projects) assert.equal(text.includes(p), false);
-  assert.match(text, /\$0\.04 of API-equivalent tokens in 29 days/);
-  assert.match(text, /Claude Code \+ Codex/);
-  assert.match(text, /Best measured token saver: /);
+  assert.match(text, /^I replayed 29 days of my Claude Code \+ Codex sessions through popular token savers:/);
+  assert.match(text, /\nheadroom −[\d.]+% \(\$0\.\d\d\)/, "measured savers lead, with % and $");
+  assert.match(text, /of \$0\.04 API-equivalent spend\./);
   assert.match(text, /npx saver-audit$/);
   // X counts every link as 23 characters.
   assert.ok(text.length + 1 + 23 <= 280, `${text.length} characters`);
@@ -47,4 +47,14 @@ test("the short view: headline, where it went, savers, card; nothing private", a
   assert.match(out, /What token savers would cut/);
   assert.match(out, /Share card: saver-audit\.png/);
   assert.ok(out.split("\n").length < 30, "fits one screen");
+});
+
+test("without installed savers the post uses modeled and best-case numbers, labelled", async () => {
+  const r = await runAudit(fixtureOptions(), undefined, 1, { ids: SAVERS.map((s) => s.id), tools: new Map() });
+  const text = shareText(r);
+  assert.match(text, /^My AI coding agents \(Claude Code \+ Codex\) used \$0\.04/);
+  assert.match(text, /Best case \(changes how the agent works\): at most −[\d.]+% \(context-mode\)/);
+  if (/caveman skill/.test(text)) assert.match(text, /caveman skill [−+][\d.]+% [^\n]*modeled/);
+  assert.doesNotMatch(text, /replayed/);
+  assert.ok(text.length + 1 + 23 <= 280);
 });
