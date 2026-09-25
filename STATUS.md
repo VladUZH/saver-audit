@@ -5,8 +5,9 @@ what is blocked and why, and decisions made where the docs were silent.
 
 ## Current milestone
 
-M3 — share card and README: **done** (acceptance met, see log 2026-09-25). Next: M4 (launch prep).
-Launch numbers still need the headroom full replay (see Human steps); rtk and caveman are fully replayed.
+M4 — launch prep: **in progress**. Done: npm publish prep (stops at GATE), Show HN fact sheet,
+Reddit briefs, X thread draft, share-card issue form. Waiting: headroom full replay (running,
+started 2026-09-25 17:15, ETA about 19:20), then final numbers, README/card refresh, terminal GIF.
 
 ## Log
 
@@ -139,6 +140,25 @@ Launch numbers still need the headroom full replay (see Human steps); rtk and ca
   Helpers moved to `src/args.ts` / `test/helpers.ts`; new test fails if anything imports
   `src/cli.ts`.
 
+- 2026-09-25 — headroom full replay started on the founder's OK (`--savers headroom
+  --full-replay`, same window; `caffeinate -i`; log in
+  `~/.saver-audit-tools/headroom-full-replay.log`). Added a cache checkpoint every 250
+  outputs first, so an interruption resumes. Speed: 250 outputs in about 65 s → 29,731
+  outputs in about 2 h. Costs no money: local model, offline, no API calls.
+- 2026-09-25 — **M4 prep (1–4):**
+  - npm: version 0.1.0; repository/homepage/bugs/author; MIT `LICENSE` added (was
+    missing); version read from package.json; `prepublishOnly` = typecheck + test + build;
+    README image now an absolute URL (renders on npmjs.com). `npm publish --dry-run` →
+    43/43 tests, 10 files, 2.4 MB, no logs or fixtures. Bundle run under Node 20.20.2 on
+    fixtures (report, workers, card) → works, so `engines: >=20` holds. `npm whoami` →
+    E401 (not logged in): publishing is the founder's GATE.
+  - `.github/ISSUE_TEMPLATE/share-your-card.yml` (validated YAML) and repo label
+    `share-card` created.
+  - `docs/launch/show-hn-fact-sheet.md`, `docs/launch/reddit-briefs.md`,
+    `docs/launch/x-thread.md`; `docs/04-launch.md` links them. Codex-only and
+    Claude-only numbers computed against a copy of the replay cache (so the running
+    headroom replay's cache is not touched).
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -228,7 +248,19 @@ Launch numbers still need the headroom full replay (see Human steps); rtk and ca
   marks headroom as a 1% sample; the card image in `assets/readme-card.png` is from the
   same run (aggregates only).
 
+- 2026-09-25 (M4) — HN and Reddit get fact sheets and briefs, not ready-to-paste text: HN
+  bans AI-written or AI-edited posts, and several target subs ban LLM-written copy. X gets a
+  draft marked "rewrite in your voice". Unverified X handles are not tagged.
+- 2026-09-25 (M4) — Copyright holder in LICENSE: "VladUZH" (the git user); change if you
+  want your legal name.
+
 ## Human steps waiting (GATE)
+
+- **Publish to npm** (after the final numbers are in the README, or now to reserve the
+  name): `npm login`, then from the repo `npm publish` (prepublishOnly runs typecheck,
+  tests and build). Verify with `npx saver-audit@0.1.0 --version` in an empty folder.
+- **Write the Show HN, Reddit posts and X thread yourself** from `docs/launch/` (HN and
+  several subs ban AI-written text). Plan: Show HN Sunday 2026-10-04 12:00–14:00 UTC.
 
 - ~~Delete one stray folder `~/.headroom`~~ (done by the founder 2026-09-25; verified gone).
 - **headroom full replay: your OK needed** (about 30,000 outputs at up to ~1 s each on

@@ -45,3 +45,17 @@ reached; otherwise keep the audience and move to bet 2 (offline-ify).
 1. Push to the public GitHub repo.
 2. `npm publish`.
 3. Post, following the calendar in `05-distribution.md`.
+
+## Launch kit (prepared 2026-09-25, M4)
+
+Numbers are from the founder's run over 2026-08-26 → 2026-09-25. `⟦HEADROOM⟧` marks the
+figures that wait for the headroom full replay.
+
+- [Show HN fact sheet](launch/show-hn-fact-sheet.md): numbers, method, what is new,
+  likely questions, posting checklist. Facts only; the founder writes the post.
+- [Reddit briefs](launch/reddit-briefs.md): one brief per sub and day (r/ClaudeCode,
+  r/codex, r/ClaudeAI, r/LLMDevs or r/LocalLLaMA, Showcase Sunday subs), with Claude-only
+  and Codex-only numbers. Briefs, not posts.
+- [X thread draft](launch/x-thread.md): a draft to rewrite in the founder's voice.
+- "Share your card" issue form: `.github/ISSUE_TEMPLATE/share-your-card.yml`.
+- Still to do: the 20–30 s terminal GIF (after the final numbers).
