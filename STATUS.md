@@ -196,6 +196,27 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
     resolving and unpacking the package on a busy machine; local report runs take 7–9 s.
     Not claiming "under 10 s via npx" until measured on a quiet machine.
 
+- 2026-09-25 — **0.2.0 (founder's feedback after testing 0.1.0 in their terminal):**
+  1. Report appears line by line in a terminal (like the demo GIF), about 1.5 s; instant
+     when piped, `--json`, CI, `NO_ANIMATION` or `--no-animation`.
+  2. Short one-screen view by default in a terminal, then a key menu: `[f]` full report,
+     `[s]` share on X, `[o]` open card, `[q]` quit. `--full` / `--short` flags. Piped
+     output stays the full report.
+  3. Spinner on stderr while running: file progress, replay progress, card drawing.
+  4. Share card written by default in a terminal (`saver-audit.png` in the current
+     folder, temp-folder fallback); `--no-card` to skip; non-interactive only with `--card`.
+  5. Share on X: X's intent URL can pre-fill text but cannot attach images, so `s` opens
+     the pre-filled post (numbers only, 246/280 characters on the founder's data) and
+     copies the card to the clipboard (macOS osascript, Windows PowerShell, Linux
+     wl-copy/xclip) for a paste; if copying fails it reveals the file. No upload: that
+     would break "nothing leaves your machine".
+  Verified: `npm test` → 48/48 (new: share text numbers-only and ≤ 280 with link, intent
+  URL encoding, short view one screen and private, no default card when non-interactive).
+  Real interactive run driven in a pseudo-terminal with `expect` (spinner → short view →
+  menu → `f` full report → `q` exits; card written by default), 13.95 s incl. reveals.
+  Clipboard copy tested on macOS: clipboard holds `«class PNGf»`. Browser/X not opened in
+  testing. Demo GIF re-recorded with the short view (860×608, 100 KB).
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -288,10 +309,17 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
 - 2026-09-25 (M4) — HN and Reddit get fact sheets and briefs, not ready-to-paste text: HN
   bans AI-written or AI-edited posts, and several target subs ban LLM-written copy. X gets a
   draft marked "rewrite in your voice". Unverified X handles are not tagged.
+- 2026-09-25 (0.2.0) — These five changes are beyond the original spec; built on the
+  founder's explicit request. The default card goes to the current folder (not a hidden
+  path) so people find it to share.
 - 2026-09-25 (M4) — Copyright holder in LICENSE: "VladUZH" (the git user); change if you
   want your legal name.
 
 ## Human steps waiting (GATE)
+
+- **Publish 0.2.0** from your own terminal (Touch ID needs an interactive prompt):
+  `cd ~/Documents/Programming/saver-audit && npm publish` (prepublishOnly runs checks).
+  Then try `npx saver-audit@0.2.0` and press `s` once to check the X flow end to end.
 
 - ~~Publish to npm~~ (done 2026-09-25, 0.1.0; see log). For the next release: run
   `npm publish` in your own terminal (passkey 2FA needs an interactive prompt).

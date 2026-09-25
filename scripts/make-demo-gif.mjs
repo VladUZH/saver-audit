@@ -9,14 +9,17 @@ import { writeFileSync } from "node:fs";
 
 const [out, ...args] = process.argv.slice(2);
 if (!out) throw new Error("usage: make-demo-gif.mjs <out.gif> [saver-audit args…]");
-const report = execFileSync(process.execPath, ["dist/cli.js", ...args], {
+// The short view is what a terminal shows by default; the menu line below is what an
+// interactive run prints after it (the recording cannot wait for keys).
+const report = execFileSync(process.execPath, ["dist/cli.js", "--short", "--no-card", ...args], {
   encoding: "utf8",
   env: { ...process.env, FORCE_COLOR: "1" },
   maxBuffer: 1 << 26,
 });
 
-const WIDTH = 124;
-const lines = report.replace(/\n$/, "").split("\n");
+const WIDTH = 100;
+const MENU = "\x1b[1;33m[f]\x1b[0m full report   \x1b[1;33m[s]\x1b[0m share on X   \x1b[1;33m[o]\x1b[0m open card   \x1b[1;33m[q]\x1b[0m quit";
+const lines = [...report.replace(/\n$/, "").split("\n"), "Share card: \x1b[1msaver-audit.png\x1b[0m", "", MENU];
 const events = [];
 let t = 0.6;
 const emit = (s) => events.push([Number(t.toFixed(3)), "o", s]);
@@ -36,7 +39,7 @@ for (const line of lines) {
 }
 t += 5;
 emit("");
-const HEIGHT = 44; // the report scrolls; the last screen holds on the saver table and caveats
+const HEIGHT = 30; // the report scrolls; the last screen holds on the saver table and caveats
 const header = { version: 2, width: WIDTH, height: HEIGHT, env: { TERM: "xterm-256color" } };
 const cast = out.replace(/\.gif$/, ".cast");
 writeFileSync(cast, [JSON.stringify(header), ...events.map((e) => JSON.stringify(e))].join("\n") + "\n");

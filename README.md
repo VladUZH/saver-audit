@@ -16,6 +16,14 @@ saver-audit reads the session logs that Claude Code (`~/.claude/projects`) and C
 
 Nothing leaves your machine. The only network call is the one you ask for with `--update-prices`.
 
+**In a terminal:**
+- **Short view:** you get one screen with your total, where it went, and what each saver would cut.
+- **Share card:** `saver-audit.png` is written next to you. It holds numbers only.
+- **Keys:**
+  - `f` shows the full report;
+  - `o` opens the card;
+  - `s` opens a post on X with your numbers filled in and puts the card on your clipboard, so you paste it (⌘V / Ctrl+V) and post. X links can't attach images, so the card goes via the clipboard. saver-audit uploads nothing; your browser opens x.com only when you press `s`.
+
 ![saver-audit running on the author's logs](https://raw.githubusercontent.com/VladUZH/saver-audit/main/assets/demo.gif)
 
 ## Results on the author's own logs
@@ -90,10 +98,13 @@ Offline replay can't show whether a saver changes how the agent behaves: extra t
 
 ```
 saver-audit [--last 30d | --since 2026-09-01] [--until 2026-09-25] [--source claude-code|codex|all]
-            [--json] [--card [path]] [--show-projects] [--update-prices]
+            [--full | --short | --json] [--card [path] | --no-card] [--no-animation]
+            [--show-projects] [--update-prices]
             [--savers rtk,caveman-engine,headroom,caveman-skill,codegraph,context-mode]
             [--no-savers] [--full-replay] [--verbose]
 ```
+
+In a terminal the default is the short view with the key menu, plus a card. When piped (or in CI) you get the full report and no card unless you pass `--card`.
 
 ## Savers you want replayed must be installed
 
@@ -120,4 +131,4 @@ What saver-audit adds:
 
 ## Status
 
-Early release (0.1.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Early release (0.2.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
