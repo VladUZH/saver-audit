@@ -1,0 +1,87 @@
+// Normalized model shared by all sources. Parsers stream these events; nothing
+// downstream keeps text longer than it takes to count or transform it.
+
+export type Source = "claude-code" | "codex";
+
+export interface Session {
+  source: Source;
+  id: string;
+  file: string;
+  /** Basename of the working directory. Only shown with --show-projects. */
+  project?: string;
+  /** True for subagent / sidechain transcripts and Codex child threads. */
+  isSubagent: boolean;
+  started?: string;
+}
+
+export type Block =
+  | { kind: "text"; text: string }
+  | { kind: "tool_use"; tool: string; id?: string; input: unknown }
+  | { kind: "tool_result"; tool: string; family: string; text: string; id?: string; isError?: boolean };
+
+/**
+ * Usage of one API call, normalized to Claude semantics: `input` is the uncached
+ * remainder, so the full prompt is input + cacheWrite + cacheRead.
+ */
+export interface Usage {
+  input: number;
+  cacheWrite: number;
+  /** Part of cacheWrite written with the 1-hour TTL (priced at 2x input). */
+  cacheWrite1h: number;
+  cacheRead: number;
+  output: number;
+  /** Part of output that was thinking/reasoning, when the log says so. */
+  reasoning: number;
+  webSearches: number;
+}
+
+export interface Call {
+  /** Dedupe key: Claude message.id|requestId; Codex file#ordinal. */
+  key: string;
+  model: string;
+  /** Mutable: a later duplicate line may raise these numbers (max per field). */
+  usage: Usage;
+  /** Price multiplier from fast mode / priority tier / data residency. */
+  multiplier: number;
+  /** False for history replayed into a forked Codex thread. */
+  billable: boolean;
+}
+
+/** What a user-side turn contains, for bucketing. */
+export type UserKind = "prompt" | "injected" | "tool-results" | "compaction-summary" | "system";
+
+export interface Turn {
+  index: number;
+  role: "user" | "assistant";
+  /** Context thread this turn belongs to (a file can hold sidechains). */
+  timeline: string;
+  timestamp?: string;
+  blocks: Block[];
+  userKind?: UserKind;
+  /** Assistant turns only: the API call that produced it. */
+  call?: Call;
+}
+
+export type SourceEvent =
+  | { t: "session"; session: Session }
+  | { t: "turn"; turn: Turn }
+  | { t: "compact"; timeline: string }
+  | { t: "skip"; reason: string };
+
+export function emptyUsage(): Usage {
+  return { input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, reasoning: 0, webSearches: 0 };
+}
+
+export function maxUsage(into: Usage, u: Usage): void {
+  into.input = Math.max(into.input, u.input);
+  into.cacheWrite = Math.max(into.cacheWrite, u.cacheWrite);
+  into.cacheWrite1h = Math.max(into.cacheWrite1h, u.cacheWrite1h);
+  into.cacheRead = Math.max(into.cacheRead, u.cacheRead);
+  into.output = Math.max(into.output, u.output);
+  into.reasoning = Math.max(into.reasoning, u.reasoning);
+  into.webSearches = Math.max(into.webSearches, u.webSearches);
+}
+
+export function promptTokens(u: Usage): number {
+  return u.input + u.cacheWrite + u.cacheRead;
+}
