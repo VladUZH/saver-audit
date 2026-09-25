@@ -217,6 +217,25 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
   Clipboard copy tested on macOS: clipboard holds `«class PNGf»`. Browser/X not opened in
   testing. Demo GIF re-recorded with the short view (860×608, 100 KB).
 
+- 2026-09-25 — **0.3.0 (founder's feedback after testing 0.2.0):**
+  1. One-step saver install: `[i]` in the menu when savers are missing, or
+     `--install-savers [--with-headroom] [--yes]`. Downloads the pinned official releases
+     into `~/.saver-audit/tools` (`SAVER_AUDIT_HOME` to move it), verified (rtk: release
+     checksums; caveman engine: checksums signed with caveman's public key, embedded);
+     headroom into its own venv with onnxruntime, model and tokenizer. Asks per item;
+     never runs a saver's own setup. After `[i]`, the audit re-runs and the view redraws.
+     Detection order: env overrides → PATH (the user's own installs) → the tools folder.
+  2. Caveat rewritten in plain words (short view, full report).
+  3. X post leads with savings: measured savers with −% and $, then the spend they were
+     measured against; without measured savers, the modeled figure and a labelled best
+     case. Priority-ordered variants so it always fits 280 characters with the link.
+  Verified: `npm test` → 52/52 (new: installer asset map, checksum parsing, caveman
+  signature check on the real release files incl. tampering, post variants, offline guard
+  now also covers install.ts and forbids static imports of network modules). Real install
+  into a throwaway `SAVER_AUDIT_HOME`: `--install-savers --yes` → rtk v0.50.0 and caveman
+  engine bin-v1.1.7 installed and verified; a plain run then found and replayed both
+  (21.5 s with an empty cache); `~/.claude/settings.json` unchanged, no `~/.caveman`.
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -309,6 +328,11 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
 - 2026-09-25 (M4) — HN and Reddit get fact sheets and briefs, not ready-to-paste text: HN
   bans AI-written or AI-edited posts, and several target subs ban LLM-written copy. X gets a
   draft marked "rewrite in your voice". Unverified X handles are not tagged.
+- 2026-09-25 (0.3.0) — **Extends CLAUDE.md non-negotiable 1** ("no network at runtime,
+  except --update-prices"): installing savers is a second explicit, user-requested
+  exception (founder asked for one-step installs). It is announced before downloading,
+  asks per item, and lives in a module the offline test allows by name and requires to be
+  imported only on request. CLAUDE.md itself not edited; founder to confirm the wording.
 - 2026-09-25 (0.2.0) — These five changes are beyond the original spec; built on the
   founder's explicit request. The default card goes to the current folder (not a hidden
   path) so people find it to share.

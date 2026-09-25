@@ -14,7 +14,7 @@ saver-audit reads the session logs that Claude Code (`~/.claude/projects`) and C
 - **What that context was.** Tool output by tool, earlier turns being re-read, the system prompt, your prompts.
 - **What each popular token saver would have cut** from those same sessions. Every number is labelled with how it was obtained.
 
-Nothing leaves your machine. The only network call is the one you ask for with `--update-prices`.
+Nothing leaves your machine. The network is used only when you ask: `--update-prices`, installing savers (`--install-savers` or `i`), and `s` opening X in your browser.
 
 **In a terminal:**
 - **Short view:** you get one screen with your total, where it went, and what each saver would cut.
@@ -22,7 +22,8 @@ Nothing leaves your machine. The only network call is the one you ask for with `
 - **Keys:**
   - `f` shows the full report;
   - `o` opens the card;
-  - `s` opens a post on X with your numbers filled in and puts the card on your clipboard, so you paste it (⌘V / Ctrl+V) and post. X links can't attach images, so the card goes via the clipboard. saver-audit uploads nothing; your browser opens x.com only when you press `s`.
+  - `s` opens a post on X with your savings filled in and puts the card on your clipboard, so you paste it (⌘V / Ctrl+V) and post. X links can't attach images, so the card goes via the clipboard. saver-audit uploads nothing; your browser opens x.com only when you press `s`.
+  - `i` appears when a saver isn't installed yet. It installs the savers so you get measured numbers instead of estimates (see below), then re-runs.
 
 ![saver-audit running on the author's logs](https://raw.githubusercontent.com/VladUZH/saver-audit/main/assets/demo.gif)
 
@@ -99,6 +100,7 @@ Offline replay can't show whether a saver changes how the agent behaves: extra t
 ```
 saver-audit [--last 30d | --since 2026-09-01] [--until 2026-09-25] [--source claude-code|codex|all]
             [--full | --short | --json] [--card [path] | --no-card] [--no-animation]
+            [--install-savers [--with-headroom] [--yes]]
             [--show-projects] [--update-prices]
             [--savers rtk,caveman-engine,headroom,caveman-skill,codegraph,context-mode]
             [--no-savers] [--full-replay] [--verbose]
@@ -106,9 +108,21 @@ saver-audit [--last 30d | --since 2026-09-01] [--until 2026-09-25] [--source cla
 
 In a terminal the default is the short view with the key menu, plus a card. When piped (or in CI) you get the full report and no card unless you pass `--card`.
 
-## Savers you want replayed must be installed
+## Installing the savers (one command)
 
-saver-audit never bundles saver code. caveman's engine is BSL-1.1 and context-mode is Elastic-2.0. A replayed saver that isn't installed is listed as "not installed".
+To get *measured* numbers for rtk, the caveman engine and headroom, they have to be on your machine: saver-audit runs your copy and never bundles saver code (caveman's engine is BSL-1.1).
+
+```
+npx saver-audit --install-savers                  # rtk + caveman engine: ~32 MB, seconds
+npx saver-audit --install-savers --with-headroom  # + headroom and its model: ~1.6 GB, minutes, Python 3.10+
+```
+
+Or press `i` in the short view.
+- **Where from:** each saver's official GitHub release, pinned to the version the adapters were written for, and verified before use: rtk against its release checksums, the caveman engine against checksums signed with caveman's key.
+- **Where to:** `~/.saver-audit/tools`. No saver's own setup runs, so your Claude Code and Codex settings stay as they are. Delete the folder to uninstall.
+- **What it asks:** before each download, unless you pass `--yes`.
+
+If you already have a saver installed yourself (on your `PATH`), saver-audit uses that.
 
 - **rtk:** `rtk` on your `PATH`.
 - **caveman engine:** `caveman-engine` on your `PATH` or in `~/.caveman/bin`, or set `CAVEMAN_ENGINE_BIN`.
@@ -131,4 +145,4 @@ What saver-audit adds:
 
 ## Status
 
-Early release (0.2.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Early release (0.3.0). Requires Node ≥ 20. Issues and share cards welcome. MIT licence; bundled third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
