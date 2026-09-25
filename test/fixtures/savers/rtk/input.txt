@@ -1,0 +1,61 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tmp/example
+collected 42 items
+
+tests/test_example.py::test_case_0 PASSED
+tests/test_example.py::test_case_1 PASSED
+tests/test_example.py::test_case_2 PASSED
+tests/test_example.py::test_case_3 PASSED
+tests/test_example.py::test_case_4 PASSED
+tests/test_example.py::test_case_5 PASSED
+tests/test_example.py::test_case_6 PASSED
+tests/test_example.py::test_case_7 PASSED
+tests/test_example.py::test_case_8 PASSED
+tests/test_example.py::test_case_9 PASSED
+tests/test_example.py::test_case_10 PASSED
+tests/test_example.py::test_case_11 PASSED
+tests/test_example.py::test_case_12 PASSED
+tests/test_example.py::test_case_13 PASSED
+tests/test_example.py::test_case_14 PASSED
+tests/test_example.py::test_case_15 PASSED
+tests/test_example.py::test_case_16 PASSED
+tests/test_example.py::test_case_17 PASSED
+tests/test_example.py::test_case_18 PASSED
+tests/test_example.py::test_case_19 PASSED
+tests/test_example.py::test_case_20 PASSED
+tests/test_example.py::test_case_21 PASSED
+tests/test_example.py::test_case_22 PASSED
+tests/test_example.py::test_case_23 PASSED
+tests/test_example.py::test_case_24 PASSED
+tests/test_example.py::test_case_25 PASSED
+tests/test_example.py::test_case_26 PASSED
+tests/test_example.py::test_case_27 PASSED
+tests/test_example.py::test_case_28 PASSED
+tests/test_example.py::test_case_29 PASSED
+tests/test_example.py::test_case_30 PASSED
+tests/test_example.py::test_case_31 PASSED
+tests/test_example.py::test_case_32 PASSED
+tests/test_example.py::test_case_33 PASSED
+tests/test_example.py::test_case_34 PASSED
+tests/test_example.py::test_case_35 PASSED
+tests/test_example.py::test_case_36 PASSED
+tests/test_example.py::test_case_37 PASSED
+tests/test_example.py::test_edge_0 FAILED
+tests/test_example.py::test_edge_1 FAILED
+tests/test_example.py::test_edge_2 FAILED
+tests/test_example.py::test_edge_3 FAILED
+
+=================================== FAILURES ===================================
+___________________________ test_edge_0 ___________________________
+    def test_edge_0():
+>       assert parse('') == []
+E       AssertionError: assert None == []
+
+tests/test_example.py:88: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_example.py::test_edge_0 - AssertionError: assert None == []
+FAILED tests/test_example.py::test_edge_1 - AssertionError
+FAILED tests/test_example.py::test_edge_2 - AssertionError
+FAILED tests/test_example.py::test_edge_3 - AssertionError
+========================= 4 failed, 38 passed in 0.42s =========================

@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+// Fake community saver for tests: keeps the first 5 lines of stdin.
+let s = "";
+process.stdin.on("data", (d) => (s += d)).on("end", () => process.stdout.write(s.split("\n").slice(0, 5).join("\n")));

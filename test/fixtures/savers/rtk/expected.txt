@@ -1,0 +1,16 @@
+Pytest: 38 passed, 4 failed
+
+Failures:
+1. [FAIL] test_edge_0
+     >       assert parse('') == []
+     E       AssertionError: assert None == []
+     tests/test_example.py:88: AssertionError
+
+2. [FAIL] tests/test_example.py::test_edge_0
+     AssertionError: assert None == []
+3. [FAIL] tests/test_example.py::test_edge_1
+     AssertionError
+4. [FAIL] tests/test_example.py::test_edge_2
+     AssertionError
+5. [FAIL] tests/test_example.py::test_edge_3
+     AssertionError
