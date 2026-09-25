@@ -1,0 +1,39 @@
+{
+  "name": "saver-audit",
+  "version": "0.0.0",
+  "description": "Where your Claude Code and Codex tokens really go, priced with cache costs, and what token savers would cut. Offline.",
+  "type": "module",
+  "bin": {
+    "saver-audit": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "data/prices.json",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test --test-reporter=spec \"test/**/*.test.ts\""
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "tokens",
+    "cost",
+    "prompt-caching",
+    "rtk",
+    "caveman",
+    "headroom"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "esbuild": "^0.28.2",
+    "gpt-tokenizer": "^4.0.0",
+    "typescript": "^7.0.2"
+  }
+}
