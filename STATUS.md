@@ -235,6 +235,12 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
   into a throwaway `SAVER_AUDIT_HOME`: `--install-savers --yes` → rtk v0.50.0 and caveman
   engine bin-v1.1.7 installed and verified; a plain run then found and replayed both
   (21.5 s with an empty cache); `~/.claude/settings.json` unchanged, no `~/.caveman`.
+  Headroom path, same throwaway home: `--install-savers --with-headroom --yes` → venv,
+  headroom-ai 0.38.0 + onnxruntime, model and tokenizer, 1.6 GB, then a replay on
+  2026-09-24..25 ran with the Kompress model loaded (headroom $16.75, sample 5.4%);
+  213 s total. No `~/.headroom` created. Interactive `[i]` flow driven with `expect`
+  (y rtk, y caveman engine, n headroom → installed, re-run, view redrawn with both
+  replayed and `[i]` still offered for headroom). Throwaway installs deleted afterwards.
 
 ### Savers in scope for the launch (M0 acceptance)
 
@@ -340,6 +346,9 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
   want your legal name.
 
 ## Human steps waiting (GATE)
+
+- **Publish 0.3.0** from your own terminal: `cd ~/Documents/Programming/saver-audit &&
+  npm publish`. Then try `npx saver-audit@0.3.0`, press `i`, and `s` once.
 
 - **Publish 0.2.0** from your own terminal (Touch ID needs an interactive prompt):
   `cd ~/Documents/Programming/saver-audit && npm publish` (prepublishOnly runs checks).
