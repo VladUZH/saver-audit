@@ -8,7 +8,7 @@ Every number below comes from one run on the founder's own logs:
 node dist/cli.js --since 2026-08-26 --until 2026-09-25T13:00:00 --json
 ```
 
-rtk and the caveman engine were fully replayed. `⟦HEADROOM⟧` marks the numbers that wait for the headroom full replay (STATUS.md).
+rtk, the caveman engine and headroom were all fully replayed.
 
 ## The numbers
 
@@ -48,7 +48,7 @@ rtk and the caveman engine were fully replayed. `⟦HEADROOM⟧` marks the numbe
 |---|---|---|---|---|
 | rtk 0.50.0 | replayed, all 5,513 outputs | 15% of tool output | $47 | 1.1% |
 | caveman proxy engine | replayed, 60,339 of 60,341 outputs | all tool output | $14 | 0.3% |
-| headroom 0.38.0 | replayed ⟦HEADROOM: full⟧ (was a 1% sample: $151, 3.6%) | 57% | ⟦HEADROOM⟧ | ⟦HEADROOM⟧ |
+| headroom 0.38.0 | replayed, all ~30k outputs; a lower estimate | 57% | $152 | 3.6% |
 | caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $95 | 2.3% |
 | codegraph | upper bound (it changes agent behaviour) | 43% | ≤ $579 | ≤ 13.8% |
 | context-mode | upper bound (it changes agent behaviour) | 61% | ≤ $704 | ≤ 16.7% |
@@ -61,7 +61,8 @@ rtk and the caveman engine were fully replayed. `⟦HEADROOM⟧` marks the numbe
 | API calls | 792 |
 | Cost | $125 |
 | Largest content bucket | Shell output, $55 (44%) |
-| rtk | $5.20 (4.2% of the Codex bill) |
+| headroom | $13.09 (10.4% of the Codex bill) |
+| rtk | $5.20 (4.1% of the Codex bill) |
 | caveman engine | $0.61 |
 | codegraph ceiling | ≤ $19.51 |
 | context-mode ceiling | ≤ $48.40 |
@@ -71,8 +72,8 @@ Caveman and context-mode can only *deny* on Codex, not rewrite, so their Codex n
 ### Candidate surprises (pick one; only what the data shows)
 
 - About a quarter of the cost is **earlier turns being re-read from cache**, thinking included. No tool-output saver touches that.
-- **The biggest measured saver cut only about 1–4% of the bill.** Ceilings for the behaviour-changing tools are ~14–17%, but those are best cases, not measurements.
-- **On Codex, shell output is 44% of the cost**, and rtk would cut 4.2% there. On Claude Code it is a smaller share.
+- **Measured savers cut 0.3–3.6% of the bill** (headroom 3.6%, caveman skill 2.3% modeled, rtk 1.1%, caveman engine 0.3%). Ceilings for the behaviour-changing tools are ~14–17%, but those are best cases, not measurements.
+- **On Codex, shell output is 44% of the cost**: headroom would cut 10.4% of the Codex bill and rtk 4.1%. On Claude Code, shell output is 16%, and headroom cuts 3.4%.
 - **Cache writes are about a third of the cost.** (Inference, not measured: a saver that removes tokens saves most when it removes them *before* the first cache write.)
 
 ## Method, in one breath each
@@ -163,7 +164,7 @@ Caveman and context-mode can only *deny* on Codex, not rewrite, so their Codex n
   - rtk's git status/log filters are excluded (format mismatch);
   - headroom is a lower estimate;
   - ceilings assume nothing replaces the removed output.
-- **Where a saver helps, the report says so.** On Codex, rtk's 4.2% is the largest measured cut.
+- **Where a saver helps, the report says so.** On Codex, headroom's 10.4% is the largest measured cut.
 
 **"Why these savers?"**
 - They are the 2026 savers with the most stars (70k+ each, plus context-mode at 24k).

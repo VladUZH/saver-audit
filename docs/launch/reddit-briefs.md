@@ -1,12 +1,11 @@
 # Reddit briefs (for the founder to write from)
 
-These are briefs, not posts. Several target subs ban or penalise LLM-written text:
+These are briefs, not posts. All three replayed savers are fully replayed. Several target subs ban or penalise LLM-written text:
 - r/LocalLLaMA: "Completely/primarily LLM generated copy… not allowed";
 - r/opensource: "AI-generated content is low-effort and ban worthy";
 - Reddit's spam filter removed earlier token-saver promo posts.
 
-Write each post yourself, and don't copy text between subs. The facts are in [show-hn-fact-sheet.md](show-hn-fact-sheet.md); rules and evidence are in [05-distribution.md §1](../05-distribution.md). `⟦HEADROOM⟧` waits for the full replay.
-
+Write each post yourself, and don't copy text between subs. The facts are in [show-hn-fact-sheet.md](show-hn-fact-sheet.md); rules and evidence are in [05-distribution.md §1](../05-distribution.md). 
 ## Shared shape (05-distribution §1.6)
 
 1. **TL;DR**, 3 lines.
@@ -37,7 +36,7 @@ Avoid:
   - rtk $41.88 (1.0%);
   - caveman engine $13.45 (0.3%);
   - caveman skill $94.71 (2.3%, modeled);
-  - headroom ⟦HEADROOM⟧;
+  - headroom $138.96 (3.4%, a lower estimate);
   - ceilings: codegraph ≤ $560 (13.7%), context-mode ≤ $655 (16.0%).
 - **The "what I learned" part:**
   - the dedupe bug the ccusage cross-check caught;
@@ -51,14 +50,15 @@ Avoid:
 - **Flair:** Comparison, or Showcase.
 - **Angle:** Codex-specific.
   - Shell output is 44% of the Codex cost.
-  - rtk would cut 4.2%, the largest measured cut in the whole run.
+  - headroom would cut 10.4% of the Codex bill (`headroom wrap codex` exists), the largest measured cut in the run; rtk 4.1%.
   - Codex hooks can't rewrite tool input, so the caveman and context-mode numbers are hypothetical.
   - Cached tokens are a subset of input on Codex, unlike Claude.
   - Say what that means for forked threads (the double-count bug).
 - **Lead numbers:**
   - 20 sessions, 792 calls, $125, split into gpt-5.6-sol $68.70 and gpt-6-astra $56.26;
   - cache reads 63%;
-  - rtk $5.20 (4.2%);
+  - headroom $13.09 (10.4%);
+  - rtk $5.20 (4.1%);
   - caveman engine $0.61;
   - codegraph ≤ $19.51;
   - context-mode ≤ $48.40.

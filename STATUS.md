@@ -5,9 +5,8 @@ what is blocked and why, and decisions made where the docs were silent.
 
 ## Current milestone
 
-M4 — launch prep: **in progress**. Done: npm publish prep (stops at GATE), Show HN fact sheet,
-Reddit briefs, X thread draft, share-card issue form. Waiting: headroom full replay (running,
-started 2026-09-25 17:15, ETA about 19:20), then final numbers, README/card refresh, terminal GIF.
+M4 — launch prep: **nearly done**. Final numbers are in the README, card and launch kit.
+Left: the terminal GIF (needs a recorder; asked the founder), then the human GATEs below.
 
 ## Log
 
@@ -159,6 +158,17 @@ started 2026-09-25 17:15, ETA about 19:20), then final numbers, README/card refr
     Claude-only numbers computed against a copy of the replay cache (so the running
     headroom replay's cache is not touched).
 
+- 2026-09-25 — **headroom full replay done** (17:15 → about 19:05, 6,587 s; 118
+  checkpoints; exit 0, no failures). Window 2026-08-26 → 2026-09-25T13:00: headroom
+  **$152 (3.6%)**, versus $151 from the earlier 1% sample. Split: Claude Code $138.96
+  (3.4% of $4,083.51), Codex $13.09 (10.4% of $125.39). Then replayed the ~200 outputs
+  this session created after the cutoff so the card reads "high" (in-window numbers
+  unchanged: rtk $47.07, caveman engine $14.06, headroom $152).
+- 2026-09-25 — Final numbers filled into README, `assets/readme-card.png` (regenerated),
+  `docs/launch/*` and `docs/04-launch.md`; no `⟦HEADROOM⟧` placeholders left. The full
+  replay overturned a draft claim: on Codex the largest measured cut is headroom (10.4%),
+  not rtk; rtk's Codex share corrected from 4.2% to 4.1% ($5.20 of $125.39).
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -230,8 +240,8 @@ started 2026-09-25 17:15, ETA about 19:20), then final numbers, README/card refr
 - 2026-09-25 (M2) — codegraph ceiling = all Read/Grep/Glob/ToolSearch output plus shell
   search, listing and file-reading families; context-mode ceiling = all outputs over
   5,000 bytes. Both assume the output disappears and nothing replaces it.
-- 2026-09-25 (M2) — headroom marked not Codex-hypothetical (it is a proxy, not a hook);
-  unverified whether `headroom wrap` supports Codex.
+- 2026-09-25 (M2) — headroom marked not Codex-hypothetical (it is a proxy, not a hook).
+  Verified 2026-09-25: headroom 0.38.0 `cli/wrap.py` has `headroom wrap codex`.
 - 2026-09-25 (M2) — Added `--until` (not in the spec) so a fixed window can be re-run
   while new logs are being written; needed for the reproducibility check.
 

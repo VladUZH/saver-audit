@@ -49,7 +49,7 @@ Nothing leaves your machine. The only network call is the one you ask for with `
 |---|---|---|---|---|
 | [rtk](https://github.com/rtk-ai/rtk) 0.50.0 | replayed (all 5,513 outputs) | 15% of tool output | $47 | 1.1% |
 | [caveman](https://github.com/JuliusBrussee/caveman) proxy engine | replayed (60,339 of 60,341 outputs) | all tool output | $14 | 0.3% |
-| [headroom](https://github.com/headroomlabs-ai/headroom) 0.38.0 | replayed, **1% sample** (300 of 30k) | 57% | $151 | 3.6% |
+| [headroom](https://github.com/headroomlabs-ai/headroom) 0.38.0 | replayed (all ~30k outputs), lower estimate | 57% | $152 | 3.6% |
 | caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $95 | 2.3% |
 | [codegraph](https://github.com/colbymchenry/codegraph) | upper bound | 43% | ≤ $579 | ≤ 13.8% |
 | [context-mode](https://github.com/mksglu/context-mode) | upper bound | 61% | ≤ $704 | ≤ 16.7% |
@@ -58,7 +58,7 @@ The two biggest items are things no tool-output saver touches:
 - **Re-reading earlier turns:** about a quarter of the cost is earlier assistant turns, thinking included, read again from cache on every call.
 - **The fixed system prompt and tool definitions:** another 16%.
 
-The headroom number comes from a 1% sample and is a lower estimate (see below). A full replay is pending.
+The headroom number is a lower estimate (see below). On Codex alone, where shell output is 44% of the cost, headroom would cut 10.4% and rtk 4.1%.
 
 ## What the labels mean
 

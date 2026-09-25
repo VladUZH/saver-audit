@@ -8,7 +8,7 @@ Guidance from 05-distribution §3.2:
 - the link goes in a reply;
 - close by asking people to post their cards.
 
-`⟦HEADROOM⟧` waits for the full replay. Attach `saver-audit.png` from your final run to post 1.
+Attach `saver-audit.png` from your final run to post 1.
 
 ---
 
@@ -22,7 +22,7 @@ Then I replayed the same sessions through the popular token savers, using my ins
 
 rtk: $47 (1.1%)
 caveman engine: $14 (0.3%)
-headroom: ⟦HEADROOM⟧
+headroom: $152 (3.6%)
 caveman skill (modeled): $95 (2.3%)
 
 **3/**
@@ -32,7 +32,7 @@ Every number carries a label:
 - ceiling = the tool changes agent behaviour, so only a best case (codegraph ≤ 13.8%, context-mode ≤ 16.7%)
 
 **4/**
-Where a saver does help: on Codex, shell output is 44% of the cost, and rtk would cut 4.2% of that bill, the biggest measured cut in the run.
+Where a saver does help: on Codex, shell output is 44% of the cost. headroom would cut 10.4% of that bill and rtk 4.1%, the biggest measured cuts in the run.
 
 **5/**
 What offline replay can't show: whether a saver changes how the agent behaves (extra turns, retries, answer quality). The report says that every time.

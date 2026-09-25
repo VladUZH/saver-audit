@@ -48,8 +48,8 @@ reached; otherwise keep the audience and move to bet 2 (offline-ify).
 
 ## Launch kit (prepared 2026-09-25, M4)
 
-Numbers are from the founder's run over 2026-08-26 → 2026-09-25. `⟦HEADROOM⟧` marks the
-figures that wait for the headroom full replay.
+Numbers are from the founder's run over 2026-08-26 → 2026-09-25, with all three replayed
+savers fully replayed.
 
 - [Show HN fact sheet](launch/show-hn-fact-sheet.md): numbers, method, what is new,
   likely questions, posting checklist. Facts only; the founder writes the post.
