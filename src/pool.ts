@@ -85,8 +85,8 @@ export function runWorker(port: { on(ev: "message", f: (j: Job) => void): void; 
 export interface SaverOptions {
   /** Saver ids to audit; empty = none. */
   ids: string[];
-  /** Replay every output instead of a sample. */
-  full?: boolean;
+  /** Exact mode: replay every output (above the size floors) for all savers, or for the listed ones. */
+  full?: boolean | string[];
   /** Replay cache file; undefined disables the cache. */
   cacheFile?: string;
   /** Installed saver binaries; detected when undefined. */

@@ -25,6 +25,10 @@ export interface ReplayTool {
 export interface ReplayStats {
   /** Unique outputs the saver applies to. */
   total: number;
+  /** Outputs still to replay for exact numbers (not cached yet), after this run. */
+  pending: number;
+  /** Quick mode ran out of time before enough outputs were replayed to estimate. */
+  insufficient?: boolean;
   /** Unique outputs replayed in this run (not from cache). */
   ran: number;
   /** Unique outputs left to extrapolation because of the sample budget. */
@@ -35,12 +39,41 @@ export interface ReplayStats {
 /** Default number of unique outputs replayed per run and saver; --full-replay lifts it. */
 const CHECKPOINT = 250;
 
-// rtk and the caveman engine are replayed in full above their size floor (cheap and
-// exact; sampling missed caveman's rare, spiky savings by up to 40%). headroom runs an
-// ML model per output, so it stays a size-stratified sample unless --full-replay.
-export const DEFAULT_BUDGET: Record<string, number> = { rtk: Infinity, "caveman-engine": Infinity, "token-saver": Infinity, "lean-ctx": Infinity, headroom: 300 };
-/** Other savers: a size-stratified sample unless --full-replay (checked per saver, tech-notes §8.10). */
-const COMMUNITY_BUDGET = 1000;
+// Quick mode (default) gives each saver a few seconds: a size-stratified sample (the
+// largest outputs plus a hash-order sample of the rest), extrapolated and labelled
+// "indicative" (samples missed by up to 40% on a month, more on small periods; tech-notes
+// §8.9-8.10). Exact mode (--exact) replays every output above each saver's size floor.
+// Everything replayed is cached, so a run after --exact is exact too.
+export const QUICK_SECONDS = 6;
+/**
+ * Per-saver quick budgets. rtk is cheap enough to always finish. headroom and the
+ * caveman engine only use cached (exact) results: a few seconds of sampling was off by
+ * 35–73% for caveman (rare, spiky savings) and too slow to estimate headroom at all.
+ */
+const QUICK_SECONDS_FOR: Record<string, number> = { rtk: 15, headroom: 0, "caveman-engine": 0 };
+const quickSeconds = (saver: string) => QUICK_SECONDS_FOR[saver] ?? QUICK_SECONDS;
+/** Fewer replayed outputs than this in quick mode: no number, just "press [e]". */
+export const MIN_QUICK_SAMPLE = 20;
+/** Measured replay throughput on an M-series Mac, outputs per second (tech-notes §8.11). */
+export const RATE: Record<string, number> = { rtk: 800, "caveman-engine": 250, "token-saver": 45, "lean-ctx": 45, headroom: 4 };
+const DEFAULT_RATE = 20;
+/** One-off start-up cost in seconds (headroom loads its model). */
+const STARTUP: Record<string, number> = { headroom: 6 };
+
+export function quickBudget(saver: string): number {
+  return Math.max(100, Math.round((RATE[saver] ?? DEFAULT_RATE) * Math.max(quickSeconds(saver), QUICK_SECONDS)));
+}
+
+/** Seconds an --exact run would need for the outputs not cached yet. */
+export function exactSeconds(stats: Map<string, ReplayStats>): { total: number; bySaver: Array<[string, number]> } {
+  const bySaver: Array<[string, number]> = [];
+  for (const [saver, st] of stats) {
+    if (!st.pending) continue;
+    bySaver.push([saver, st.pending / (RATE[saver] ?? DEFAULT_RATE) + (STARTUP[saver] ?? 0)]);
+  }
+  bySaver.sort((a, b) => b[1] - a[1]);
+  return { total: bySaver.reduce((n, [, t]) => n + t, 0), bySaver };
+}
 /** Savers that mostly wait (interpreter start-up) run more processes than cores. */
 const WAIT_BOUND = new Set(["token-saver", "lean-ctx"]);
 
@@ -134,11 +167,13 @@ function runOnce(cmd: string, args: string[], input: string, env: NodeJS.Process
   });
 }
 
-async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<void>): Promise<void> {
+/** Runs fn over items with n workers; stops starting new items once `until()` is false. */
+async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<void>, until: () => boolean = () => true): Promise<number> {
   let i = 0;
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (i < items.length) await fn(items[i++]!);
+    while (i < items.length && until()) await fn(items[i++]!);
   }));
+  return i;
 }
 
 const HEADROOM_SIDECAR = String.raw`
@@ -212,10 +247,12 @@ class HeadroomSidecar {
     this.child.stdin.on("error", () => {});
   }
 
-  compress(tool: string, text: string): Promise<string | undefined> {
+  /** Resolves "timeout" if it takes longer than `ms` (the sidecar is then unusable). */
+  compress(tool: string, text: string, ms = Infinity): Promise<string | undefined | "timeout"> {
     const i = this.next++;
     return new Promise((resolve) => {
-      this.waiting.set(i, resolve);
+      const timer = Number.isFinite(ms) ? setTimeout(() => (this.waiting.delete(i), resolve("timeout")), ms) : undefined;
+      this.waiting.set(i, (out) => (clearTimeout(timer), resolve(out)));
       this.child.stdin.write(JSON.stringify({ i, tool, text }) + "\n");
     });
   }
@@ -229,7 +266,8 @@ class HeadroomSidecar {
 export interface ReplayOptions {
   tools: Map<string, ReplayTool>;
   cacheFile?: string;
-  full: boolean;
+  /** Exact mode for all savers (true) or for the listed ones. */
+  full: boolean | string[];
   concurrency: number;
   log?: (s: string) => void;
   progress?: (saver: string, done: number, total: number) => void;
@@ -268,11 +306,12 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const state = mkdtempSync(join(tmpdir(), "saver-audit-"));
   const env = saverEnv(state);
   let dirty = false;
-  try {
-    for (const [saver, unique] of bySaver) {
+  // Savers run at the same time; each has its own time budget in quick mode.
+  const one = async (saver: string, unique: Map<string, ReplayJob>): Promise<void> => {
       const tool = o.tools.get(saver);
       const keys = [...unique.keys()].sort();
-      const budget = o.full ? Infinity : DEFAULT_BUDGET[saver] ?? COMMUNITY_BUDGET;
+      const exact = o.full === true || (Array.isArray(o.full) && o.full.includes(saver));
+      const budget = exact ? Infinity : quickBudget(saver);
       const bySize = [...keys].sort((a, b) => unique.get(b)!.baseline - unique.get(a)!.baseline || (a < b ? -1 : 1));
       const large = new Set(bySize.slice(0, Math.ceil(budget / 2)));
       const small = keys.filter((k) => !large.has(k));
@@ -281,10 +320,16 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       const sample = [...large, ...smallSample];
       sampled.set(saver, new Set(sample));
       smallSampled.set(saver, new Set(smallSample));
-      const st: ReplayStats = { total: keys.length, ran: 0, extrapolated: keys.length - sample.length, failed: 0 };
+      const uncached = keys.filter((k) => !cache.has(k) && unique.get(k)!.input).length;
+      const st: ReplayStats = { total: keys.length, pending: uncached, ran: 0, extrapolated: keys.length - sample.length, failed: 0 };
       stats.set(saver, st);
       const todo = sample.filter((k) => !cache.has(k) && unique.get(k)!.input);
-      if (!tool || !todo.length) continue;
+      if (!tool || !todo.length) return;
+      // Quick mode has a clock: no new replays after the budget; unreplayed outputs are
+      // extrapolated like the rest (and stay "indicative").
+      let deadline = exact ? Infinity : Date.now() + quickSeconds(saver) * 1000;
+      const inTime = () => Date.now() < deadline;
+      let attempted = 0;
       o.log?.(`replaying ${todo.length.toLocaleString("en-US")} new outputs through ${saver} (results are cached for next time)…`);
       const store = (key: string, out: string | undefined, counted?: ReplayResult) => {
         if (counted) cache.set(key, counted);
@@ -298,6 +343,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
           cache.set(key, { t: countProxy(out), c: out.length, p: countProxy(out.slice(0, PREVIEW_CHARS)) });
         }
         st.ran++;
+        st.pending = Math.max(0, st.pending - 1);
         dirty = true;
         o.progress?.(saver, st.ran, todo.length);
         // Long replays save as they go, so an interrupted run resumes where it stopped.
@@ -306,17 +352,27 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
           o.log?.(`  ${saver}: ${st.ran.toLocaleString("en-US")} of ${todo.length.toLocaleString("en-US")} replayed`);
         }
       };
+      // Cache-only savers in quick mode (budget 0): use what an exact run cached, if anything.
+      if (!exact && quickSeconds(saver) === 0) {
+        st.extrapolated += todo.length;
+        if (sample.length - todo.length < MIN_QUICK_SAMPLE) st.insufficient = true;
+        return;
+      }
       if (saver === "headroom") {
         const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(state, "headroom") });
         if (!(await side.ready)) {
           side.close();
           st.failed = todo.length;
           o.log?.("headroom: its compression model is not cached; skipped (run headroom once online to download it).");
-          continue;
+          return;
         }
         for (const key of todo) {
+          if (!inTime()) break;
           const j = unique.get(key)!;
-          store(key, await side.compress(j.tool, j.input));
+          const out = await side.compress(j.tool, j.input, exact ? Infinity : Math.max(1000, deadline - Date.now()));
+          if (out === "timeout") break; // not cached: it was not measured
+          attempted++;
+          store(key, out);
         }
         side.close();
       } else {
@@ -325,16 +381,24 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         const menv = Object.fromEntries(Object.entries(m?.env ?? {}).map(([k, v]) => [k, v.replaceAll("{state}", state)]));
         const runEnv = { ...env, ...menv, ...tool.env };
         const ratio = m?.jsonRatio;
-        await pool(todo, WAIT_BOUND.has(saver) ? o.concurrency * 3 : o.concurrency, async (key) => {
+        attempted = await pool(todo, WAIT_BOUND.has(saver) ? o.concurrency * 3 : o.concurrency, async (key) => {
           const j = unique.get(key)!;
           const out = await runOnce(tool.command, j.args ?? [], j.input, runEnv, 60_000);
           if (!ratio || out === undefined) return store(key, out);
           // The program reports its own before/after counts: apply its ratio to our count.
           const r = ratioResult(out, ratio, countProxy(j.input));
           store(key, r ? "" : undefined, r);
-        });
+        }, inTime);
       }
-    }
+      // Outputs chosen for the sample but not reached in time are extrapolated.
+      st.extrapolated += todo.length - attempted;
+      const replayed = sample.length - (todo.length - attempted);
+      if (!exact && st.extrapolated > 0 && replayed < MIN_QUICK_SAMPLE) st.insufficient = true;
+  };
+  try {
+    // One saver at a time, fastest first: in parallel they only compete for the same cores.
+    const order = [...bySaver].sort(([a], [b]) => (RATE[b] ?? DEFAULT_RATE) - (RATE[a] ?? DEFAULT_RATE));
+    for (const [saver, unique] of order) await one(saver, unique);
   } finally {
     rmSync(state, { recursive: true, force: true });
   }
