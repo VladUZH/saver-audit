@@ -62,6 +62,37 @@ GATE still open: create the public GitHub repo (below).
   output to the test log). `parsePeriod` moved to `src/period.ts`; tests now only read
   fixtures.
 
+- 2026-09-25 — **GATE done by Claude on the founder's instruction** ("Create the repo
+  yourself"): `gh repo create VladUZH/saver-audit --public --source . --push` →
+  https://github.com/VladUZH/saver-audit, created 2026-09-25T13:56:59Z. awesome-claude-code
+  eligibility (14 days): 2026-10-09.
+- 2026-09-25 — Savers installed on the founder's instruction, isolated in
+  `~/.saver-audit-tools` via `bash scripts/dev-install-savers.sh`: rtk 0.50.0 (release
+  binary, SHA-256 checked), caveman-engine bin-v1.1.7 (sigstore signature over checksums
+  verified with caveman's public key, then SHA-256), headroom-ai[ml] 0.38.0 (own venv,
+  HF_HOME inside the folder, beacon off), ccusage 20.0.24 (own npm prefix). No `rtk init`
+  / `caveman setup` run: no hooks, `~/.claude/settings.json` unchanged (mtime before
+  install). Remove all with `rm -rf ~/.saver-audit-tools`.
+- 2026-09-25 — **Bug found by the ccusage cross-check and fixed: Codex fork history was
+  double counted.** Forked threads write `task_started` first, then re-record the
+  parent's usage as a dense burst; my rule ended the replay at `task_started`, so the
+  burst was billed again (two forks here: +85.6M input tokens each). Now the ccusage
+  rule: in forked/child rollouts, skip the leading run of usage events ≤1 s apart.
+  Also fixed: a `thread_settings_applied` without `service_tier` no longer resets the
+  priority tier. Corrected 30-day total: **$4,259** (was reported as $4,430).
+  Verified, window 2026-08-26 → now:
+  - `ccusage claude daily --since 20260826 --offline --json` vs
+    `saver-audit --source claude-code --json`: input 137,094 / cache write 185,663,095 /
+    cache read 6,544,820,820 / output 20,854,124 → **0.000%** on every field.
+  - `ccusage codex daily …` vs `saver-audit --source codex`: input incl. cached
+    88,017,381 / cached 84,368,896 / output 250,404 → **0.000%**.
+  - Codex dollars differ: ccusage $140.48, saver-audit $125.57. Decomposed: base list
+    price $70.11, no call above the 272k tier; 653 of 783 calls follow a recorded
+    `priority` setting (2×) → $125.41. ccusage also prices the 130 calls with no recorded
+    tier as priority. Kept: no recorded tier = standard (see Decisions).
+  - `npm test` → 31/31 pass; `node scripts/crosscheck-usage.mjs 30` → PASS 0.000%;
+    `node dist/cli.js --last 30d` → 7.02 s / 6.89 s.
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -116,8 +147,13 @@ GATE still open: create the public GitHub repo (below).
 - 2026-09-25 — Long non-space runs are tokenized in 400-char slices (≤ 1 extra token
   per slice) to keep counting linear.
 
+- 2026-09-25 — Codex calls with no recorded service tier are priced as standard, not
+  priority (ccusage assumes priority). Lower, and only what the log shows.
+
 ## Human steps waiting (GATE)
 
+- ~~Create the public GitHub repo now~~ (done 2026-09-25, see log).
+  Original instruction kept for reference:
 - **Create the public GitHub repo now** (awesome-claude-code: 14 days since first commit
   or 100 stars). Repo `VladUZH/saver-audit` does not exist yet (checked 2026-09-25).
   Exact steps, from the project directory:
@@ -126,7 +162,8 @@ GATE still open: create the public GitHub repo (below).
     --description "Where your Claude Code and Codex tokens really go, and what token savers would cut" --push
   ```
   This pushes the current commits (docs + probe script; no logs). Review `git log` first.
-- **Install the replayed savers before the M2 real-log run** (none are installed here):
+- ~~Install the replayed savers~~ (done 2026-09-25 in `~/.saver-audit-tools`, see log).
+  Original instruction:
   `brew install rtk`; `npm i -g @caveman-ai/cli && caveman setup --install`;
   `uv tool install "headroom-ai[ml]"` then pre-download its model once. Optional:
   `npm i -g ccusage` (or use `npx ccusage`) for the M1 1% cross-check. Your call:
