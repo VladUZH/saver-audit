@@ -1,0 +1,50 @@
+name: Share your card
+description: Post your saver-audit share card so others can compare results.
+title: "Card: "
+labels: ["share-card"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing! The card holds numbers, model names and dates only.
+        Please **don't paste logs, prompts, file paths or project names** here.
+  - type: textarea
+    id: card
+    attributes:
+      label: Your card
+      description: Drag in the saver-audit.png written by `npx saver-audit --card`.
+    validations:
+      required: true
+  - type: dropdown
+    id: sources
+    attributes:
+      label: Which agents are in it?
+      options:
+        - Claude Code
+        - Codex
+        - Both
+    validations:
+      required: true
+  - type: dropdown
+    id: billing
+    attributes:
+      label: How do you pay?
+      description: The card shows API list prices; this helps others read it.
+      options:
+        - Subscription (Pro / Max / ChatGPT plan)
+        - API key, pay per token
+        - Both
+        - Prefer not to say
+  - type: checkboxes
+    id: savers
+    attributes:
+      label: Savers installed for replay (the rest are modeled or ceilings)
+      options:
+        - label: rtk
+        - label: caveman engine
+        - label: headroom
+  - type: textarea
+    id: surprise
+    attributes:
+      label: What surprised you?
+      description: Optional. The one number you didn't expect.
