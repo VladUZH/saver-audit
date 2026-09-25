@@ -230,8 +230,7 @@ Launch numbers still need the headroom full replay (see Human steps); rtk and ca
 
 ## Human steps waiting (GATE)
 
-- **Delete one stray folder** (my delete was blocked): `rm -rf ~/.headroom` — it holds only
-  `ccr_store.db`, created 2026-09-25 16:10 by my headroom test.
+- ~~Delete one stray folder `~/.headroom`~~ (done by the founder 2026-09-25; verified gone).
 - **headroom full replay: your OK needed** (about 30,000 outputs at up to ~1 s each on
   CPU, so possibly several hours of one busy core; cached afterwards). rtk and caveman are
   already fully replayed. Command, from the repo:
