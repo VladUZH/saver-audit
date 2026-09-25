@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { CLAUDE_ROOT, CODEX_HOME, SECRET } from "./helpers.ts";
 import { dirname, join } from "node:path";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -17,8 +17,11 @@ const SAVER_ENV = {
   SAVER_AUDIT_HEADROOM_PYTHON: join(BIN, "headroom-python"),
 };
 
+const CWD = mkdtempSync(join(tmpdir(), "sa-cwd-"));
+
 function run(...args: string[]): string {
   return execFileSync(process.execPath, [CLI, "--since", "2026-09-01", ...args], {
+    cwd: CWD,
     env: { ...process.env, ...SAVER_ENV, CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, HOME: "/nonexistent", XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "sa-priv-")), NO_COLOR: "1" },
     encoding: "utf8",
   });
@@ -46,4 +49,10 @@ test("no logs: exit 0 and say where it looked", () => {
   const out = execFileSync(process.execPath, [CLI], { env: { ...process.env, CLAUDE_CONFIG_DIR: "/nonexistent/claude", CODEX_HOME: "/nonexistent/codex", HOME: "/nonexistent" }, encoding: "utf8" });
   assert.match(out, /No agent API calls found/);
   assert.match(out, /\/nonexistent\/claude\/projects/);
+});
+
+test("a non-interactive run prints the full report and writes no card unless asked", () => {
+  const out = run();
+  assert.match(out, /How these numbers were made/);
+  assert.equal(existsSync(join(CWD, "saver-audit.png")), false);
 });
