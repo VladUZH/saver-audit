@@ -274,6 +274,16 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
   Verified: `npm test` → 57/57; real-log numbers unchanged after moving rtk/caveman to
   manifests (rtk $47.07, caveman $13.31, headroom $151; no re-replay: cache keys kept).
 
+- 2026-09-25 — **0.4.0 step 3: outreach prep.** `docs/launch/saver-outreach.md`: the ask,
+  what maintainers get, etiquette, 3 templates, and a researched target list (25
+  projects checked). Replayable today besides rtk/caveman: token-saver (stdin, needs the
+  command → added `{command}` placeholder to route args, cache key includes it) and
+  lean-ctx (JSON output; needs a text flag or a small adapter). Small-change asks:
+  headroom (`compress --stdin`), lowfat (`--builtin`), snip, token-optimizer. pxpipe
+  (image tokens, lossy) needs its own adapter. Big upper-bound audiences:
+  codebase-memory-mcp 44.9k, code-review-graph 31.8k. `npm test` → 58/58.
+  Sending any message is the founder's GATE.
+
 ### Savers in scope for the launch (M0 acceptance)
 
 | Saver | Class | Condition |
@@ -378,6 +388,10 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
   want your legal name.
 
 ## Human steps waiting (GATE)
+
+- **Publish 0.4.0** from your own terminal: `cd ~/Documents/Programming/saver-audit && npm publish`.
+- **Saver outreach**: send the messages in `docs/launch/saver-outreach.md` (edit in your
+  voice; one per project; Discussions if enabled, else an issue).
 
 - **Publish 0.3.0** from your own terminal: `cd ~/Documents/Programming/saver-audit &&
   npm publish`. Then try `npx saver-audit@0.3.0`, press `i`, and `s` once.
