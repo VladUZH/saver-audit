@@ -44,6 +44,27 @@ test("a bad --last stops --install-savers before it installs anything", () => {
   assert.equal(r.stdout, "", "the installer never started");
 });
 
+test("a bad --savers stops --install-savers, and a bad argument stops --update-prices, before they start", () => {
+  const root = mkdtempSync(join(tmpdir(), "sa-cli-"));
+  temps.push(root);
+  // Every saver counts as installed (the fakes) and fetch fails, so even a regression downloads nothing.
+  const env = { PATH: "/nonexistent", HOME: root, SAVER_AUDIT_HOME: join(root, "home"), XDG_CACHE_HOME: join(root, "cache"), SAVER_AUDIT_RTK: join(BIN, "rtk"), CAVEMAN_ENGINE_BIN: join(BIN, "caveman-engine"), SAVER_AUDIT_TOKEN_SAVER: join(BIN, "fake-trim"), SAVER_AUDIT_LEAN_CTX: join(BIN, "fake-trim"), SAVER_AUDIT_HEADROOM_PYTHON: join(BIN, "headroom-python") };
+  const offline = "data:text/javascript,globalThis.fetch = () => Promise.reject(new Error('fetch called'));";
+  for (const [args, error] of [
+    [["--install-savers", "--savers", "rkt"], /--savers: unknown saver "rkt"/],
+    [["--update-prices", "--savers", "rkt"], /--savers: unknown saver "rkt"/],
+    [["--update-prices", "--source", "codx"], /--source: expected/],
+    [["--update-prices", "--last", "30x"], /--last: expected/],
+    [["--update-prices", "--jobs", "0"], /--jobs: expected/],
+  ] as const) {
+    const r = spawnSync(process.execPath, ["--import", offline, CLI, ...args], { env, encoding: "utf8" });
+    assert.equal(r.status, 1, args.join(" "));
+    assert.match(r.stderr, error);
+    assert.doesNotMatch(r.stderr, /--update-prices: fetching/, "the price list was not fetched");
+    assert.equal(r.stdout, "", "the installer never started");
+  }
+});
+
 test("a replay warning is shown in a terminal too, after the spinner, not dropped", { skip: noTerminal }, () => {
   const out = term(["--since", "2026-09-01", "--until", "2026-09-30", "--exact", "--savers", "headroom", "--full", "--no-animation"], { SAVER_AUDIT_HEADROOM_PYTHON: join(BIN, "fake-headroom"), FAKE_READY: "0" });
   assert.match(out, /headroom[^\n]*not measured: compression model not cached/);

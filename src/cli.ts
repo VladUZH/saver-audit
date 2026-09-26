@@ -101,10 +101,6 @@ async function main(argv: string[]): Promise<number> {
   }
   const log = (s: string) => process.stderr.write(s + "\n");
   if (values["check-saver"]) return checkSaver(values["check-saver"]);
-  if (values["update-prices"]) {
-    const { updatePrices } = await import("./prices/update.ts");
-    await updatePrices(userPricesPath(), log);
-  }
   // Community manifests that could not be loaded: say so once, details with --verbose.
   const problems = values["no-savers"] ? [] : allSavers().problems;
   if (problems.length) log(values.verbose ? `saver manifests skipped:\n${problems.map((p) => `  - ${p}`).join("\n")}` : `saver-audit: ${problems.length} saver manifest(s) in ~/.saver-audit/savers skipped (--verbose for details)`);
@@ -114,9 +110,15 @@ async function main(argv: string[]): Promise<number> {
   if (src !== "all" && src !== "claude-code" && src !== "codex") throw new Error(`--source: expected claude-code, codex or all, got ${src}`);
   const sources: Source[] = src === "all" ? ["claude-code", "codex"] : [src];
   const now = Date.now();
-  // Checked before anything starts, so a typo never leaves a spinner or an install behind.
+  // Checked before anything starts, so a typo never leaves a spinner, an install or a
+  // price download behind.
   const { sinceMs, untilMs } = periodOf(values, now);
   const jobs = parseJobs(values.jobs) ?? defaultJobs();
+  const ids = saverIndex(saverIds).map((x) => x.id);
+  if (values["update-prices"]) {
+    const { updatePrices } = await import("./prices/update.ts");
+    await updatePrices(userPricesPath(), log);
+  }
   const interactive = process.stdout.isTTY === true && !values.json;
   const color = (process.stdout.isTTY === true || !!process.env.FORCE_COLOR) && !process.env.NO_COLOR;
   const showSpinner = process.stderr.isTTY === true && !values.json && !process.env.CI;
@@ -147,7 +149,7 @@ async function main(argv: string[]): Promise<number> {
         new URL(import.meta.url),
         jobs,
         // With a spinner, replay progress shows there instead of as log lines.
-        { ids: saverIndex(saverIds).map((x) => x.id), full: exact, cacheFile: defaultReplayCachePath(), log: showSpinner ? undefined : log, warn: showSpinner ? (s) => void warnings.push(s) : log },
+        { ids, full: exact, cacheFile: defaultReplayCachePath(), log: showSpinner ? undefined : log, warn: showSpinner ? (s) => void warnings.push(s) : log },
         {
           files: (done, total) => spinner.set(`Reading logs… ${fmt(done)}/${fmt(total)} files`),
           replay: (saver, done, total) => {
