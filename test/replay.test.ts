@@ -336,7 +336,7 @@ const PREVIEW = { persistedHeader: "<persisted-output>\nOutput too large. Previe
 test("a persisted-output preview never sets the ratio other outputs are extrapolated with", async () => {
   const t = tmp();
   try {
-    const ordinary = Array.from({ length: 120 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, 3000) }));
+    const ordinary = Array.from({ length: 120 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, 2600 + ((i * 37) % 800)) }));
     // Their full outputs shrink to ~29,000 chars: under the inline limit, so all of it would be sent.
     const previews = [0, 1, 2, 3, 4].map((i) => ({ key: `a${i}`, input: text(i, 116_000), ...PREVIEW }));
     await exactRun(synth("headroom", [...previews, ...ordinary.slice(0, 100)]), t.cacheFile); // 20 outputs are new since
@@ -380,6 +380,22 @@ test("an upgraded saver is measured again; a matching install keeps its cached r
     assert.equal(await run(rtk.version), 0, "same install: served from the cache");
     assert.ok((await run("0.51.0")) > 0, "upgraded: replayed again");
     assert.equal(await run("0.51.0"), 0);
+  } finally {
+    t.done();
+  }
+});
+
+test("quick mode does not extrapolate from a cache that holds only the larger outputs (an older exact run, stopped)", async () => {
+  const t = tmp();
+  try {
+    const size = [5000, 3000, 2000, 1000];
+    const specs = Array.from({ length: 200 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, size[i % 4]!) }));
+    // Older releases replayed largest first: stopped after 150, the 150 largest are cached.
+    await exactRun(synth("headroom", specs.filter((_, i) => i % 4 !== 3)), t.cacheFile);
+    const f = synth("headroom", specs);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.deepEqual({ insufficient: st.insufficient, extrapolated: st.extrapolated }, { insufficient: true, extrapolated: 0 });
+    assert.match(st.reason!, /only the larger outputs/);
   } finally {
     t.done();
   }

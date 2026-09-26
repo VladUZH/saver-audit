@@ -344,6 +344,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const sampled = new Map<string, Set<string>>();
   /** Per saver: the outputs extrapolation ratios come from (the stratum, or all when there are no small outputs). */
   const ratioKeys = new Map<string, Set<string> | "all">();
+  const smallKeys = new Map<string, string[]>();
   /** Outputs whose replay failed in this run: counted as unchanged, never cached. */
   const failed = new Set<string>();
   /** Why a saver's replays failed, when one cause failed them all (e.g. headroom's model). */
@@ -400,6 +401,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       const sample = exact ? [...large, ...small] : [...large, ...small.filter((k, n) => n < stratum.length || (!strict && cache.has(k)))];
       sampled.set(saver, new Set(sample));
       ratioKeys.set(saver, small.length ? new Set(stratum) : "all");
+      smallKeys.set(saver, small);
       const uncached = keys.filter((k) => !cache.has(k) && unique.get(k)!.input).length;
       const st: ReplayStats = { total: keys.length, pending: uncached, ran: 0, extrapolated: 0, failed: 0 };
       stats.set(saver, st);
@@ -530,11 +532,27 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     const a = ratios.get(`${j.saver}|${j.cls}`) ?? ratios.get(`${j.saver}|*`);
     return a && a.base > 0 ? a.saved / a.base : undefined;
   };
+  // Measured smaller outputs that are exactly the larger ones (a cache left by an exact run
+  // from an earlier release, stopped part-way: it went largest first) are not a sample.
+  const sizeCut = (saver: string) => {
+    const unique = bySaver.get(saver)!;
+    let measured = Infinity;
+    let rest = -Infinity;
+    for (const k of smallKeys.get(saver) ?? []) {
+      if (failed.has(k)) continue;
+      const b = unique.get(k)!.baseline;
+      if (sampled.get(saver)!.has(k) && cache.has(k)) measured = Math.min(measured, b);
+      else rest = Math.max(rest, b);
+    }
+    return measured !== Infinity && rest !== -Infinity && measured > rest;
+  };
   // Too few measured outputs to extrapolate from: no number rather than a guess.
   for (const [, j] of pending) {
     const st = o.tools.has(j.saver) ? stats.get(j.saver) : undefined;
+    if (!st || st.insufficient) continue;
     const guess = j.persistedHeader === undefined && (basis.get(j.saver)?.size ?? 0) >= MIN_QUICK_SAMPLE && ratioFor(j) !== undefined;
-    if (st && !st.insufficient && !guess) Object.assign(st, { insufficient: true, reason: QUICK_REASON });
+    if (!guess) Object.assign(st, { insufficient: true, reason: QUICK_REASON });
+    else if (sizeCut(j.saver)) Object.assign(st, { insufficient: true, reason: "cached results hold only the larger outputs, not a sample" });
   }
   const extrapolated = new Map<string, Set<string>>();
   for (const [r, j] of pending) {
