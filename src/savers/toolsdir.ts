@@ -90,6 +90,8 @@ export interface InstallChoice {
   size: string;
   available: boolean;
   why?: string;
+  /** Needs Python 3.10+, so whether it is available depends on the Python found. */
+  python?: true;
 }
 
 /** What can be installed on this machine, for the confirmation prompt and the [i] key. `py`: null for none. */
@@ -100,23 +102,44 @@ export function installPlan(platform: string = process.platform, arch: string = 
   return [
     { id: "rtk", what: `rtk ${RTK_TAG}`, size: "about 4 MB, seconds", ...build(rtkAsset(platform, arch)) },
     { id: "caveman-engine", what: `caveman engine ${CAVEMAN_BIN_TAG}`, size: "about 28 MB; its first measurement then takes about a minute, cached after", ...build(cavemanAsset(platform, arch)) },
-    { id: "token-saver", what: `token-saver ${TOKEN_SAVER_TAG}`, size: "under 1 MB, seconds; needs Python 3.10+; its first measurement takes a few minutes on a busy month, cached after", available: !!py && platform !== "win32", why: platform === "win32" ? "installer supports macOS and Linux" : py ? undefined : "needs Python 3.10+" },
+    { id: "token-saver", what: `token-saver ${TOKEN_SAVER_TAG}`, size: "under 1 MB, seconds; needs Python 3.10+; its first measurement takes a few minutes on a busy month, cached after", available: !!py && platform !== "win32", why: platform === "win32" ? "installer supports macOS and Linux" : py ? undefined : "needs Python 3.10+", python: true },
     { id: "lean-ctx", what: `lean-ctx ${LEAN_CTX_TAG}`, size: "about 23 MB; its first measurement takes a few minutes on a busy month, cached after", ...build(leanCtxAsset(platform, arch)) },
-    { id: "headroom", what: `headroom ${HEADROOM_VERSION} + its model`, size: "about 1.6 GB, a few minutes", available: venv, why: !py ? "needs Python 3.10+" : venv ? undefined : "needs Python's venv module; on Debian or Ubuntu: sudo apt install python3-venv" },
+    { id: "headroom", what: `headroom ${HEADROOM_VERSION} + its model`, size: "about 1.6 GB, a few minutes", available: venv, why: !py ? "needs Python 3.10+" : venv ? undefined : "needs Python's venv module; on Debian or Ubuntu: sudo apt install python3-venv", python: true },
   ];
 }
 
+/** What [i] and --install-savers can do for the missing savers. */
+export interface InstallOffer {
+  /** Missing savers the installer can install here (or will try: one that needs Python, when Python was not looked for). */
+  ids: string[];
+  /** Why each other missing built-in saver cannot be installed here. */
+  why: Map<string, string>;
+}
+
 /**
- * Whether the [i] key has something to offer: a missing built-in saver that can be
- * installed here. headroom is left out (1.6 GB: --with-headroom only). Python is only
- * looked for when no saver without it is missing: on a Mac without developer tools,
- * running python3 opens a dialog offering to install them.
+ * What the installer can do for the missing savers; the [i] key is offered when `ids`
+ * is not empty. headroom is left out (1.6 GB: --with-headroom only). Python is only
+ * looked for when nothing without it can be installed: on a Mac without developer
+ * tools, running python3 opens a dialog offering to install them.
  */
-export function canOfferInstall(
+export function installOffer(
   savers: Array<{ id: string; status: string }>,
   plan: (python: boolean) => InstallChoice[] = (python) => installPlan(process.platform, process.arch, python ? findPython() : null),
-): boolean {
-  const missing = savers.filter((s) => s.status === "not installed" && s.id !== "headroom");
-  const offered = (p: InstallChoice[]) => missing.some((s) => p.some((c) => c.id === s.id && c.available));
-  return missing.length > 0 && (offered(plan(false)) || offered(plan(true)));
+): InstallOffer {
+  const missing = savers.filter((s) => s.status === "not installed" && s.id !== "headroom").map((s) => s.id);
+  if (!missing.length) return { ids: [], why: new Map() };
+  let p = plan(false);
+  let looked = false;
+  const can = (id: string) => p.some((c) => c.id === id && c.available);
+  const python = (id: string) => p.some((c) => c.id === id && c.python);
+  if (!missing.some(can) && missing.some(python)) {
+    p = plan(true);
+    looked = true;
+  }
+  const ids = missing.filter((id) => can(id) || (!looked && python(id)));
+  const why = new Map(missing.flatMap((id): Array<[string, string]> => {
+    const c = p.find((x) => x.id === id);
+    return !ids.includes(id) && c?.why ? [[id, c.why]] : [];
+  }));
+  return { ids, why };
 }

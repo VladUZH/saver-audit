@@ -6,16 +6,17 @@ import { allSavers, saverIndex } from "./savers/registry.ts";
 import { claudeRoots } from "./sources/claude-code.ts";
 import { codexHome } from "./sources/codex.ts";
 import { loadPrices, userPricesPath } from "./prices/load.ts";
-import { renderShort, renderTerminal } from "./report/terminal.ts";
+import { menuKeys, renderShort, renderTerminal } from "./report/terminal.ts";
 import { canAnimate, keyMenu, reveal, Spinner } from "./report/present.ts";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { renderJson } from "./report/json.ts";
 import type { Source } from "./sources/types.ts";
+import type { AuditResult } from "./audit.ts";
 import { parsePeriod, parseUntil } from "./period.ts";
 import { normalizeCardArg } from "./args.ts";
 import { exactSeconds } from "./savers/replay.ts";
-import { canOfferInstall, HEADROOM_VERSION, installPlan, toolPaths, toolsDir, type InstallChoice } from "./savers/toolsdir.ts";
+import { HEADROOM_VERSION, installOffer, installPlan, toolPaths, toolsDir, type InstallChoice, type InstallOffer } from "./savers/toolsdir.ts";
 import { VERSION } from "./version.ts";
 
 
@@ -186,8 +187,15 @@ async function main(argv: string[]): Promise<number> {
     return code;
   }
   const animate = canAnimate(process.stdout, values["no-animation"]);
+  // What [i] could install, looked at once per result (it may run Python).
+  let withPython: InstallChoice[] | undefined;
+  const plan = (python: boolean) => (python ? (withPython ??= installPlan()) : installPlan(process.platform, process.arch, null));
+  const offers = new WeakMap<AuditResult, InstallOffer>();
+  const install = () => offers.get(result) ?? offers.set(result, installOffer(result.savers, plan)).get(result)!;
+  // The short view names a key only when the menu that follows offers it (menuKeys).
+  const shortView = (menu: boolean) => renderShort(result, { ...opts, menu, install: install() });
   if (values.short) {
-    await reveal(process.stdout, renderShort(result, opts), animate);
+    await reveal(process.stdout, shortView(false), animate);
     return code;
   }
   if (!interactive || values.full || result.calls === 0) {
@@ -195,15 +203,14 @@ async function main(argv: string[]): Promise<number> {
     if (opts.cardPath) log(`share card written to ${opts.cardPath} (numbers, model names and dates only)`);
     return code;
   }
-  await reveal(process.stdout, renderShort(result, opts), animate);
-  if (!process.stdin.isTTY) {
+  const menu = process.stdin.isTTY === true;
+  await reveal(process.stdout, shortView(menu), animate);
+  if (!menu) {
     process.stdout.write("\nFull report: saver-audit --full\n");
     return code;
   }
   const { copyImage, intentUrl, openExternal, shareText } = await import("./report/share.ts");
-  // [i] only when a missing saver can be installed here (token-saver needs Python 3.10+).
-  let withPython: InstallChoice[] | undefined;
-  const missing = () => canOfferInstall(result.savers, (python) => (python ? (withPython ??= installPlan()) : installPlan(process.platform, process.arch, null)));
+  const keys = () => menuKeys(result, { menu, install: install() });
   const exactWork = () => exactSeconds(new Map(result.savers.filter((x) => x.replay).map((x) => [x.id, x.replay!])));
   await keyMenu(
     process.stdout,
@@ -231,7 +238,7 @@ async function main(argv: string[]): Promise<number> {
         },
       },
       ...(opts.cardPath ? [{ key: "o", label: "open card", run: () => void openExternal(resolve(opts.cardPath!)) }] : []),
-      ...(exactWork().total > 1
+      ...(keys().exact
         ? [
             {
               key: "e",
@@ -251,12 +258,12 @@ async function main(argv: string[]): Promise<number> {
                 if (!(await ask(`  Start (${duration(secs)}; you can stop with Ctrl+C and resume later)? [y/N] `))) return;
                 ({ result, opts } = await audit(only));
                 process.stdout.write("\n");
-                await reveal(process.stdout, renderShort(result, opts), animate);
+                await reveal(process.stdout, shortView(true), animate);
               },
             },
           ]
         : []),
-      ...(missing()
+      ...(keys().install
         ? [
             {
               key: "i",
@@ -266,7 +273,7 @@ async function main(argv: string[]): Promise<number> {
                 if (!installed) return;
                 ({ result, opts } = await audit());
                 process.stdout.write("\n");
-                await reveal(process.stdout, renderShort(result, opts), animate);
+                await reveal(process.stdout, shortView(true), animate);
               },
             },
           ]

@@ -1,7 +1,7 @@
 // What the installer offers on a machine, and when the [i] key is shown.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canOfferInstall, installPlan, type InstallChoice } from "../src/savers/toolsdir.ts";
+import { installOffer, installPlan, type InstallChoice } from "../src/savers/toolsdir.ts";
 
 test("on Windows, token-saver's reason is the platform, whether or not Python is there", () => {
   for (const py of [null, "C:\\Python312\\python.exe"]) {
@@ -19,10 +19,13 @@ test("the plan uses the platform it is given", () => {
 });
 
 /** A plan where token-saver is available only with a suitable Python; `py`: whether there is one. */
-const plan = (py: boolean, calls: boolean[] = []) => (python: boolean) => {
+const plan = (py: boolean, calls: boolean[] = []) => (python: boolean): InstallChoice[] => {
   calls.push(python);
-  return (["rtk", "caveman-engine", "token-saver", "lean-ctx", "headroom"] as const).map((id) => ({ id, what: id, size: "", available: id === "token-saver" ? python && py : true }));
+  return (["rtk", "caveman-engine", "token-saver", "lean-ctx", "headroom"] as const).map((id) =>
+    id === "token-saver" ? { id, what: id, size: "", available: python && py, why: python && py ? undefined : "needs Python 3.10+", python: true } : { id, what: id, size: "", available: true },
+  );
 };
+const canOfferInstall = (savers: Array<{ id: string; status: string }>, p: (python: boolean) => InstallChoice[]) => installOffer(savers, p).ids.length > 0;
 
 test("[i] is offered only for a missing saver that can be installed here", () => {
   const savers = [
@@ -47,4 +50,18 @@ test("[i] looks for Python only when a saver that needs it is all that is missin
   calls.length = 0;
   canOfferInstall([{ id: "token-saver", status: "not installed" }], plan(true, calls));
   assert.deepEqual(calls, [false, true]);
+});
+
+test("the offer names what [i] would install and why the others cannot be", () => {
+  const savers = [
+    { id: "rtk", status: "not installed" },
+    { id: "token-saver", status: "not installed" },
+    { id: "my-saver", status: "not installed" },
+  ];
+  const withRtk = installOffer(savers, plan(false));
+  assert.deepEqual(withRtk.ids, ["rtk", "token-saver"], "Python not looked for: [i] tries token-saver and says why if it cannot");
+  assert.deepEqual([...withRtk.why], []);
+  const noPython = installOffer(savers.slice(1), plan(false));
+  assert.deepEqual(noPython.ids, []);
+  assert.deepEqual([...noPython.why], [["token-saver", "needs Python 3.10+"]], "a community saver has no installer reason");
 });

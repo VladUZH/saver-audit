@@ -1,6 +1,7 @@
 // The human report. Prints numbers, fixed labels and model names only: never prompts,
 // paths, commands or tool output. Project names only with --show-projects.
 import type { AuditResult } from "../audit.ts";
+import type { InstallOffer } from "../savers/toolsdir.ts";
 
 export interface TerminalOptions {
   showProjects: boolean;
@@ -9,6 +10,23 @@ export interface TerminalOptions {
   elapsedMs?: number;
   /** Where the share card was written, if it was. */
   cardPath?: string;
+  /** A key menu follows the short view, so it may name the keys menuKeys() offers. */
+  menu?: boolean;
+  /** What the installer can do for the missing savers; undefined: not looked at. */
+  install?: InstallOffer;
+}
+
+/** Replayed savers with outputs not measured yet: what [e] and --exact replay. */
+export function exactPending(r: AuditResult): boolean {
+  return r.savers.some((s) => s.status === "ok" && (s.replay?.pending ?? 0) > 0);
+}
+
+/**
+ * The keys the menu offers besides [f], [s] and [o]. The short view names a key only
+ * when this offers it, so the text and the menu never disagree.
+ */
+export function menuKeys(r: AuditResult, o: Pick<TerminalOptions, "menu" | "install">): { exact: boolean; install: boolean } {
+  return { exact: !!o.menu && exactPending(r), install: !!o.menu && !!o.install?.ids.length };
 }
 
 const SHORT: Record<string, string> = {
@@ -70,11 +88,13 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
       const share = total ? `${((100 * measuredCost(x)) / total).toFixed(1)}%` : "—";
       out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad(signedUsd(measuredCost(x)), 9)} ${lpad(share, 7)}  ${dim(confidence(x))}`);
     }
+    const keys = menuKeys(r, o);
     const later = r.savers.filter((y) => y.status === "ok" && tooLittleData(y));
-    for (const x of later) out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad("—", 9)} ${lpad("", 7)}  ${dim(noNumber(x, "press [e]"))}`);
+    for (const x of later) out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad("—", 9)} ${lpad("", 7)}  ${dim(noNumber(x, keys.exact ? "press [e]" : "--exact"))}`);
     // Nothing measured: every replayed saver here is missing, or --savers picked none.
     if (!measured.length && !later.length) out.push(dim(r.savers.some((y) => y.method === "replayed") ? "  None measured yet: none of the replayed savers in this run is installed." : "  None measured: none of the selected savers is replayed (--savers)."));
-    if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failed)) out.push(dim(`  "indicative" = from a quick sample; can be off by half. ${bold("Press [e]")} for exact numbers (once; cached).`));
+    const exact = keys.exact ? `${bold("Press [e]")} for exact numbers (once; cached).` : "For exact numbers (once; cached): npx saver-audit --exact";
+    if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failed)) out.push(dim(`  "indicative" = from a quick sample; can be off by half. ${exact}`));
     if (measured.some((x) => x.replay?.failed)) out.push(dim(`  Some replays failed and count as unchanged, so those numbers are "indicative"; the full report has the counts.`));
     const hypo = measured.filter(hypotheticalCodex);
     if (hypo.length) out.push(dim(`  The Codex part is left out above (${hypo.map((x) => `${x.name.replace(" (proxy engine)", " engine")} about ${signedUsd(x.codexCost)}`).join(", ")}): it is hypothetical, since Codex hooks cannot rewrite tool input.`));
@@ -82,7 +102,15 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
     if (rest) out.push(dim(`  Not measurable offline: ${rest}.`));
     const missing = r.savers.filter((y) => y.status === "not installed");
     const quick = missing.filter((y) => y.id !== "headroom");
-    if (quick.length) out.push(`  ${accent("Not installed:")} ${quick.map((y) => y.name.replace(" (proxy engine)", " engine")).join(", ")}. ${bold("Press [i]")} to install and measure ${quick.length === 1 ? "it" : "them"} (seconds).`);
+    // [i] is promised only for what the installer can do here; the others say why not.
+    const offered = new Set(o.install?.ids ?? quick.map((y) => y.id));
+    const can = quick.filter((y) => offered.has(y.id));
+    const cannot = quick.filter((y) => !offered.has(y.id));
+    const name = (y: Saver) => y.name.replace(" (proxy engine)", " engine");
+    const them = can.length === 1 ? "it" : "them";
+    if (can.length) out.push(`  ${accent("Not installed:")} ${can.map(name).join(", ")}. ${keys.install ? `${bold("Press [i]")} to install and measure ${them}.` : `To install and measure ${them}: npx saver-audit --install-savers`}`);
+    const why = (y: Saver) => o.install?.why.get(y.id) ?? y.install;
+    if (cannot.length) out.push(`  ${accent(can.length ? "Also not installed:" : "Not installed:")} ${cannot.map((y) => (why(y) ? `${name(y)} (${why(y)})` : name(y))).join(", ")}.`);
     if (missing.some((y) => y.id === "headroom")) out.push(dim("  headroom is a 1.6 GB install; add it with: saver-audit --install-savers --with-headroom"));
     out.push(dim("  These numbers replay your past sessions as they happened. A saver can also change"));
     out.push(dim("  how the agent works (e.g. extra steps to get cut output back); that isn't measured."));
