@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import type { FileResult } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
 import { countProxy } from "../src/accounting/tokens.ts";
-import { detectReplayTools, isOutdated, runReplays, type ReplayTool } from "../src/savers/replay.ts";
+import { detectReplayTools, isOutdated, runOnce, runReplays, type ReplayTool } from "../src/savers/replay.ts";
 import { replayKey } from "../src/savers/tracker.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import type { ReplayJob } from "../src/savers/types.ts";
@@ -559,6 +559,21 @@ test("the headroom sidecar has exited before its state folder is removed", async
     assert.equal(st.get("headroom")!.failed, 0);
     await new Promise((r) => setTimeout(r, 600));
     assert.deepEqual(readdirSync(temp), [], "no store written after the folder was removed (on Windows: EBUSY while it is open)");
+  } finally {
+    t.done();
+  }
+});
+
+test("a timed-out saver is ended with the processes it started, which may hold its output open", async (c) => {
+  if (process.platform === "win32") return c.skip("POSIX shell wrapper");
+  const t = tmp();
+  try {
+    const pidFile = join(t.dir, "pid");
+    const t0 = Date.now();
+    const out = await runOnce(join(BIN, "wrapped-saver"), [], "input", { ...process.env, FAKE_PIDFILE: pidFile }, t.dir, 500, new Set());
+    assert.equal(out, undefined, "a timeout is a failed replay");
+    assert.ok(Date.now() - t0 < 5000, `returned after ${Date.now() - t0} ms, not when the worker ended`);
+    assert.ok(await gone(Number(readFileSync(pidFile, "utf8"))), "the worker was ended too");
   } finally {
     t.done();
   }

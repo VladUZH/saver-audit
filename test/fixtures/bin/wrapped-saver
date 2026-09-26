@@ -1,0 +1,8 @@
+#!/bin/sh
+# Fake saver behind a wrapper script that does not `exec` its worker: the worker (a long
+# sleep here) keeps the output pipe open after the wrapper is killed. Its pid goes to
+# $FAKE_PIDFILE.
+cat >/dev/null
+sleep 30 &
+echo $! > "$FAKE_PIDFILE"
+wait

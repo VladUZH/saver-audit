@@ -185,32 +185,48 @@ function saverEnv(stateDir: string): NodeJS.ProcessEnv {
   };
 }
 
+/** Kills a saver process and the processes it started (a wrapper script's worker holds its output pipe). */
+function killTree(child: ChildProcess): void {
+  try {
+    if (process.platform === "win32" || !child.pid) child.kill("SIGKILL");
+    else process.kill(-child.pid, "SIGKILL"); // its process group (spawned detached)
+  } catch {
+    child.kill("SIGKILL");
+  }
+}
+
 /** Runs one saver process in `cwd`; `live` holds it while it runs. */
-function runOnce(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, cwd: string, timeoutMs: number, live: Set<ChildProcess>): Promise<string | undefined> {
+export function runOnce(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, cwd: string, timeoutMs: number, live: Set<ChildProcess>): Promise<string | undefined> {
   return new Promise((resolve) => {
-    let child;
+    let child: ChildProcess;
     try {
-      child = spawn(cmd, args, { env, cwd, stdio: ["pipe", "pipe", "ignore"] });
+      // Its own process group, so a timeout ends all of it (not on Windows: a new console).
+      child = spawn(cmd, args, { env, cwd, stdio: ["pipe", "pipe", "ignore"], detached: process.platform !== "win32" });
     } catch {
       // Refused before starting (e.g. E2BIG: a recorded command over the argument limit).
       return resolve(undefined);
     }
     live.add(child);
     const chunks: Buffer[] = [];
-    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
-    child.stdout.on("data", (c: Buffer) => chunks.push(c));
-    child.on("error", () => {
+    let done = false;
+    const finish = (out: string | undefined) => {
+      if (done) return;
+      done = true;
       clearTimeout(timer);
       live.delete(child);
-      resolve(undefined);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      live.delete(child);
-      resolve(code === 0 ? Buffer.concat(chunks).toString("utf8") : undefined);
-    });
-    child.stdin.on("error", () => {});
-    child.stdin.end(input);
+      resolve(out);
+    };
+    // On a timeout, do not wait for the output pipe to close: a leftover process may hold it.
+    const timer = setTimeout(() => {
+      killTree(child);
+      child.stdout!.destroy();
+      finish(undefined);
+    }, timeoutMs);
+    child.stdout!.on("data", (c: Buffer) => chunks.push(c));
+    child.on("error", () => finish(undefined));
+    child.on("close", (code) => finish(code === 0 ? Buffer.concat(chunks).toString("utf8") : undefined));
+    child.stdin!.on("error", () => {});
+    child.stdin!.end(input);
   });
 }
 
@@ -438,7 +454,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   // tool output), then end the way the signal would have.
   const live = new Set<ChildProcess>();
   const onSignal = (sig: NodeJS.Signals) => {
-    for (const c of live) c.kill("SIGKILL");
+    for (const c of live) killTree(c);
     try {
       if (state) rmSync(state, { recursive: true, force: true });
     } catch {
