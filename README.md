@@ -49,10 +49,10 @@ Nothing leaves your machine. The network is used only when you ask: `--update-pr
 
 | Content | Cost | Share |
 |---|---|---|
-| Earlier assistant turns, re-read (incl. thinking) | $1,090 | 26% |
-| Tool output: shell | $711 | 17% |
-| System prompt and tool definitions (not in the logs) | $687 | 16% |
-| Reminders, attachments, command output | $546 | 13% |
+| Earlier assistant turns, re-read (incl. thinking) | $1,097 | 26% |
+| Tool output: shell | $710 | 17% |
+| System prompt and tool definitions (not in the logs) | $698 | 17% |
+| Reminders, attachments, command output | $526 | 12% |
 | Assistant output | $520 | 12% |
 | Tool output: web fetch | $202 | 5% |
 
@@ -60,38 +60,38 @@ Nothing leaves your machine. The network is used only when you ask: `--update-pr
 
 | Saver | Method | Could touch | Saved | Of the bill |
 |---|---|---|---|---|
-| [rtk](https://github.com/rtk-ai/rtk) 0.50.0 | replayed (all 5,513 outputs) | 15% of tool output | $47 | 1.1% |
+| [rtk](https://github.com/rtk-ai/rtk) 0.50.0 | replayed (all 3,291 outputs), lower bound | 6% of tool output | $21 | 0.5% |
 | [caveman](https://github.com/JuliusBrussee/caveman) proxy engine | replayed (every output of 500+ tokens) | all tool output | $13 | 0.3% |
-| [headroom](https://github.com/headroomlabs-ai/headroom) 0.38.0 | replayed (all ~30k outputs), lower estimate | 56% | $151 | 3.6% |
-| [lean-ctx](https://github.com/yvgude/lean-ctx) 3.10.3 | replayed (every output of 1,000+ tokens) | 67% | $122 | 2.9% |
-| [token-saver](https://github.com/ppgranger/token-saver) 3.0.0 | replayed (every output of 1,000+ tokens) | 51% | $65 | 1.5% |
-| caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $95 | 2.3% |
-| [codegraph](https://github.com/colbymchenry/codegraph) | upper bound | 43% | ≤ $579 | ≤ 13.8% |
+| [headroom](https://github.com/headroomlabs-ai/headroom) 0.38.0 | replayed (every output of 200+ tokens), lower estimate | 56% | $151 | 3.6% |
+| [lean-ctx](https://github.com/yvgude/lean-ctx) 3.10.3 | replayed (every output of 500+ tokens) | 64% | $126 | 3.0% |
+| [token-saver](https://github.com/ppgranger/token-saver) 3.0.0 | replayed (every output of 500+ tokens) | 48% | $66 | 1.6% |
+| caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $96 | 2.3% |
+| [codegraph](https://github.com/colbymchenry/codegraph) | upper bound | 43% | ≤ $578 | ≤ 13.7% |
 | [context-mode](https://github.com/mksglu/context-mode) | upper bound | 61% | ≤ $704 | ≤ 16.7% |
 
 The two biggest items are things no tool-output saver touches:
 - **Re-reading earlier turns:** about a quarter of the cost is earlier assistant turns, thinking included, read again from cache on every call.
-- **The fixed system prompt and tool definitions:** another 16%.
+- **The fixed system prompt and tool definitions:** another 17%.
 
-The headroom number is a lower estimate (see below). On Codex alone, where shell output is 44% of the cost, headroom would cut 10.4% and rtk 4.1% (token-saver 12.0%, but it works through Claude Code hooks, so that figure is hypothetical).
+The headroom number is a lower estimate (see below). On Codex alone, where shell output is 44% of the cost, headroom would cut 10.4% and rtk at least 2.1% (token-saver 12.4% and lean-ctx 7.8%, but they work through Claude Code hooks, so those figures are hypothetical).
 
 ## What the labels mean
 
 - **replayed.** saver-audit sends the recorded tool output through *your installed copy* of the saver and counts what is left, measured against what the model actually saw.
   - For example, Claude Code cuts large Bash output down to a preview, so that preview is the baseline.
   - **Quick by default:**
-    - A normal run gives each saver a few seconds; the first run on a busy month takes about 20 s, later runs a few seconds.
-    - rtk replays up to about 12,000 distinct outputs in its 15 s (the author's month had 5,513), so its number is usually **exact**. Past that, or on a machine too slow to finish in 15 s, the rest is estimated and marked **indicative**.
+    - A normal run gives each saver a few seconds; the first run on a busy month takes about 20 s, later runs about 9 s.
+    - rtk replays up to about 12,000 distinct outputs in its 15 s (the author's month had 3,291), so its number is usually **exact**. Past that, or on a machine too slow to finish in 15 s, the rest is estimated and marked **indicative**.
     - token-saver and lean-ctx are estimated from a sample and marked **indicative**. They can be off by up to half on a small period. With fewer than 20 measured outputs to estimate from, they show no number until you ask for exact numbers.
     - The caveman engine and headroom show "—" until you ask for exact numbers: a quick sample was too far off for them.
     - A replay that fails counts as unchanged, is not cached, and is tried again next run. A number with failed replays is marked **indicative**. When most replays fail, the saver shows "not measured" and why, for example headroom without its model.
   - **Exact on request:** press `e` or pass `--exact`.
-    - It replays every output above each saver's size floor: caveman 500 tokens, token-saver and lean-ctx 1,000, headroom 200.
+    - It replays every output above each saver's size floor: caveman, token-saver and lean-ctx 500 tokens, headroom 200.
     - `e` first shows how long that will take on your logs. headroom can take hours on a busy month, so `e` asks about it separately.
     - `--exact` asks nothing: it replays every saver, headroom included. To leave headroom out, list the others with `--savers`.
     - Results are saved as it goes, so you can stop with Ctrl+C and the next run carries on.
     - Results are cached, so later quick runs are exact too.
-    - The floors make caveman about 5%, token-saver about 10% and lean-ctx about 4% low, and the report says so.
+    - The floors make caveman about 5%, token-saver about 9% and lean-ctx about 1% low, and the report says so.
 - **modeled.** An estimate from a published measurement, with the assumption printed next to it.
 - **upper bound.** The saver changes how the agent behaves (which tools it calls), so replay can only give a ceiling: everything it could possibly remove.
 
