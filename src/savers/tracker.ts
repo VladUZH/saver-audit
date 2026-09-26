@@ -48,9 +48,10 @@ interface TimelineBlocks {
 /**
  * Earlier releases cached a failed run as "unchanged", indistinguishable from a real
  * result. Savers run as one process per output (where a broken install fails every
- * output, and a re-run is cheap) get new keys; headroom keeps its costly results.
+ * output, and a re-run is cheap) get new keys; headroom keeps its costly results, except
+ * on Windows, where it was sent non-ASCII text in the wrong encoding.
  */
-const keySalt = (id: string) => (id === "headroom" ? "" : "#2");
+const keySalt = (id: string) => (id !== "headroom" ? "#2" : process.platform === "win32" ? "#w" : "");
 
 /**
  * The saver version a result is cached under: the installed one when it differs from the

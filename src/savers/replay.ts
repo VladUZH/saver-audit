@@ -254,7 +254,7 @@ try:
 except Exception:
     pass
 print(json.dumps({"ready": ready}), flush=True)
-for line in sys.stdin:
+for line in sys.stdin.buffer:
     req = json.loads(line)
     msgs = [{"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": req["tool"], "input": {}}]},
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": req["text"]}]}]
@@ -271,6 +271,14 @@ for line in sys.stdin:
     except Exception as e:
         print(json.dumps({"i": req["i"], "error": type(e).__name__}), flush=True)
 `;
+
+/**
+ * JSON with every non-ASCII character escaped, so it reads the same under any code page
+ * (on Windows, Python before 3.15 decodes pipes with the ANSI code page, not UTF-8).
+ */
+function asciiJson(v: unknown): string {
+  return JSON.stringify(v).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
 
 /** One long-lived headroom process; the model loads once, as in a running headroom proxy. */
 class HeadroomSidecar {
@@ -325,7 +333,7 @@ class HeadroomSidecar {
     return new Promise((resolve) => {
       const timer = Number.isFinite(ms) ? setTimeout(() => (this.waiting.delete(i), resolve("timeout")), ms) : undefined;
       this.waiting.set(i, (out) => (clearTimeout(timer), resolve(out)));
-      this.child.stdin!.write(JSON.stringify({ i, tool, text }) + "\n");
+      this.child.stdin!.write(asciiJson({ i, tool, text }) + "\n");
     });
   }
 

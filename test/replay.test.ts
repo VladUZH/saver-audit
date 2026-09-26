@@ -519,3 +519,32 @@ test("token-saver and lean-ctx get a whole temporary home: HOME, the XDG folders
     t.done();
   }
 });
+
+test("headroom gets non-ASCII text intact on any code page (Windows pipes are not UTF-8)", async (c) => {
+  if (!PYTHON) return c.skip("no python3");
+  const t = tmp();
+  try {
+    const repo = join(t.dir, "repo");
+    mkdirSync(repo);
+    // PYTHONIOENCODING=cp1252 decodes pipes the way Windows does; 0x9D (in ❌) is undefined there.
+    const r = stubHeadroom(repo, [`→ résumé ✓ ${text(0, 500)}`, `Rīgā ❌ Á ${text(1, 500)}`], { PYTHONIOENCODING: "cp1252" });
+    assert.deepEqual({ failed: r.stats?.failed, d: r.d }, { failed: 0, d: [0, 0] }, "the stub compressor changes nothing");
+  } finally {
+    t.done();
+  }
+});
+
+test("headroom results cached on Windows before that fix are measured again", () => {
+  const headroom = SAVERS.find((s) => s.id === "headroom")!;
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const key = (os: string) => {
+    Object.defineProperty(process, "platform", { ...platform, value: os });
+    try {
+      return replayKey(headroom, "Bash", undefined, "out");
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+    }
+  };
+  assert.equal(key("darwin"), key("linux"));
+  assert.notEqual(key("win32"), key("linux"));
+});
