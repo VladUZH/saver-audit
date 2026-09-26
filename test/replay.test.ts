@@ -10,7 +10,7 @@ import type { FileResult } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
 import { countProxy } from "../src/accounting/tokens.ts";
 import { detectReplayTools, isOutdated, launcherPython, runOnce, runReplays, type ReplayTool } from "../src/savers/replay.ts";
-import { quickDrawsPath, readQuickDraws, readReplayCache } from "../src/savers/cache.ts";
+import { keyPrefix, quickDrawsPath, readQuickDraws, readReplayCache } from "../src/savers/cache.ts";
 import { replayKey } from "../src/savers/tracker.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import { cacheFingerprint, planQuick, quickSalt } from "../src/savers/quick.ts";
@@ -374,13 +374,13 @@ test("a cache-only saver with a few outputs new since an exact run: they get the
     const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
     assert.deepEqual({ insufficient: st.insufficient, extrapolated: st.extrapolated, se: st.se, unit: st.unit }, { insufficient: undefined, extrapolated: 1, se: undefined, unit: "tokens" });
     const x = popOf(synth("headroom", specs)).map((o) => o.x);
-    assert.ok(Math.abs(st.fromCache! - x[39]! / x.reduce((a, b) => a + b, 0)) < 1e-12, "the new output's share of the size");
+    assert.ok(Math.abs(st.fromMeasured! - x[39]! / x.reduce((a, b) => a + b, 0)) < 1e-12, "the new output's share of the size");
     assert.ok(deltas(f)[39]! > 0, "estimated, never 0");
     // Once it is replayed too, the number is exact.
     await exactRun(synth("headroom", specs), t.cacheFile);
     const g = synth("headroom", specs);
     const ok = (await quickRun(g, t.cacheFile)).get("headroom")!;
-    assert.deepEqual({ insufficient: ok.insufficient, extrapolated: ok.extrapolated, fromCache: ok.fromCache }, { insufficient: undefined, extrapolated: 0, fromCache: undefined });
+    assert.deepEqual({ insufficient: ok.insufficient, extrapolated: ok.extrapolated, fromMeasured: ok.fromMeasured }, { insufficient: undefined, extrapolated: 0, fromMeasured: undefined });
   } finally {
     t.done();
   }
@@ -641,6 +641,8 @@ test("a repeat quick run reuses its draw: identical numbers, nothing replayed; s
     const near = await run(window, [...specs.slice(1), ...cycling(1, "n")]);
     assert.ok(near.st.ran <= 2, `${near.st.ran} replayed`);
     assert.equal(salt(window), first, "the draw is kept");
+    const kept = readQuickDraws(quickDrawsPath(join(window, "replay.json"))).get("token-saver")!;
+    assert.ok(![...kept.drawn].includes(keyPrefix(specs[0]!.key)), "an output that left the population leaves the drawn set");
     // Half the size mass new: a fresh draw (all 330 uncached are candidates: 270 replayed).
     const far = await run(window, [...specs, ...cycling(300, "n")]);
     assert.equal(far.st.ran, 270);
@@ -658,6 +660,77 @@ test("a repeat quick run reuses its draw: identical numbers, nothing replayed; s
   } finally {
     t.done();
   }
+});
+
+test("a clock stop among the certainties: what is left gets the measured outputs' ratio when it is a small share, never no number for crowding", async () => {
+  // Strict mode on a cache holding only the first part of the plan stands in for the clock.
+  const run = async (specs: Spec[], stop: number) => {
+    const t = tmp();
+    try {
+      const f = synth("headroom", specs);
+      const plan = planQuick(popOf(f), 100, quickSalt("headroom", ""), new Set());
+      const first = new Set(plan.order.slice(0, stop));
+      await exactRun(synth("headroom", specs.filter((s) => first.has(s.key))), t.cacheFile);
+      const st = (await strictRun(f, t.cacheFile)).get("headroom")!;
+      return { st, plan, d: deltas(f) };
+    } finally {
+      t.done();
+    }
+  };
+  // Everything fits (80 outputs, budget 100), and the clock stops after 60.
+  const fits = await run(cycling(80), 60);
+  assert.equal(fits.plan.ranked.length, 0);
+  assert.deepEqual({ insufficient: fits.st.insufficient, extrapolated: fits.st.extrapolated }, { insufficient: undefined, extrapolated: 20 });
+  assert.ok(fits.st.fromMeasured! > 0 && fits.st.fromMeasured! <= 0.25, String(fits.st.fromMeasured));
+  assert.equal(fits.st.se, undefined, "not a sample: no ±");
+  // 40 large outputs are certainties; the clock stops at half the plan: 40 of them and 10 sampled.
+  const large = Array.from({ length: 40 }, (_, i) => ({ key: `h${String(i).padStart(2, "0")}`, input: text(i, 80_000) }));
+  const half = await run([...large, ...cycling(260)], 50);
+  assert.equal(half.plan.certain.size, 40);
+  assert.deepEqual({ insufficient: half.st.insufficient, extrapolated: half.st.extrapolated }, { insufficient: undefined, extrapolated: 250 });
+  assert.ok(half.st.fromMeasured! <= 0.25);
+  assert.ok(half.d.slice(50).every((d) => Number.isFinite(d) && d >= 0));
+  // Stopped earlier, more than a quarter is left: no number.
+  const early = await run([...large, ...cycling(260)], 20);
+  assert.equal(early.st.insufficient, true);
+});
+
+test("an output read only by calls on unpriced models is sampled and counted; only an output no call reads is left out", async () => {
+  const t = tmp();
+  try {
+    const specs = Array.from({ length: 40 }, (_, i) => ({ key: `k${String(i).padStart(2, "0")}`, input: text(i) }));
+    const f = synth("token-saver", specs);
+    const blocks = f.savers!.timelines.main!.blocks;
+    // 0-9: read only by unpriced calls; 10-29: priced; 30-39: read by no call in the period.
+    const w = new Map(blocks.slice(0, 30).map((b, i) => [b, i < 10 ? { usd: 0, tokens: 2, unpriced: 2 } : { usd: 3e-6, tokens: 2, unpriced: 0 }]));
+    const st = (await runReplays([f], ["token-saver"], { tools: tool("token-saver", "fake-saver"), cacheFile: t.cacheFile, full: false, concurrency: 4, blockWeights: w })).get("token-saver")!;
+    assert.deepEqual({ ran: st.ran, extrapolated: st.extrapolated, pending: st.pending }, { ran: 30, extrapolated: 0, pending: 10 });
+    const d = deltas(f);
+    assert.ok(d.slice(0, 30).every((x) => x > 0), "every read output measured, unpriced ones too");
+    assert.ok(d.slice(30).every((x) => x === 0), "an output no call reads counts in neither column");
+  } finally {
+    t.done();
+  }
+});
+
+test("with calls on unpriced models, quick mode's token column matches an exact run's", async () => {
+  const opts = fixtureOptions({ sources: ["claude-code"], claudeRoots: [fileURLToPath(new URL("./fixtures/claude-unpriced/projects", import.meta.url))] });
+  const run = async (full: boolean) => {
+    const t = tmp();
+    try {
+      const r = await runAudit(opts, undefined, 1, { ids: ["rtk"], tools: FAKE_TOOLS, cacheFile: t.cacheFile, full });
+      assert.ok(r.models.some((m) => !m.pricedAs), "the fixture has calls on an unpriced model");
+      return r.savers.find((s) => s.id === "rtk")!;
+    } finally {
+      t.done();
+    }
+  };
+  const quick = await run(false);
+  const exact = await run(true);
+  assert.ok(exact.tokens > 0);
+  assert.equal(quick.tokens, exact.tokens);
+  assert.equal(quick.cost, exact.cost);
+  assert.equal(quick.replay!.pending, 0);
 });
 
 test("an upgraded saver is measured again; a matching install keeps its cached results", async () => {

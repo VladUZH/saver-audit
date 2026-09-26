@@ -74,6 +74,13 @@ export interface QuickFit {
   ratioFor(key: string): number | undefined;
   /** Standard error of the estimated total saving, in the unit of x (0 when nothing is estimated). */
   se: number;
+  /** Sampled outputs (rows) the saver changed (d ≠ 0): with none, se is 0 and says nothing. */
+  changed: number;
+  /**
+   * The standard error for a part of the total (the non-Codex part, say): each row's saving
+   * and size in that part, with the same π and ratios.
+   */
+  seOf(d: (key: string) => number, x: (key: string) => number): number;
   /** Per output: its part in this run (for SAVER_AUDIT_DUMP). */
   role(key: string): QuickRole;
   /** Per output: the inclusion probability used (the recomputed one for a sampled output); undefined for cached ones. */
@@ -226,19 +233,27 @@ export function planQuick(pop: QuickOutput[], budget: number, salt: string, cach
   const pv = U.filter((o) => o.preview && o.x > 0).sort(byU);
   const taken = pv.slice(0, Math.floor(budget / 2));
   const other = U.filter((o) => !o.preview && o.x > 0);
-  const n = budget - taken.length;
-  let pi: Map<string, number>;
-  let certain: QuickOutput[];
+  let n = budget - taken.length;
+  let pi = new Map<string, number>();
+  let certain: QuickOutput[] = [];
   let ranked: QuickOutput[];
-  if (other.length <= n) {
+  const sorted = [...other].sort(bySize);
+  // The budget grows (a small overshoot) so that certainties never leave fewer than MIN
+  // sampled outputs for the ratio, and fewer than MIN would never be left unsampled.
+  for (;;) {
+    if (other.length - n < MIN_QUICK_SAMPLE) break;
+    pi = ppsProbs(sorted, n);
+    certain = sorted.filter((o) => pi.get(o.key)! >= 1);
+    if (n - certain.length >= MIN_QUICK_SAMPLE) break;
+    n += MIN_QUICK_SAMPLE;
+  }
+  if (other.length - n < MIN_QUICK_SAMPLE) {
     // Everything fits: all of it is replayed, and the result is exact.
-    certain = [...other].sort(bySize);
+    n = Math.max(n, other.length);
+    certain = sorted;
     ranked = [];
     pi = new Map(other.map((o) => [o.key, 1]));
   } else {
-    const sorted = [...other].sort(bySize);
-    pi = ppsProbs(sorted, n);
-    certain = sorted.filter((o) => pi.get(o.key)! >= 1);
     // u/x: sequential Poisson order (∝ u/π).
     const q = (o: QuickOutput) => u.get(o.key)! / o.x;
     ranked = other.filter((o) => pi.get(o.key)! < 1).sort((a, b) => q(a) - q(b) || byU(a, b));
@@ -317,6 +332,16 @@ export function fitQuick(plan: QuickPlan, measured: ReadonlyMap<string, number>,
     unmeasured,
     ratioFor: (k) => (insufficient ? undefined : ratioOfSize(x(k))),
     se: Math.sqrt(v),
+    changed: rows.filter((r) => r.d !== 0).length,
+    seOf(dOf, xOf) {
+      if (insufficient || !unmeasured.length) return 0;
+      let w = 0;
+      for (const r of rows) {
+        const e = dOf(r.key) - ratioOfSize(r.x)! * xOf(r.key);
+        w += ((1 - r.p) / (r.p * r.p)) * e * e;
+      }
+      return Math.sqrt(w);
+    },
     role(k) {
       if (plan.cached.has(k)) return "cached";
       if (failed.has(k)) return "failed";
@@ -331,7 +356,7 @@ export function fitQuick(plan: QuickPlan, measured: ReadonlyMap<string, number>,
   };
 }
 
-/** A cache-only saver's quick run estimates the rest from what is known only up to this share of its size. */
+/** Outputs are estimated from the plain ratio of the measured ones only up to this share of the saver's size. */
 export const MAX_FROM_CACHE = 0.25;
 
 export interface CacheFit {
@@ -345,14 +370,15 @@ export interface CacheFit {
 }
 
 /**
- * A cache-only saver in quick mode (headroom, or the caveman engine with too many new
- * outputs to replay) samples nothing. Its outputs not known yet (new since its last exact
- * run) get the known outputs' ratio Σd/Σx per size band, when they are at most
- * MAX_FROM_CACHE of its size. The known outputs are not a probability sample (they may be an
- * earlier sub-period), so there is no standard error; any bias is confined to that share,
- * which the report states. `known`: saving d of each cached or replayed output.
+ * When there is no sample to estimate from (a cache-only saver: headroom, or the caveman
+ * engine with too many new outputs; or a sample too thin because the clock stopped among
+ * the certainties), outputs not measured get the measured outputs' ratio Σd/Σx per size
+ * band, when they are at most MAX_FROM_CACHE of the saver's size. The measured outputs are
+ * not a probability sample (they may be an earlier sub-period, or the largest), so there is
+ * no standard error; any bias is confined to that share, which the report states.
+ * `known`: saving d of each cached or replayed output.
  */
-export function fitFromCache(plan: QuickPlan, known: ReadonlyMap<string, number>, failed: { has(key: string): boolean }): CacheFit {
+export function fitFromMeasured(plan: QuickPlan, known: ReadonlyMap<string, number>, failed: { has(key: string): boolean }): CacheFit {
   const all = [...plan.x.keys()].filter((k) => !failed.has(k));
   const unmeasured = plan.order.filter((k) => !known.has(k) && !failed.has(k) && !plan.zero.has(k));
   const sum = (ks: string[]) => ks.reduce((a, k) => a + plan.x.get(k)!, 0);

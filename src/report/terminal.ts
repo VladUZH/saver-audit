@@ -96,14 +96,17 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
     // Nothing measured: every replayed saver here is missing, or --savers picked none.
     if (!measured.length && !later.length) out.push(dim(r.savers.some((y) => y.method === "replayed") ? "  None measured yet: none of the replayed savers in this run is installed." : "  None measured: none of the selected savers is replayed (--savers)."));
     const exact = keys.exact ? `${bold("Press [e]")} for exact numbers (once; cached).` : "For exact numbers (once; cached): npx saver-audit --exact";
-    // Each quick estimate's own error bar (2 s.e.), not one fixed caveat; a cache-only
-    // saver's estimate says how much of it is estimated from its cached results.
+    // Each quick estimate's own error bar (2 s.e.), not one fixed caveat, for the number on
+    // its row (without a hypothetical Codex part); an estimate from the plain ratio of the
+    // measured outputs says how much of it is estimated that way.
     const short = (x: Saver) => x.name.replace(" (proxy engine)", " engine");
-    const sampledIn = (unit: string) => measured.filter((x) => quickRange(x) !== undefined && x.replay!.unit === unit).map((x) => `${short(x)} ${fmtRange(quickRange(x)!)}`);
+    const own = (x: Saver) => hypotheticalCodex(x);
+    const sampledIn = (unit: string) => measured.filter((x) => quickRange(x, own(x)) !== undefined && x.replay!.unit === unit).map((x) => `${short(x)} ${fmtRange(quickRange(x, own(x))!)}`);
     const ranges = [...sampledIn("usd"), ...sampledIn("tokens").map((t) => `${t} (in tokens)`)];
-    const cached = measured.filter((x) => cachedShare(x) !== undefined).map((x) => `${short(x)} ${fmtShare(cachedShare(x)!)} from cached results`);
+    const flat = measured.filter((x) => isFlat(x)).map((x) => `${short(x)} no range (${x.replay!.changed ? "no spread" : "no sampled output changed"})`);
+    const byRatio = measured.filter((x) => measuredShare(x, own(x)) !== undefined).map((x) => `${short(x)} ${fmtShare(measuredShare(x, own(x))!)} from measured results`);
     const within = ranges.length ? `, likely within ${ranges.join(", ")}` : "";
-    const also = cached.length ? `; ${cached.join(", ")}` : "";
+    const also = [...flat, ...byRatio].length ? `; ${[...flat, ...byRatio].join(", ")}` : "";
     if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failedOut)) out.push(dim(`  "indicative" = from a quick sample${within}${also}. ${exact}`));
     if (measured.some((x) => x.replay?.failed)) out.push(dim(`  Some replays failed and count as unchanged, so those numbers are "indicative"; the full report has the counts.`));
     const hypo = measured.filter(hypotheticalCodex);
@@ -353,19 +356,29 @@ function noNumber(s: AuditResult["savers"][number], exact: string): string {
 
 /**
  * A sampled quick estimate's likely range: 2 standard errors as a share of its estimated total
- * saving, in its unit (dollars, or tokens when nothing is priced); Infinity when that total is
- * 0. Undefined when nothing was sampled and estimated.
+ * saving, in its unit; with `outsideCodex`, of the part outside Codex files (the number a row
+ * shows when the Codex part is hypothetical). Infinity when that total is 0. Undefined when
+ * nothing was sampled and estimated, or the sample shows no spread (se 0: see isFlat).
  */
-export function quickRange(s: AuditResult["savers"][number]): number | undefined {
+export function quickRange(s: AuditResult["savers"][number], outsideCodex = false): number | undefined {
   const r = s.replay;
-  if (s.method !== "replayed" || tooLittleData(s) || !r?.extrapolated || r.se === undefined || r.estimate === undefined) return undefined;
-  return r.estimate ? (2 * r.se) / Math.abs(r.estimate) : r.se ? Infinity : 0;
+  if (s.method !== "replayed" || tooLittleData(s) || !r?.extrapolated) return undefined;
+  const part = outsideCodex && r.outsideCodex ? r.outsideCodex : r;
+  if (part.se === undefined || part.estimate === undefined || part.se === 0) return undefined;
+  return part.estimate ? (2 * part.se) / Math.abs(part.estimate) : Infinity;
 }
 
-/** A cache-only saver's estimate: the share of it (by value) estimated from its cached results. */
-export function cachedShare(s: AuditResult["savers"][number]): number | undefined {
+/** A sampled estimate whose sample shows no spread (typically: no sampled output changed): no range can be given. */
+export function isFlat(s: AuditResult["savers"][number]): boolean {
   const r = s.replay;
-  return s.method !== "replayed" || tooLittleData(s) || !r?.extrapolated ? undefined : r.fromCache;
+  return s.method === "replayed" && !tooLittleData(s) && !!r?.extrapolated && r.se === 0;
+}
+
+/** An estimate from the plain ratio of the measured outputs: the share of it (by value) estimated that way. */
+export function measuredShare(s: AuditResult["savers"][number], outsideCodex = false): number | undefined {
+  const r = s.replay;
+  if (s.method !== "replayed" || tooLittleData(s) || !r?.extrapolated) return undefined;
+  return outsideCodex && r.outsideCodex ? r.outsideCodex.fromMeasured : r.fromMeasured;
 }
 
 /** "12%", never "0%" for a share that is not 0. */
@@ -403,17 +416,19 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
     if (s.replay && !tooLittleData(s) && (s.replay.extrapolated || s.replay.failed)) {
       const parts = [];
       if (s.replay.extrapolated) {
-        const all = s.replayTotal ?? s.replay.total;
+        const n = (x: number) => x.toLocaleString("en-US");
+        const measuredN = s.replay.measured ?? (s.replayTotal ?? s.replay.total) - s.replay.extrapolated;
         const range = quickRange(s);
-        const share = cachedShare(s);
+        const share = measuredShare(s);
         const unit = s.replay.unit === "tokens" ? "in tokens; dollars weight outputs differently and can be off by more" : "in dollars";
         if (share !== undefined) {
-          // Not a sample: its cached outputs may come from an earlier part of the period, so
-          // the share estimated is what bounds the error.
+          // Not a sample: the measured outputs may be an earlier part of the period, or the
+          // largest, so the share estimated is what bounds the error.
           const by = s.replay.unit === "tokens" ? "size" : "dollar value";
-          parts.push(`indicative: ${s.replay.extrapolated.toLocaleString("en-US")} new outputs, ${fmtShare(share)} of it by ${by}, estimated from the ${Math.min(99, Math.round(100 * (1 - share)))}% cached, so any error is confined to that share; ${exact} for exact numbers`);
+          parts.push(`indicative: ${n(s.replay.extrapolated)} outputs not measured, ${fmtShare(share)} of it by ${by}, get the ratio of the ${n(measuredN)} measured ones, so any error is confined to that share; ${exact} for exact numbers`);
         } else {
-          parts.push(`indicative: estimated from ${(all - s.replay.extrapolated).toLocaleString("en-US")} of ${all.toLocaleString("en-US")} outputs` + (range !== undefined ? `; likely within ${fmtRange(range)} (2 s.e., ${unit})` : "") + `; ${exact} for exact numbers`);
+          const spread = range !== undefined ? `; likely within ${fmtRange(range)} (2 s.e., ${unit})` : isFlat(s) ? `; no range can be given: ${s.replay.changed ? "the sampled outputs show no spread" : "none of the sampled outputs changed"}` : "";
+          parts.push(`indicative: ${n(measuredN)} outputs measured, ${n(s.replay.extrapolated)} estimated from them` + spread + `; ${exact} for exact numbers`);
         }
       }
       if (s.replay.failed) parts.push(`${s.replay.failed.toLocaleString("en-US")} ${s.replay.failed === 1 ? "replay" : "replays"} failed and count as unchanged (tried again next run)`);

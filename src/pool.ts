@@ -120,8 +120,8 @@ export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJo
   };
   const results = await processAll(findFiles(opts), entry, jobs, config, hooks.files);
   // Priced before replay, so quick mode samples and estimates in dollars.
-  const blockUsd = saverBlockWeights(opts, results);
-  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: jobs, log: saverOpts?.log, warn: saverOpts?.warn, progress: hooks.replay, blockUsd });
+  const blockWeights = saverBlockWeights(opts, results);
+  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: jobs, log: saverOpts?.log, warn: saverOpts?.warn, progress: hooks.replay, blockWeights });
   return summarize(opts, results, { savers, tools, stats });
 }
 

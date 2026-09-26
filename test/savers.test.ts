@@ -282,13 +282,18 @@ test("block weights price a saved token as the report does: Σ d × weight is ea
     const results = await processAll(findFiles(opts), undefined, 1, config);
     const w = saverBlockWeights(opts, results); // before replay: it needs no saving
     assert.ok(w.size > 0);
-    const stats = await runReplays(results, ids, { tools: FAKE_TOOLS, cacheFile: config.cacheFile, full: true, concurrency: 1, blockUsd: w });
+    const stats = await runReplays(results, ids, { tools: FAKE_TOOLS, cacheFile: config.cacheFile, full: true, concurrency: 1, blockWeights: w });
     const report = summarize(opts, results, { savers, tools: FAKE_TOOLS, stats });
     ids.forEach((id, i) => {
       let usd = 0;
-      for (const [block, weight] of w) usd += block.d[i]! * weight;
-      const cost = report.savers.find((s) => s.id === id)!.cost;
-      assert.ok(Math.abs(usd - cost) <= 1e-9 * Math.max(1, Math.abs(cost)), `${id}: ${usd} vs ${cost}`);
+      let tokens = 0;
+      for (const [block, weight] of w) {
+        usd += block.d[i]! * weight.usd;
+        tokens += block.d[i]! * weight.tokens;
+      }
+      const row = report.savers.find((s) => s.id === id)!;
+      assert.ok(Math.abs(usd - row.cost) <= 1e-9 * Math.max(1, Math.abs(row.cost)), `${id}: ${usd} vs ${row.cost}`);
+      assert.ok(Math.abs(tokens - row.tokens) <= 1e-9 * Math.max(1, Math.abs(row.tokens)), `${id}: ${tokens} vs ${row.tokens} tokens`);
     });
     assert.ok(report.savers.some((s) => s.cost > 0));
   } finally {

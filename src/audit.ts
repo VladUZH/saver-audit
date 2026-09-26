@@ -261,41 +261,65 @@ function priceOf(opts: AuditOptions, rec: CallRecord): { priced: string | undefi
 }
 
 /**
- * What one o200k token saved in each saver block is worth in dollars over the period, as
- * summarize() prices it: a cache write (or input) in the call that first sends it, then a
- * cache read in every later call in the period until a compaction, ×k. A block appended
- * again by a rewind is the same object, so its weight sums every place it appears. Blocks
- * no call in the period reads are worth 0. Known before replay, so quick mode can sample
- * and estimate in dollars.
+ * What one o200k token saved in each saver block is worth over the period, as summarize()
+ * counts it: a cache write (or input) in the call that first sends it, then a cache read in
+ * every later call in the period until a compaction, ×k. `usd` is the dollar value, `tokens`
+ * the context tokens (the saver's token column), `unpriced` the part of `tokens` from calls
+ * on unpriced models (worth $0 there). A block appended again by a rewind is the same object,
+ * so its weights sum every place it appears. Blocks no call in the period reads are absent.
+ * Known before replay, so quick mode can sample and estimate in dollars.
  */
-export function saverBlockWeights(opts: AuditOptions, results: FileResult[]): Map<SaverBlock, number> {
+export interface BlockWeight {
+  usd: number;
+  tokens: number;
+  unpriced: number;
+}
+
+export function saverBlockWeights(opts: AuditOptions, results: FileResult[]): Map<SaverBlock, BlockWeight> {
   const { records, inPeriod, calib } = prepare(opts, results);
-  // Per timeline, a difference array over block indices.
-  const diff = new Map<string, Float64Array>();
+  // Per timeline, difference arrays over block indices: dollars, tokens, unpriced tokens, and
+  // the number of calls reading each block (whole numbers: exactly 0 when none does).
+  const diff = new Map<string, { usd: Float64Array; tokens: Float64Array; unpriced: Float64Array; calls: Int32Array }>();
   for (const rec of records) {
     if (!rec.call.billable || !inPeriod(rec) || !rec.range) continue;
     const fs = results[rec.file]?.savers;
     const tl = fs?.timelines[rec.range.tl];
     if (!tl) continue;
-    const { c } = priceOf(opts, rec);
+    const { priced, c } = priceOf(opts, rec);
     const k = calib.get(rec.model)!.k;
     const rates = contextRates(rec, k, c);
     const pk = `${rec.file}\0${rec.range.tl}`;
     let a = diff.get(pk);
-    if (!a) diff.set(pk, (a = new Float64Array(tl.blocks.length + 1)));
+    const n = tl.blocks.length + 1;
+    if (!a) diff.set(pk, (a = { usd: new Float64Array(n), tokens: new Float64Array(n), unpriced: new Float64Array(n), calls: new Int32Array(n) }));
     const { ctxStart, newStart, newEnd } = rec.range;
-    a[ctxStart]! += k * rates.oldCost;
-    a[newStart]! += k * (rates.newCost - rates.oldCost);
-    a[newEnd]! -= k * rates.newCost;
+    const add = (arr: Float64Array, oldRate: number, newRate: number) => {
+      arr[ctxStart]! += k * oldRate;
+      arr[newStart]! += k * (newRate - oldRate);
+      arr[newEnd]! -= k * newRate;
+    };
+    add(a.usd, rates.oldCost, rates.newCost);
+    add(a.tokens, rates.oldTokens, rates.newTokens);
+    if (!priced) add(a.unpriced, rates.oldTokens, rates.newTokens);
+    a.calls[ctxStart]!++;
+    a.calls[newEnd]!--;
   }
-  const w = new Map<SaverBlock, number>();
+  const w = new Map<SaverBlock, BlockWeight>();
   for (const [pk, a] of diff) {
     const [file, tl] = pk.split("\0") as [string, string];
     const blocks = results[Number(file)]!.savers!.timelines[tl]!.blocks;
-    let run = 0;
+    let usd = 0;
+    let tokens = 0;
+    let unpriced = 0;
+    let calls = 0;
     for (let b = 0; b < blocks.length; b++) {
-      run += a[b]!;
-      if (run !== 0) w.set(blocks[b]!, (w.get(blocks[b]!) ?? 0) + run);
+      usd += a.usd[b]!;
+      tokens += a.tokens[b]!;
+      unpriced += a.unpriced[b]!;
+      calls += a.calls[b]!;
+      if (!calls) continue;
+      const cur = w.get(blocks[b]!) ?? { usd: 0, tokens: 0, unpriced: 0 };
+      w.set(blocks[b]!, { usd: cur.usd + usd, tokens: cur.tokens + tokens, unpriced: cur.unpriced + unpriced });
     }
   }
   return w;
