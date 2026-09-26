@@ -300,6 +300,25 @@ export function makeStateDir(): string {
   return dir;
 }
 
+/**
+ * Removes the state folder on the way out of a Ctrl+C, before anything else may run. On
+ * Windows a killed saver holds its files (caveman's ccr.db, headroom's store, its working
+ * folder) until it has finished exiting, after the kill returned, and an open file cannot be
+ * deleted: so it tries again for up to 2 s. rmSync's own retries don't wait in between on
+ * Node 24.3 (its retryDelay counts in whole seconds there), hence the loop.
+ */
+function removeStateNow(dir: string): void {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return rmSync(dir, { recursive: true, force: true });
+    } catch (err) {
+      if (attempt === 20) throw err;
+      Atomics.wait(pause, 0, 0, 100);
+    }
+  }
+}
+
 /** Kills a saver process and the processes it started (a wrapper script's worker holds its output pipe). */
 function killTree(child: ChildProcess): void {
   try {
@@ -585,7 +604,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const onSignal = (sig: NodeJS.Signals) => {
     for (const c of live) killTree(c);
     try {
-      if (state) rmSync(state, { recursive: true, force: true });
+      if (state) removeStateNow(state);
     } catch {
       // nothing more to do on the way out
     }

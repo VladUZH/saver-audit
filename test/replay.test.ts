@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -274,6 +274,43 @@ test("Ctrl+C during a replay removes the savers' state folder (copies of tool ou
     await new Promise((r) => setTimeout(r, 200));
     assert.deepEqual(readdirSync(temp), []);
   } finally {
+    t.done();
+  }
+});
+
+test("Ctrl+C during a replay removes the savers' state once a killed saver lets go of it (Windows keeps its open files until it has exited)", { skip: process.platform === "win32" ? "the fake saver is a script" : process.getuid?.() === 0 ? "a folder's permissions do not stop root" : false }, async () => {
+  const t = tmp();
+  const temp = join(t.dir, "tmp");
+  try {
+    mkdirSync(temp);
+    // The real replay in a process that, as on Windows, ends at once on a signal it sends
+    // itself. The fake saver's store cannot be deleted until 300 ms after it was killed, as
+    // a killed Windows process still holds its files open while it finishes exiting.
+    const script = `
+      import { runReplays } from ${JSON.stringify(new URL("../src/savers/replay.ts", import.meta.url).href)};
+      const kill = process.kill.bind(process);
+      process.kill = (pid, sig) => kill(pid, pid === process.pid ? "SIGKILL" : sig);
+      const job = { saver: "caveman-engine", key: "k0", tool: "Bash", cls: "c", baseline: 100, headerTokens: 0, addTokens: 0, timeline: "main", block: 0, input: "0 SLOW tool output", args: [] };
+      const f = { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: [{ d: [0] }] } }, jobs: [job], covered: [0], toolTokens: 0 } };
+      const tools = new Map([["caveman-engine", { saver: "caveman-engine", command: ${JSON.stringify(join(BIN, "fake-saver"))}, env: { FAKE_SLEEP_MS: "30000", FAKE_STATE: "1", FAKE_LOCK: "300" } }]]);
+      await runReplays([f], ["caveman-engine"], { tools, full: true, concurrency: 1 });`;
+    const child = spawn(process.execPath, ["--input-type=module", "-e", script], { env: { ...process.env, TMPDIR: temp }, stdio: "ignore" });
+    const exited = new Promise<NodeJS.Signals | null>((r) => child.on("exit", (_code, sig) => r(sig)));
+    const stores = () => readdirSync(temp).map((d) => join(temp, d, "caveman")).filter((c) => existsSync(join(c, "ccr.db")));
+    const locked = () => stores().some((c) => (statSync(c).mode & 0o200) === 0);
+    for (let n = 0; n < 200 && !locked(); n++) await new Promise((r) => setTimeout(r, 50));
+    assert.ok(locked(), "the fake saver holds its store");
+    child.kill("SIGINT");
+    assert.equal(await exited, "SIGKILL", "ended by its own signal, as Windows ends it");
+    assert.deepEqual(readdirSync(temp), [], "the state folder (copies of tool output) is gone");
+  } finally {
+    for (const d of existsSync(temp) ? readdirSync(temp) : []) {
+      try {
+        chmodSync(join(temp, d, "caveman"), 0o700); // a folder left behind: don't wait for the watcher
+      } catch {
+        // not there
+      }
+    }
     t.done();
   }
 });

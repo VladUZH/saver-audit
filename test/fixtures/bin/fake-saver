@@ -6,6 +6,9 @@
 //   FAKE_STATE=1         append the input to a recovery store, before and after the wait,
 //                        like caveman's engine: $CAVEMAN_CCR_DB as given (exit 1 when its
 //                        folder is missing), else $CAVEMAN_HOME/ccr.db (made if missing)
+//   FAKE_LOCK=<ms>       with FAKE_STATE, lock the store's folder (nothing in it can be deleted)
+//                        while this process lives and for <ms> after it has gone, as Windows
+//                        keeps a killed process's files open until it has finished exiting
 //   FAKE_LOG=<file>      append one line per run to this file
 //   FAKE_ENV_LOG=<file>  append {cwd, args, env} of each run (version probes too) as a JSON line
 // `--version` prints "fake-saver 1.0.0".
@@ -30,6 +33,17 @@ process.stdin.on("data", (d) => (s += d)).on("end", async () => {
   };
   if (env.FAKE_LOG) appendFileSync(env.FAKE_LOG, "run\n");
   state();
+  if (env.FAKE_STATE === "1" && env.FAKE_LOCK) {
+    const { chmodSync } = await import("node:fs");
+    const { spawn } = await import("node:child_process");
+    const { dirname } = await import("node:path");
+    const dir = dirname(env.CAVEMAN_CCR_DB || `${env.CAVEMAN_HOME}/ccr.db`);
+    // A watcher in its own session (a kill of this process group spares it) unlocks the
+    // folder once its end of a pipe from this process closes: when this process has gone.
+    const unlock = `process.stdin.resume().on("end", () => setTimeout(() => require("node:fs").chmodSync(${JSON.stringify(dir)}, 0o700), ${Number(env.FAKE_LOCK)}))`;
+    spawn(process.execPath, ["-e", unlock], { detached: true, stdio: ["pipe", "ignore", "ignore"] }).unref();
+    chmodSync(dir, 0o500);
+  }
   if (s.includes("SLOW")) await new Promise((r) => setTimeout(r, Number(env.FAKE_SLEEP_MS ?? 0)));
   state();
   if (env.FAKE_FAIL === "1") process.exit(1);
