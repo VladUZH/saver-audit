@@ -12,6 +12,7 @@ import { exactPending, menuKeys, renderShort, renderTerminal } from "../src/repo
 import { exactSeconds } from "../src/savers/replay.ts";
 import { installOffer, installPlan } from "../src/savers/toolsdir.ts";
 import { CLAUDE_ROOT, CODEX_HOME, FAKE_TOOLS, FIXTURES, fixtureOptions } from "./helpers.ts";
+import { inTerminalUntil, noTerminal } from "./pty.ts";
 
 const OPTS = { showProjects: false, verbose: false, color: false };
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -119,6 +120,28 @@ test("the CLI's full report is given the install offer", { skip: process.platfor
   const r = spawnSync(process.execPath, [CLI, "--full", "--no-card", "--since", "2026-09-01", "--until", "2026-09-30", "--savers", "token-saver"], { env, cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /Not installed, so not replayed: token-saver \(needs Python 3\.10\+; to install: npx saver-audit --install-savers\)\./);
+});
+
+test("in a terminal, the menu offers the keys the short view names, and only those", { skip: noTerminal }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sa-e2r-"));
+  temps.push(dir);
+  const bin = join(FIXTURES, "bin");
+  // lean-ctx and token-saver are nowhere; node is on PATH for the fake savers.
+  const env = { PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter), HOME: dir, XDG_CACHE_HOME: join(dir, "cache"), SAVER_AUDIT_HOME: join(dir, "home"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, NO_COLOR: "1", SAVER_AUDIT_RTK: join(bin, "rtk"), CAVEMAN_ENGINE_BIN: join(bin, "caveman-engine") };
+  // The CLI up to its menu, which waits for keys.
+  const run = async (savers: string) => (await inTerminalUntil([CLI, "--since", "2026-09-01", "--until", "2026-09-30", "--savers", savers, "--no-card", "--no-animation"], { env, cwd: dir }, /\[q\] quit/)) ?? "";
+  const menu = (out: string) => out.split(/\r?\n/).find((l) => l.includes("[q] quit")) ?? "";
+  // caveman's engine needs an exact run; the installer can add lean-ctx here.
+  const both = await run("rtk,caveman-engine,lean-ctx");
+  assert.match(both, /caveman engine\s+—\s+exact run needed: press \[e\]/);
+  assert.match(both, /Not installed: lean-ctx\. Press \[i\] to install and measure it\./);
+  assert.match(menu(both), /\[e\] exact numbers/);
+  assert.match(menu(both), /\[i\] install savers/);
+  // token-saver needs Python, which only the installer looks for: [i] in neither.
+  const none = await run("rtk,token-saver");
+  assert.match(none, /Not installed: token-saver \(needs Python 3\.10\+/);
+  assert.match(menu(none), /\[f\] full report/);
+  assert.doesNotMatch(none, /\[i\]/);
 });
 
 test("--short and a run without a terminal on input name no keys", () => {
