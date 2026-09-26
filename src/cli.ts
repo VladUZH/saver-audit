@@ -226,18 +226,29 @@ async function main(argv: string[]): Promise<number> {
       {
         key: "s",
         label: "share on X",
-        run: () => {
+        run: async () => {
           const copied = opts.cardPath ? copyImage(resolve(opts.cardPath)) : false;
-          const opened = openExternal(intentUrl(shareText(result)));
-          process.stdout.write(`\n${opened ? "Opened X with your numbers filled in." : "Could not open a browser. Post this link: " + intentUrl(shareText(result))}\n`);
+          const url = intentUrl(shareText(result));
+          const opened = await openExternal(url);
+          process.stdout.write(`\n${opened ? "Opened X with your numbers filled in." : `Could not open a browser. Post this link: ${url}`}\n`);
           if (copied) process.stdout.write("Your card is on the clipboard: paste it into the post (⌘V / Ctrl+V), then Post.\n");
           else if (opts.cardPath) {
-            openExternal(resolve(opts.cardPath), true);
+            void openExternal(resolve(opts.cardPath), true);
             process.stdout.write(`Attach your card to the post: ${resolve(opts.cardPath)}\n`);
           }
         },
       },
-      ...(opts.cardPath ? [{ key: "o", label: "open card", run: () => void openExternal(resolve(opts.cardPath!)) }] : []),
+      ...(opts.cardPath
+        ? [
+            {
+              key: "o",
+              label: "open card",
+              run: async () => {
+                if (!(await openExternal(resolve(opts.cardPath!)))) process.stdout.write(`\nCould not open the card: ${resolve(opts.cardPath!)}\n`);
+              },
+            },
+          ]
+        : []),
       ...(keys().exact
         ? [
             {

@@ -2,8 +2,9 @@
 // cannot attach an image, so the card is put on the clipboard and the user pastes it
 // into the composer. Nothing is uploaded by saver-audit; the browser opens x.com only
 // when the user presses the share key. The post text holds numbers only.
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { win32 } from "node:path";
 import type { AuditResult } from "../audit.ts";
 import { agentNames, isIndicative, loggedDays, measuredCost, onlyHypothetical, plural, tooLittleData, unpricedCalls } from "./terminal.ts";
 
@@ -105,22 +106,43 @@ export function intentUrl(text: string, url = REPO_URL): string {
   return `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
 }
 
-/** Opens a URL or file with the OS default handler. Returns false if that failed. */
-export function openExternal(target: string, reveal = false): boolean {
-  const [cmd, args] =
-    process.platform === "darwin"
-      ? ["open", reveal ? ["-R", target] : [target]]
-      : process.platform === "win32"
-        ? ["cmd", ["/c", "start", "", target]]
-        : ["xdg-open", [target]];
-  try {
-    const child = spawn(cmd, args, { stdio: "ignore", detached: true });
-    child.on("error", () => {});
+/** A Windows system program by full path: a bare name is looked up in the current folder first. */
+function system32(env: NodeJS.ProcessEnv, ...path: string[]): string {
+  return win32.join(env.SystemRoot ?? "C:\\Windows", "System32", ...path);
+}
+
+/** The command that opens `target` with the OS default handler (`reveal`: show it in Finder). */
+export function openCommand(target: string, reveal = false, platform: string = process.platform, env: NodeJS.ProcessEnv = process.env): { cmd: string; args: string[]; verbatim?: boolean } {
+  if (platform === "darwin") return { cmd: "open", args: reveal ? ["-R", target] : [target] };
+  // The target in quotes, passed as written: unquoted, cmd.exe takes the "&" in a URL
+  // as the end of the command. A URL (percent-encoded) or a path holds no quote.
+  if (platform === "win32") return { cmd: system32(env, "cmd.exe"), args: ["/d", "/s", "/c", `start "" "${target}"`], verbatim: true };
+  return { cmd: "xdg-open", args: [target] };
+}
+
+/**
+ * Opens a URL or file with the OS default handler. Resolves false when the opener is
+ * missing or fails (xdg-open without a display); an opener still running after a few
+ * seconds (waiting on the browser it started) counts as opened.
+ */
+export function openExternal(target: string, reveal = false): Promise<boolean> {
+  const { cmd, args, verbatim } = openCommand(target, reveal);
+  return new Promise((resolve) => {
+    let child: ChildProcess;
+    try {
+      child = spawn(cmd, args, { stdio: "ignore", detached: true, windowsVerbatimArguments: verbatim });
+    } catch {
+      return resolve(false);
+    }
+    const timer = setTimeout(() => resolve(true), 3000);
+    const done = (ok: boolean) => {
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    child.on("error", () => done(false));
+    child.on("exit", (code) => done(code === 0));
     child.unref();
-    return true;
-  } catch {
-    return false;
-  }
+  });
 }
 
 /** Copies a PNG to the clipboard as an image. Best effort; returns false if unsupported. */
