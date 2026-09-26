@@ -27,6 +27,15 @@ test("rtk filter chosen from the command; git status/log excluded", () => {
     ["git log --oneline", undefined],
     ["npm test", undefined],
     ["FOO=1 go test ./...", "go-test"],
+    // continued lines, and env assignments after a wrapper
+    ["python -m pytest tests/ \\\n  -q --tb=short", "pytest"],
+    ["python \\\n  -m pytest", "pytest"],
+    ["grep -rn TODO src \\\n  | head -50", "grep"],
+    ["rg -n foo src |\n  head -5", "grep"],
+    ["git diff HEAD~3 \\\n  -- src/", "git-diff"],
+    ["cargo test --workspace \\\r\n  -- --nocapture", "cargo-test"],
+    ["env CI=1 npx vitest run", "vitest"],
+    ["time CI=1 pytest -q", "pytest"],
   ];
   for (const [cmd, f] of cases) assert.equal(rtkFilter(cmd), f, cmd);
 });

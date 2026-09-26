@@ -106,10 +106,16 @@ export function validateManifest(m: any): string[] {
 
 /** The last real segment of a shell command: drops `cd …&&`, env assignments, wrappers, pipes. */
 export function lastSegment(command: string): string | undefined {
-  const segments = command.split(/&&|;|\n/).map((s) => s.trim()).filter(Boolean);
+  // A line ending in "\" or "|" continues on the next line.
+  const joined = command.replace(/[ \t]*\\\r?\n[ \t]*/g, " ").replace(/\|[ \t]*\r?\n/g, "| ");
+  const segments = joined.split(/&&|;|\n/).map((s) => s.trim()).filter(Boolean);
   for (let i = segments.length - 1; i >= 0; i--) {
     let seg = segments[i]!.split("|")[0]!.trim();
-    seg = seg.replace(/^([A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, "").replace(/^(sudo|time|env|timeout \S+)\s+/, "");
+    // Env assignments and wrappers, in any order (`env CI=1 vitest`, `time FOO=1 pytest`).
+    for (let prev = ""; prev !== seg; ) {
+      prev = seg;
+      seg = seg.replace(/^([A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, "").replace(/^(sudo|time|env|timeout \S+)\s+/, "");
+    }
     if (/^cd\b|^echo\b|^export\b|^source\b/.test(seg)) continue;
     return seg;
   }
