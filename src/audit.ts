@@ -264,8 +264,10 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     const u = rec.call.usage;
     const prompt = promptTokens(u);
     const priced = resolveModel(opts.prices, rec.model, rec.timestamp);
-    let row = models.get(rec.model);
-    if (!row) models.set(rec.model, (row = { model: rec.model, pricedAs: priced, calls: 0, tokens: 0, cost: 0 }));
+    // One row per model and price: an alias split by date (codex-auto-review) can be priced as two models.
+    const mk = `${rec.model}\0${priced ?? ""}`;
+    let row = models.get(mk);
+    if (!row) models.set(mk, (row = { model: rec.model, pricedAs: priced, calls: 0, tokens: 0, cost: 0 }));
     row.calls++;
     row.tokens += prompt + u.output;
 
@@ -352,6 +354,7 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     if (s.project) projects.add(s.project);
   }
 
+  const countedModels = new Set([...models.values()].map((m) => m.model));
   return {
     period: { since, until },
     looked: lookedIn(opts),
@@ -364,7 +367,7 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     buckets: bucketRows,
     waste,
     projects: [...projects].sort(),
-    calibration: modelNames.filter((m) => models.has(m)).map((m) => calib.get(m)!),
+    calibration: modelNames.filter((m) => countedModels.has(m)).map((m) => calib.get(m)!),
     savers: saverRows(savers, saved, results, saverRun),
     prices: { date: opts.prices.date, sources: opts.prices.sources },
     skipped: { lines: results.reduce((n, r) => n + r.skippedLines, 0), unreadableFiles: results.filter((r) => r.unreadable).length, duplicateCalls, outsidePeriod, notBillable },

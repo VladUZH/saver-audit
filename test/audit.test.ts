@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAudit } from "../src/pool.ts";
 import { renderJson } from "../src/report/json.ts";
+import { renderTerminal } from "../src/report/terminal.ts";
 import { CLAUDE_ROOT, FAKE_TOOLS, FIXTURES, fixtureOptions } from "./helpers.ts";
 
 // Hand-computed from the fixtures and the bundled prices (USD per 1M tokens):
@@ -71,5 +72,33 @@ test("calls on an unpriced model keep their tokens in the context split and in s
     assert.equal(rtk.cost, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a model priced as two models (an alias that changed on a date) gets a row for each", async () => {
+  const home = mkdtempSync(join(tmpdir(), "sa-alias-"));
+  try {
+    // codex-auto-review is gpt-5.4 before 2026-07-29 and gpt-5.6-luna after.
+    const rollout = (day: string, calls: number) => {
+      const dir = join(home, "sessions", ...day.split("-"));
+      mkdirSync(dir, { recursive: true });
+      const ev = (ms: number, type: string, payload: object) => JSON.stringify({ timestamp: new Date(Date.parse(`${day}T10:00:00Z`) + ms).toISOString(), type, payload });
+      const lines = [ev(0, "session_meta", { id: `t-${day}`, cwd: "/tmp/p", originator: "codex-tui", cli_version: "0.146.0", source: "cli", model_provider: "openai" }), ev(100, "turn_context", { model: "codex-auto-review" })];
+      for (let i = 1; i <= calls; i++) {
+        const last = { input_tokens: 100, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 };
+        const total = { ...last, input_tokens: 100 * i, output_tokens: 10 * i, total_tokens: 110 * i };
+        lines.push(ev(i * 5000, "event_msg", { type: "token_count", info: { total_token_usage: total, last_token_usage: last } }));
+      }
+      writeFileSync(join(dir, `rollout-${day}T10-00-00-t.jsonl`), lines.join("\n") + "\n");
+    };
+    rollout("2026-07-20", 1);
+    rollout("2026-08-10", 5);
+    const r = await runAudit(fixtureOptions({ sources: ["codex"], codexHome: home, sinceMs: Date.parse("2026-07-01T00:00:00Z") }), undefined, 1);
+    assert.deepEqual(r.models.map((m) => [m.model, m.pricedAs, m.calls]).sort(), [["codex-auto-review", "gpt-5.4", 1], ["codex-auto-review", "gpt-5.6-luna", 5]]);
+    const full = renderTerminal(r, { showProjects: false, verbose: false, color: false });
+    assert.match(full, /^Models: codex-auto-review$/m);
+    assert.match(full, /Priced as: codex-auto-review → gpt-5\.4 \(1 call\) \/ gpt-5\.6-luna \(5 calls\) \(no public price\)/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
   }
 });

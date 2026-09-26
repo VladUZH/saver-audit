@@ -133,7 +133,7 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   }
   const bySource = Object.entries(r.sessions.bySource).map(([s, n]) => `${n} ${s}`).join(", ");
   out.push(`${r.sessions.main} sessions (${bySource}) + ${r.sessions.subagent} subagent runs, ${r.calls.toLocaleString("en-US")} API calls, ${r.projects.length} projects`);
-  out.push(`Models: ${r.models.map((m) => m.model).join(", ")}`);
+  out.push(`Models: ${[...new Set(r.models.map((m) => m.model))].join(", ")}`);
   out.push("");
   out.push(bold(`Total: ${fmtUsd(r.billing.total.cost)} API-equivalent at list prices`) + ` · ${fmtTokens(r.billing.total.tokens)} tokens`);
   out.push(dim("Not your bill: on a Claude or ChatGPT subscription you pay the plan price. This is what the same tokens cost via the API."));
@@ -191,8 +191,11 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   }
   const unpriced = r.models.filter((m) => !m.pricedAs);
   if (unpriced.length) out.push(`  No price for: ${unpriced.map((m) => m.model).join(", ")} (tokens counted, $0).`);
-  const aliased = r.models.filter((m) => m.pricedAs && m.pricedAs !== m.model && !m.model.includes("["));
-  if (aliased.length) out.push(`  Priced as: ${aliased.map((m) => `${m.model} → ${m.pricedAs}`).join(", ")} (no public price).`);
+  // A model priced as more than one (an alias that changed on a date) lists each with its calls.
+  const aliased = new Map<string, AuditResult["models"]>();
+  for (const m of r.models) if (m.pricedAs && m.pricedAs !== m.model && !m.model.includes("[")) aliased.set(m.model, [...(aliased.get(m.model) ?? []), m]);
+  const as = (rows: AuditResult["models"]) => (rows.length === 1 ? rows[0]!.pricedAs : rows.map((m) => `${m.pricedAs} (${m.calls} ${m.calls === 1 ? "call" : "calls"})`).join(" / "));
+  if (aliased.size) out.push(`  Priced as: ${[...aliased].map(([model, rows]) => `${model} → ${as(rows)}`).join(", ")} (no public price).`);
   out.push(`  Prices: snapshot of ${r.prices.date} (models.dev). Refresh with --update-prices (network).`);
   if (o.verbose || r.skipped.lines || r.skipped.unreadableFiles) {
     out.push(dim(`  Skipped: ${r.skipped.lines} unreadable lines, ${r.skipped.unreadableFiles} unreadable files, ${r.skipped.duplicateCalls} duplicate calls, ${r.skipped.notBillable} replayed-history calls, ${r.skipped.outsidePeriod} calls outside the period.`));
