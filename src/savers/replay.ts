@@ -398,7 +398,6 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       let deadline = exact ? Infinity : Date.now() + quickSeconds(saver) * 1000;
       const inTime = () => Date.now() < deadline;
       let attempted = 0;
-      o.log?.(`replaying ${todo.length.toLocaleString("en-US")} new outputs through ${saver} (results are cached for next time)…`);
       const store = (key: string, out: string | undefined, counted?: ReplayResult) => {
         if (counted) cache.set(key, counted);
         else if (out !== undefined) cache.set(key, { t: countProxy(out), c: out.length, p: countProxy(out.slice(0, PREVIEW_CHARS)) });
@@ -433,6 +432,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       };
       const dir = stateDir();
       if (!dir) return failAll("no temporary folder");
+      o.log?.(`replaying ${todo.length.toLocaleString("en-US")} new outputs through ${saver} (results are cached for next time)…`);
       const env = saverEnv(dir);
       if (saver === "headroom") {
         const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(dir, "headroom") });

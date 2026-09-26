@@ -238,3 +238,15 @@ test("Ctrl+C during a replay removes the savers' state folder (copies of tool ou
     t.done();
   }
 });
+
+test("quick mode announces replays only for savers it replays (not the cache-only ones)", async () => {
+  const t = tmp();
+  try {
+    const logs: string[] = [];
+    await runAudit(fixtureOptions(), undefined, 1, { ids: ["rtk", "caveman-engine", "headroom"], tools: FAKE_TOOLS, cacheFile: t.cacheFile, log: (s) => logs.push(s) });
+    assert.ok(logs.some((l) => /^replaying \d+ new outputs through rtk/.test(l)), logs.join("\n"));
+    assert.deepEqual(logs.filter((l) => /through (caveman-engine|headroom)/.test(l)), []);
+  } finally {
+    t.done();
+  }
+});
