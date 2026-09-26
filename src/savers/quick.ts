@@ -108,11 +108,24 @@ export function cacheFingerprint(keys: Iterable<string>): string {
   return n ? `${n}:${hi.toString(16)}:${lo.toString(16)}` : "";
 }
 
-/** A fingerprint of a saver's population and budget: its outputs, their sizes and preview flags. */
-export function populationFingerprint(pop: QuickOutput[], budget: number): string {
-  const h = createHash("sha1").update(`${budget}\n`);
-  for (const o of pop) h.update(`${o.key}\0${o.x}\0${o.preview ? 1 : 0}\n`);
-  return h.digest("hex");
+/** A later run reuses the last draw's salt only while the populations share this much of their size mass, both ways. */
+export const REUSE_OVERLAP = 0.9;
+
+/**
+ * How much two populations (size by key) overlap: the share of the new one's Σx on keys the
+ * old one had, and the share of the old one's Σx on keys still present (1 for an empty side).
+ */
+export function populationOverlap(old: ReadonlyMap<string, number>, now: ReadonlyMap<string, number>): { newOnOld: number; oldOnNew: number } {
+  const share = (a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>) => {
+    let all = 0;
+    let common = 0;
+    for (const [k, x] of a) {
+      all += x;
+      if (b.has(k)) common += x;
+    }
+    return all > 0 ? common / all : 1;
+  };
+  return { newOnOld: share(now, old), oldOnNew: share(old, now) };
 }
 
 /** u in (0,1) from the salted hash of the key. */

@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { bandOf, cacheFingerprint, fitFromCache, fitQuick, MAX_FROM_CACHE, MIN_QUICK_SAMPLE, planQuick, ppsProbs, quickSalt, type QuickOutput, type QuickPlan } from "../src/savers/quick.ts";
+import { bandOf, cacheFingerprint, fitFromCache, populationOverlap, REUSE_OVERLAP, fitQuick, MAX_FROM_CACHE, MIN_QUICK_SAMPLE, planQuick, ppsProbs, quickSalt, type QuickOutput, type QuickPlan } from "../src/savers/quick.ts";
 
 type Out = QuickOutput & { d: number };
 
@@ -492,4 +492,20 @@ test("17. outputs of size 0 (worth nothing in the period) are never drawn or est
   assert.deepEqual({ insufficient: fit.insufficient, unmeasured: fit.unmeasured }, { insufficient: false, unmeasured: [] });
   assert.equal(fit.role(pop[500]!.key), "zero");
   assert.deepEqual(plan.order.slice(-1400).sort(), [...plan.zero].sort(), "an exact run replays them last");
+});
+
+test("18. population overlap by size mass, both ways: small drift reuses the draw, large drift does not", () => {
+  const pop = new Map(synthPop(1000, 18).map((o) => [o.key, o.x]));
+  const same = populationOverlap(pop, pop);
+  assert.deepEqual(same, { newOnOld: 1, oldOnNew: 1 });
+  // A day later: 2% of the outputs gone, 3% new.
+  const keys = [...pop.keys()];
+  const later = new Map([...keys.slice(20).map((k) => [k, pop.get(k)!] as [string, number]), ...keys.slice(0, 30).map((k, i) => [`new${i}`, pop.get(k)!] as [string, number])]);
+  const small = populationOverlap(pop, later);
+  assert.ok(small.newOnOld >= REUSE_OVERLAP && small.oldOnNew >= REUSE_OVERLAP, JSON.stringify(small));
+  // Another week: most of the mass differs.
+  const other = new Map(keys.slice(700).map((k) => [k, pop.get(k)!] as [string, number]));
+  const large = populationOverlap(pop, other);
+  assert.ok(large.oldOnNew < REUSE_OVERLAP, JSON.stringify(large));
+  assert.equal(large.newOnOld, 1, "a sub-window is all old outputs: only the other direction catches it");
 });

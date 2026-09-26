@@ -8,13 +8,13 @@ import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 import { countProxy } from "../accounting/tokens.ts";
 import type { FileResult } from "../audit.ts";
-import { quickDrawsPath, readQuickDraws, readReplayCache, saveQuickDraws, saveReplayCache, type QuickDraw } from "./cache.ts";
+import { keyPrefix, quickDrawsPath, readQuickDraws, readReplayCache, saveQuickDraws, saveReplayCache, type QuickDraw } from "./cache.ts";
 import { presentedTokens, PREVIEW_CHARS, type ReplayResult } from "./tracker.ts";
 import type { ReplayJob } from "./types.ts";
 import type { SaverManifest } from "./manifest.ts";
 import { toolPaths, toolsDir } from "./toolsdir.ts";
 import { allSavers, saverIndex, type SaverAdapter } from "./registry.ts";
-import { cacheFingerprint, fitFromCache, fitQuick, planQuick, populationFingerprint, quickSalt, type CacheFit, type QuickFit, type QuickPlan } from "./quick.ts";
+import { cacheFingerprint, fitFromCache, fitQuick, planQuick, populationOverlap, quickSalt, REUSE_OVERLAP, type CacheFit, type QuickFit, type QuickPlan } from "./quick.ts";
 import type { SaverBlock } from "./tracker.ts";
 
 export interface ReplayTool {
@@ -603,17 +603,20 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   // for the drawn outputs (for checking accuracy against a complete cache).
   // SAVER_AUDIT_DUMP=<file> writes each unique output's hash, class, sizes, exact saving when
   // cached, this run's saving, π and role to that file, to check quick mode offline (dumpJobs).
-  // A repeat run reuses the last draw (quick-draws-v1.json next to the cache) when the saver's
-  // outputs and sizes are the same and nothing has written the cache since that run ended:
-  // the outputs it drew are its sample again, not cached outputs dropped from the draw, so the
-  // numbers are identical and nothing is replayed. Any other change draws afresh.
+  // A later run reuses the last draw's salt (quick-draws-v1.json next to the cache) when
+  // nothing has written the cache since that run ended and the saver's outputs are nearly the
+  // same: at least REUSE_OVERLAP of the size mass shared both ways (a default period moves a
+  // little between runs). Outputs drawn under that salt are not "cached" for the plan: they
+  // stay in the population, so those the new plan samples are its sample again, and those it
+  // does not are exact but set no ratio. New outputs join the draw. Over the same outputs the
+  // numbers are identical and nothing is replayed. Anything else draws afresh.
   const strict = process.env.SAVER_AUDIT_STRICT_SAMPLE === "1";
   const exactFor = (saver: string) => o.full === true || (Array.isArray(o.full) && o.full.includes(saver));
   const fingerprint = strict ? "" : cacheFingerprint(cache.keys());
   const drawsFile = o.cacheFile && !strict ? quickDrawsPath(o.cacheFile) : undefined;
   const draws = drawsFile ? readQuickDraws(drawsFile) : new Map<string, QuickDraw>();
-  /** Per saver drawing a quick sample in this run: its population fingerprint and salt. */
-  const drawn = new Map<string, { pop: string; salt: string }>();
+  /** Per saver drawing a quick sample in this run: its salt, and the outputs drawn under it before (when reused). */
+  const drawn = new Map<string, { salt: string; before: Set<string> }>();
   const plans = new Map<string, QuickPlan>();
   for (const [saver, unique] of bySaver) {
     const x = (inUsd.has(saver) ? usdSizes : tokenSizes).get(saver)!;
@@ -623,14 +626,17 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     let salt = quickSalt(saver, fingerprint);
     let cached: { has(key: string): boolean } = strict ? new Set<string>() : cache;
     if (drawsFile && !exactFor(saver) && quickSeconds(saver) > 0) {
-      const popFp = populationFingerprint(pop, quickBudget(saver));
       const last = draws.get(saver);
-      if (last && last.pop === popFp && last.cache === fingerprint) {
-        const again = new Set(last.drawn);
-        salt = last.salt;
-        cached = { has: (k) => cache.has(k) && !again.has(k) };
+      let before = new Set<string>();
+      if (last && last.cache === fingerprint && last.budget === quickBudget(saver) && last.unit === (inUsd.has(saver) ? "usd" : "tokens")) {
+        const o = populationOverlap(last.x, new Map(pop.map((p) => [keyPrefix(p.key), p.x])));
+        if (o.newOnOld >= REUSE_OVERLAP && o.oldOnNew >= REUSE_OVERLAP) {
+          before = last.drawn;
+          salt = last.salt;
+          cached = { has: (k) => cache.has(k) && !before.has(keyPrefix(k)) };
+        }
       }
-      drawn.set(saver, { pop: popFp, salt });
+      drawn.set(saver, { salt, before });
     }
     plans.set(saver, planQuick(pop, quickBudget(saver), salt, cached, base));
   }
@@ -688,7 +694,10 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       // An interrupted exact run leaves the quick sample's start, then more of the same order;
       // the next run takes what it cached as exact and draws the rest afresh.
       const sample = exact ? plan.order : catchUp ? worth : plan.order.slice(0, plan.quick);
-      sampled.set(saver, new Set([...plan.cached, ...sample]));
+      // Outputs drawn under a reused salt that the new plan does not sample: exact, no ratio.
+      const before = drawn.get(saver)?.before;
+      const earlier = before?.size ? [...unique.keys()].filter((k) => before.has(keyPrefix(k)) && cache.has(k)) : [];
+      sampled.set(saver, new Set([...plan.cached, ...sample, ...earlier]));
       const uncached = [...unique.keys()].filter((k) => !cache.has(k) && unique.get(k)!.input).length;
       const st: ReplayStats = { total: unique.size, pending: uncached, ran: 0, extrapolated: 0, failed: 0 };
       stats.set(saver, st);
@@ -800,18 +809,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     if (st.failed > measured) Object.assign(st, { insufficient: true, failedOut: true, reason: failReason.get(saver) ?? (measured ? "most replays failed" : "every replay failed") });
   }
   if (dirty) save();
-  // The draws, with the cache fingerprint now that every saver has written: a repeat run
-  // finds the same one. Not when the cache itself was not saved (the next run would not
-  // find these results).
-  if (drawsFile && drawn.size && !saveError) {
-    const after = cacheFingerprint(cache.keys());
-    for (const [saver, d] of drawn) {
-      const plan = plans.get(saver)!;
-      draws.set(saver, { pop: d.pop, cache: after, salt: d.salt, drawn: plan.order.slice(0, plan.quick).filter((k) => cache.has(k)) });
-    }
-    const err = saveQuickDraws(drawsFile, draws);
-    if (err) warn?.(`quick-mode draws not saved (${err}); the next run draws a new sample.`);
-  }
+
 
   // Cached and replayed outputs get their own result; the rest are estimated (quick.ts).
   const idx = new Map(saverIds.map((id, i) => [id, i]));
@@ -877,6 +875,25 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     const unit = inUsd.has(saver) ? "usd" : "tokens";
     const cf = fromCache.get(saver);
     Object.assign(st, cf ? { fromCache: cf.share, estimate: totals.get(saver) ?? 0, unit } : { se: fits.get(saver)!.se, estimate: totals.get(saver) ?? 0, unit });
+  }
+  // The draws, with the cache fingerprint now that every saver has written: a repeat run
+  // finds the same one. Not when the cache itself was not saved (the next run would not
+  // find these results).
+  if (drawsFile && drawn.size && !saveError) {
+    const after = cacheFingerprint(cache.keys());
+    for (const [saver, d] of drawn) {
+      const plan = plans.get(saver)!;
+      // Nothing estimated: nothing to keep stable, and no store to grow.
+      if (!stats.get(saver)?.extrapolated) {
+        draws.delete(saver);
+        continue;
+      }
+      const now = new Set(d.before);
+      for (const k of plan.order.slice(0, plan.quick)) if (cache.has(k)) now.add(keyPrefix(k));
+      draws.set(saver, { cache: after, salt: d.salt, budget: quickBudget(saver), unit: inUsd.has(saver) ? "usd" : "tokens", x: new Map([...plan.x].map(([k, x]) => [keyPrefix(k), x])), drawn: now });
+    }
+    const err = saveQuickDraws(drawsFile, draws);
+    if (err) warn?.(`quick-mode draws not saved (${err}); the next run draws a new sample.`);
   }
   if (process.env.SAVER_AUDIT_DUMP) dumpJobs(process.env.SAVER_AUDIT_DUMP, results, bySaver, cache, idx, fits, plans);
   for (const r of results) if (r.savers) r.savers.jobs = [];

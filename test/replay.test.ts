@@ -10,7 +10,7 @@ import type { FileResult } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
 import { countProxy } from "../src/accounting/tokens.ts";
 import { detectReplayTools, isOutdated, launcherPython, runOnce, runReplays, type ReplayTool } from "../src/savers/replay.ts";
-import { quickDrawsPath, readReplayCache } from "../src/savers/cache.ts";
+import { quickDrawsPath, readQuickDraws, readReplayCache } from "../src/savers/cache.ts";
 import { replayKey } from "../src/savers/tracker.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import { cacheFingerprint, planQuick, quickSalt } from "../src/savers/quick.ts";
@@ -602,7 +602,7 @@ test("quick mode's estimate reads each output a bounded number of times, not onc
   }
 });
 
-test("a repeat quick run reuses its draw: identical numbers, nothing replayed; a changed window, cache or store draws afresh", async () => {
+test("a repeat quick run reuses its draw: identical numbers, nothing replayed; small drift keeps it; a large change, a foreign cache write or a bad store draws afresh", async () => {
   const t = tmp();
   try {
     // 300 outputs, token-saver's budget 270: the first run replays 270 and estimates 30.
@@ -634,8 +634,17 @@ test("a repeat quick run reuses its draw: identical numbers, nothing replayed; a
     cache.entries["from-elsewhere"] = [1, 4, 1];
     writeFileSync(join(other, "replay.json"), JSON.stringify(cache));
     assert.equal((await run(other)).st.ran, 30);
-    // Another window (one output fewer): a fresh draw.
-    assert.equal((await run(window, specs.slice(1))).st.ran, 30);
+    // A slightly different period (one output fewer, one new): the same salt, a few replays at most.
+    const salt = (dir: string) => readQuickDraws(quickDrawsPath(join(dir, "replay.json"))).get("token-saver")?.salt;
+    const first = salt(window);
+    assert.ok(first);
+    const near = await run(window, [...specs.slice(1), ...cycling(1, "n")]);
+    assert.ok(near.st.ran <= 2, `${near.st.ran} replayed`);
+    assert.equal(salt(window), first, "the draw is kept");
+    // Half the size mass new: a fresh draw (all 330 uncached are candidates: 270 replayed).
+    const far = await run(window, [...specs, ...cycling(300, "n")]);
+    assert.equal(far.st.ran, 270);
+    assert.notEqual(salt(window), first);
     // A corrupt store is ignored: a fresh draw, no error.
     writeFileSync(join(corrupt, "quick-draws-v1.json"), "{not json");
     assert.equal((await run(corrupt)).st.ran, 30);
