@@ -337,9 +337,24 @@ class HeadroomSidecar {
     });
   }
 
-  close(): void {
-    this.child.stdin!.end();
-    this.child.kill();
+  /**
+   * Stops the sidecar and waits until it has exited: it holds headroom's store in the
+   * state folder (on Windows an open file cannot be deleted). SIGKILL after 5 s.
+   */
+  close(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.child.kill("SIGKILL");
+        setTimeout(resolve, 1000);
+      }, 5000);
+      this.child.once("close", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      this.child.stdin!.end();
+      this.child.kill();
+    });
   }
 }
 
@@ -509,7 +524,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
             store(key, out);
           }
         } finally {
-          side.close();
+          await side.close();
           live.delete(side.child);
         }
       } else {
@@ -536,7 +551,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
     try {
-      if (state) rmSync(state, { recursive: true, force: true });
+      if (state) rmSync(state, { recursive: true, force: true, maxRetries: 3 });
     } catch {
       warn?.(`could not remove the savers' temporary folder ${state}`);
     }

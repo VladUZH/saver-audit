@@ -548,3 +548,18 @@ test("headroom results cached on Windows before that fix are measured again", ()
   assert.equal(key("darwin"), key("linux"));
   assert.notEqual(key("win32"), key("linux"));
 });
+
+test("the headroom sidecar has exited before its state folder is removed", async () => {
+  const t = tmp();
+  try {
+    const temp = join(t.dir, "tmp");
+    mkdirSync(temp);
+    const f = synth("headroom", [0, 1].map((i) => ({ key: `h${i}`, input: text(i) })));
+    const st = await withEnv({ TMPDIR: temp }, () => runReplays([f], ["headroom"], { tools: tool("headroom", "fake-headroom", { FAKE_EXIT_MS: "300" }), full: true, concurrency: 1 }));
+    assert.equal(st.get("headroom")!.failed, 0);
+    await new Promise((r) => setTimeout(r, 600));
+    assert.deepEqual(readdirSync(temp), [], "no store written after the folder was removed (on Windows: EBUSY while it is open)");
+  } finally {
+    t.done();
+  }
+});

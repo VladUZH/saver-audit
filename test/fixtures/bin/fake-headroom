@@ -5,6 +5,8 @@
 //   FAKE_MIN_CHARS=<n>   keep the first quarter of texts of at least n chars (default 0)
 //   FAKE_DIE_AFTER=<n>   exit after answering n requests
 //   FAKE_PIDFILE=<file>  write this process's pid there
+//   FAKE_EXIT_MS=<n>     when told to stop (stdin closed, SIGTERM), take n ms and write
+//                        $HEADROOM_WORKSPACE_DIR/ccr_store.db first (a store being flushed)
 const env = process.env;
 if ((process.argv[3] ?? "").includes("__version__")) {
   console.log("0.38.0");
@@ -21,5 +23,16 @@ import("node:readline").then(async ({ createInterface }) => {
     console.log(JSON.stringify({ i: req.i, out }));
     if (++n === Number(env.FAKE_DIE_AFTER)) process.exit(0);
   });
-  rl.on("close", () => process.exit(0));
+  const stop = () => {
+    const ms = Number(env.FAKE_EXIT_MS ?? 0);
+    if (!ms) process.exit(0);
+    setTimeout(async () => {
+      const fs = await import("node:fs");
+      fs.mkdirSync(env.HEADROOM_WORKSPACE_DIR, { recursive: true });
+      fs.writeFileSync(`${env.HEADROOM_WORKSPACE_DIR}/ccr_store.db`, "originals");
+      process.exit(0);
+    }, ms);
+  };
+  process.on("SIGTERM", stop);
+  rl.on("close", stop);
 });
