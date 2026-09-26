@@ -130,7 +130,8 @@ export function installPlan(platform: string = process.platform, arch: string = 
   return [
     { id: "rtk", what: `rtk ${RTK_TAG}`, size: "about 4 MB, seconds", ...build(rtkAsset(platform, arch)) },
     { id: "caveman-engine", what: `caveman engine ${CAVEMAN_BIN_TAG}`, size: "about 28 MB; its first measurement then takes about a minute, cached after", ...build(cavemanAsset(platform, arch)) },
-    { id: "token-saver", what: `token-saver ${TOKEN_SAVER_TAG}`, size: "under 1 MB, seconds; needs Python 3.10+; its first measurement takes a few minutes on a busy month, cached after", available: !!py && platform !== "win32", why: platform === "win32" ? "installer supports macOS and Linux" : py ? undefined : "needs Python 3.10+", python: true },
+    // `python` only where Python is what decides: on Windows the installer never tries it.
+    { id: "token-saver", what: `token-saver ${TOKEN_SAVER_TAG}`, size: "under 1 MB, seconds; needs Python 3.10+; its first measurement takes a few minutes on a busy month, cached after", available: !!py && platform !== "win32", why: platform === "win32" ? "installer supports macOS and Linux" : py ? undefined : "needs Python 3.10+", python: platform === "win32" ? undefined : true },
     // On Windows a program can find the real profile folder whatever the environment says,
     // so lean-ctx's replays could read the user's settings and write into their profile.
     { id: "lean-ctx", what: `lean-ctx ${LEAN_CTX_TAG}`, size: "about 23 MB; its first measurement takes a few minutes on a busy month, cached after", ...(platform === "win32" ? { available: false, why: "its settings cannot be kept apart from yours on Windows" } : build(leanCtxAsset(platform, arch))) },

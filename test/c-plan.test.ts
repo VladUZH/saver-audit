@@ -18,6 +18,12 @@ test("on Windows, token-saver's reason is the platform, whether or not Python is
   assert.equal(mac.why, "needs Python 3.10+");
 });
 
+test("on Windows, [i] is not promised for token-saver, even along with rtk", () => {
+  const offer = installOffer([{ id: "rtk", status: "not installed" }, { id: "token-saver", status: "not installed" }], installPlan("win32", "x64", null));
+  assert.deepEqual(offer.ids, ["rtk"]);
+  assert.deepEqual([...offer.why], [["token-saver", "installer supports macOS and Linux"]]);
+});
+
 test("the plan uses the platform it is given", () => {
   const plan = installPlan("linux", "arm", null);
   for (const id of ["rtk", "lean-ctx", "caveman-engine"]) assert.equal(plan.find((c) => c.id === id)!.available, false, id);
