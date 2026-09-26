@@ -51,7 +51,7 @@ export interface ReplayJob {
   args?: string[];
   /** Input text; empty when the result is already cached (text stays in the worker). */
   input: string;
-  /** Class for extrapolating sampled results: `<category>|<family>`. */
+  /** Class: `<category>|<family>` (the quick estimate does not use it; SAVER_AUDIT_DUMP keeps it). */
   cls: string;
   /** Baseline tokens (what the model saw). */
   baseline: number;
