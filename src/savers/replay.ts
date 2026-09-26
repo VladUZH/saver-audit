@@ -374,8 +374,7 @@ class HeadroomSidecar {
         if ("ready" in msg) {
           this.tokenizer = msg.tokenizer;
           resolveReady(msg.ready === true);
-        }
-        else {
+        } else {
           const f = this.waiting.get(msg.i);
           this.waiting.delete(msg.i);
           f?.(typeof msg.out === "string" ? msg.out : undefined);
