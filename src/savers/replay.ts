@@ -301,7 +301,10 @@ export interface ReplayOptions {
   /** Exact mode for all savers (true) or for the listed ones. */
   full: boolean | string[];
   concurrency: number;
+  /** Progress lines. */
   log?: (s: string) => void;
+  /** Problems the user should see even when progress is shown otherwise (defaults to log). */
+  warn?: (s: string) => void;
   progress?: (saver: string, done: number, total: number) => void;
 }
 
@@ -312,6 +315,7 @@ export interface ReplayOptions {
  */
 export async function runReplays(results: FileResult[], saverIds: string[], o: ReplayOptions): Promise<Map<string, ReplayStats>> {
   const stats = new Map<string, ReplayStats>();
+  const warn = o.warn ?? o.log;
   const cache = readReplayCache(o.cacheFile);
   const adapters = new Map(saverIndex(saverIds).map((a) => [a.id, a]));
   // Unique outputs per saver; keep a job that carries the text when one does.
@@ -353,7 +357,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       state = mkdtempSync(join(tmpdir(), "saver-audit-"));
     } catch (err) {
       noState = true;
-      o.log?.(`cannot create a temporary folder (${(err as NodeJS.ErrnoException).code ?? "error"}); saver replays skipped.`);
+      warn?.(`cannot create a temporary folder (${(err as NodeJS.ErrnoException).code ?? "error"}); saver replays skipped.`);
     }
     return state;
   };
@@ -362,7 +366,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const save = () => {
     if (!o.cacheFile || saveError) return;
     saveError = saveReplayCache(o.cacheFile, cache);
-    if (saveError) o.log?.(`replay cache not saved (${saveError}); these outputs will be replayed again next run.`);
+    if (saveError) warn?.(`replay cache not saved (${saveError}); these outputs will be replayed again next run.`);
   };
   let dirty = false;
   // Ctrl+C or a kill: stop the savers and remove their state folder (it holds copies of
@@ -443,7 +447,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         try {
           if (!(await side.ready)) {
             failAll("compression model not cached");
-            o.log?.("headroom: its compression model is not cached; skipped (run headroom once online to download it).");
+            warn?.("headroom: its compression model is not cached; skipped (run headroom once online to download it).");
             return;
           }
           for (const key of todo) {
@@ -483,7 +487,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     try {
       if (state) rmSync(state, { recursive: true, force: true });
     } catch {
-      o.log?.(`could not remove the savers' temporary folder ${state}`);
+      warn?.(`could not remove the savers' temporary folder ${state}`);
     }
   }
   // More failed than measured: a number would be mostly failures counted as unchanged.

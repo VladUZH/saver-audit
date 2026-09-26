@@ -91,7 +91,10 @@ export interface SaverOptions {
   cacheFile?: string;
   /** Installed saver binaries; detected when undefined. */
   tools?: Map<string, ReplayTool>;
+  /** Progress lines. */
   log?: (s: string) => void;
+  /** Problems to show even when progress lines are not (e.g. cache not writable); defaults to log. */
+  warn?: (s: string) => void;
 }
 
 export interface RunHooks {
@@ -114,7 +117,7 @@ export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJo
     versions: Object.fromEntries([...tools].flatMap(([id, t]) => (t.version ? [[id, t.version]] : []))),
   };
   const results = await processAll(findFiles(opts), entry, jobs, config, hooks.files);
-  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: Math.max(1, jobs), log: saverOpts?.log, progress: hooks.replay });
+  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: Math.max(1, jobs), log: saverOpts?.log, warn: saverOpts?.warn, progress: hooks.replay });
   return summarize(opts, results, { savers, tools, stats });
 }
 

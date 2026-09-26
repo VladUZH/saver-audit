@@ -122,6 +122,24 @@ test("an unwritable replay cache warns once and the replay still finishes", asyn
   }
 });
 
+test("warnings reach their own channel even when progress lines are not shown (a spinner)", async (c) => {
+  const t = tmp();
+  try {
+    const ro = readOnlyDir(t.dir);
+    if (!ro) return c.skip("running as root");
+    const warnings: string[] = [];
+    const f = synth("headroom", [0, 1].map((i) => ({ key: `h${i}`, input: text(i) })));
+    await runReplays([f], ["headroom"], { tools: tool("headroom", "fake-headroom"), cacheFile: join(ro, "replay.json"), full: true, concurrency: 1, warn: (s) => warnings.push(s) });
+    assert.deepEqual(warnings, ["replay cache not saved (EACCES); these outputs will be replayed again next run."]);
+    const g = synth("headroom", [2].map((i) => ({ key: `h${i}`, input: text(i) })));
+    await runReplays([g], ["headroom"], { tools: tool("headroom", "fake-headroom", { FAKE_READY: "0" }), cacheFile: t.cacheFile, full: true, concurrency: 1, warn: (s) => warnings.push(s) });
+    assert.match(warnings.at(-1)!, /^headroom: its compression model is not cached/);
+  } finally {
+    chmodSync(join(t.dir, "ro"), 0o755);
+    t.done();
+  }
+});
+
 test("an unwritable cache folder or temp folder never aborts the audit", async (c) => {
   const t = tmp();
   const oldTmp = process.env.TMPDIR;
