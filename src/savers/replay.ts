@@ -331,7 +331,10 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   //  - the rest of the budget is a hash-order stratum of the smaller outputs. Unmeasured
   //    outputs are extrapolated from the measured ones in this stratum only (the largest
   //    ones skew per-token ratios, and other cached ones need not be a random sample);
-  //  - smaller outputs already cached (e.g. by --exact) use their own result.
+  //  - smaller outputs already cached (e.g. by --exact) use their own result;
+  //  - a Claude <persisted-output> preview ranks with the largest: its baseline is the
+  //    ~2 KB preview but the saver gets the full output, so it can neither set a ratio
+  //    nor be estimated from one.
   // SAVER_AUDIT_STRICT_SAMPLE=1 ignores the cache when choosing (for checking accuracy).
   const strict = process.env.SAVER_AUDIT_STRICT_SAMPLE === "1";
   const sampled = new Map<string, Set<string>>();
@@ -382,7 +385,8 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       const keys = [...unique.keys()].sort();
       const exact = o.full === true || (Array.isArray(o.full) && o.full.includes(saver));
       const budget = quickBudget(saver);
-      const bySize = [...keys].sort((a, b) => unique.get(b)!.baseline - unique.get(a)!.baseline || (a < b ? -1 : 1));
+      const size = (k: string) => (unique.get(k)!.persistedHeader !== undefined ? Infinity : unique.get(k)!.baseline);
+      const bySize = [...keys].sort((a, b) => size(b) - size(a) || (a < b ? -1 : 1));
       const large = bySize.slice(0, Math.ceil(budget / 2));
       const inLarge = new Set(large);
       const small = keys.filter((k) => !inLarge.has(k));
@@ -506,7 +510,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       const d = j.baseline - presentedTokens(hit, j);
       r.savers!.timelines[j.timeline]!.blocks[j.block]!.d[idx.get(j.saver)!] = d;
       const from = ratioKeys.get(j.saver);
-      if (from !== "all" && !from?.has(j.key)) continue;
+      if (j.persistedHeader !== undefined || (from !== "all" && !from?.has(j.key))) continue;
       for (const cls of [`${j.saver}|${j.cls}`, `${j.saver}|*`]) {
         const a = ratios.get(cls) ?? { saved: 0, base: 0 };
         a.saved += d;
@@ -525,7 +529,8 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   // Too few measured outputs to extrapolate from: no number rather than a guess.
   for (const [, j] of pending) {
     const st = o.tools.has(j.saver) ? stats.get(j.saver) : undefined;
-    if (st && !st.insufficient && ((basis.get(j.saver)?.size ?? 0) < MIN_QUICK_SAMPLE || ratioFor(j) === undefined)) Object.assign(st, { insufficient: true, reason: QUICK_REASON });
+    const guess = j.persistedHeader === undefined && (basis.get(j.saver)?.size ?? 0) >= MIN_QUICK_SAMPLE && ratioFor(j) !== undefined;
+    if (st && !st.insufficient && !guess) Object.assign(st, { insufficient: true, reason: QUICK_REASON });
   }
   const extrapolated = new Map<string, Set<string>>();
   for (const [r, j] of pending) {

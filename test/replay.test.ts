@@ -311,3 +311,38 @@ test("an interrupted exact run leaves a sample quick mode can extrapolate from w
     t.done();
   }
 });
+
+// A Claude <persisted-output> preview: the model saw ~2 KB, the (tool-stage) saver gets the full output.
+const PREVIEW = { persistedHeader: "<persisted-output>\nOutput too large. Preview (first 2KB):\n", headerTokens: 12, baseline: 500 };
+
+test("a persisted-output preview never sets the ratio other outputs are extrapolated with", async () => {
+  const t = tmp();
+  try {
+    const ordinary = Array.from({ length: 120 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, 3000) }));
+    // Their full outputs shrink to ~29,000 chars: under the inline limit, so all of it would be sent.
+    const previews = [0, 1, 2, 3, 4].map((i) => ({ key: `a${i}`, input: text(i, 116_000), ...PREVIEW }));
+    await exactRun(synth("headroom", [...previews, ...ordinary.slice(0, 100)]), t.cacheFile); // 20 outputs are new since
+    const f = synth("headroom", [...previews, ...ordinary]);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.equal(st.extrapolated, 20);
+    const d = deltas(f);
+    assert.ok(d.slice(0, 5).every((x) => x < 0), "a preview's own measured effect stays (all of it sent inline)");
+    assert.ok(d.slice(-20).every((x) => x > 0), "a saver that only shrinks never gets a negative estimate");
+  } finally {
+    t.done();
+  }
+});
+
+test("an unmeasured persisted-output preview is not estimated from preview tokens: no number", async () => {
+  const t = tmp();
+  try {
+    const ordinary = Array.from({ length: 100 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, 3000) }));
+    await exactRun(synth("headroom", ordinary), t.cacheFile); // enough to extrapolate ordinary outputs from
+    const f = synth("headroom", [{ key: "a0", input: text(0, 116_000), ...PREVIEW }, ...ordinary]);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.deepEqual({ insufficient: st.insufficient, extrapolated: st.extrapolated }, { insufficient: true, extrapolated: 0 });
+    assert.equal(deltas(f)[0], 0);
+  } finally {
+    t.done();
+  }
+});
