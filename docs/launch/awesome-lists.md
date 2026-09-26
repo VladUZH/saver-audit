@@ -8,15 +8,15 @@ When submitting:
 - **Vary the wording per list.** Quesma reviews near-identical submissions sent to many lists more closely.
 - **No marketing words,** and don't address the reader.
 
-## Submitted or prepared (2026-09-26)
+## Submitted (2026-09-26)
 
 | List | Stars | How | Status |
 |---|---|---|---|
-| [bradAGI/awesome-cli-coding-agents](https://github.com/bradAGI/awesome-cli-coding-agents) | 1.3k | PR | prepared for review |
-| [ai-for-developers/awesome-ai-coding-tools](https://github.com/ai-for-developers/awesome-ai-coding-tools) | 2.1k | PR | prepared for review |
-| [eltociear/awesome-AI-driven-development](https://github.com/eltociear/awesome-AI-driven-development) | 548 | PR | prepared for review |
-| [RoggeOhta/awesome-codex-cli](https://github.com/RoggeOhta/awesome-codex-cli) | 533 | issue (PRs are not processed) | prepared for review |
-| [InftyAI/Awesome-LLMOps](https://github.com/InftyAI/Awesome-LLMOps) | 264 | "Project Request" issue form (a bot opens the PR) | prepared for review |
+| [bradAGI/awesome-cli-coding-agents](https://github.com/bradAGI/awesome-cli-coding-agents) | 1.3k | PR | [#389](https://github.com/bradAGI/awesome-cli-coding-agents/pull/389) (borderline: the list is for autonomous agents) |
+| [ai-for-developers/awesome-ai-coding-tools](https://github.com/ai-for-developers/awesome-ai-coding-tools) | 2.1k | PR | [#780](https://github.com/ai-for-developers/awesome-ai-coding-tools/pull/780) (borderline: they want AI-powered tools) |
+| [eltociear/awesome-AI-driven-development](https://github.com/eltociear/awesome-AI-driven-development) | 548 | PR | [#136](https://github.com/eltociear/awesome-AI-driven-development/pull/136) |
+| [RoggeOhta/awesome-codex-cli](https://github.com/RoggeOhta/awesome-codex-cli) | 533 | issue (PRs are not processed) | wait until after Show HN ("no self-promotion without substance"); draft in the session scratchpad |
+| [InftyAI/Awesome-LLMOps](https://github.com/InftyAI/Awesome-LLMOps) | 264 | "Project Request" issue form (a bot opens the PR) | [#572](https://github.com/InftyAI/Awesome-LLMOps/issues/572) |
 
 ## Later
 
