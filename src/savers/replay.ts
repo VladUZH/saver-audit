@@ -173,6 +173,10 @@ function saverEnv(stateDir: string): NodeJS.ProcessEnv {
   return {
     ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !OWN_SETTINGS.test(k))),
     DO_NOT_TRACK: "1",
+    // rtk ignores DO_NOT_TRACK, and writes a once-a-day marker into your home when it
+    // warns that its Claude Code hook is not installed.
+    RTK_TELEMETRY_DISABLED: "1",
+    RTK_SUPPRESS_HOOK_WARNING: "1",
     HEADROOM_BEACON: "off",
     HEADROOM_OFFLINE: "1",
     HF_HUB_OFFLINE: "1",

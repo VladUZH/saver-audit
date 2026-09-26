@@ -485,3 +485,18 @@ test("savers run in an empty folder, without the user's own saver settings or st
     t.done();
   }
 });
+
+test("rtk runs with its telemetry and hook warning off, for the version probe too", async () => {
+  const t = tmp();
+  try {
+    const log = join(t.dir, "runs.jsonl");
+    const env = { SAVER_AUDIT_RTK: join(BIN, "fake-saver"), FAKE_ENV_LOG: log, SAVER_AUDIT_HOME: t.dir, SAVER_AUDIT_HEADROOM_PYTHON: "" };
+    const tools = await withEnv(env, () => detectReplayTools(SAVERS.filter((s) => s.id === "rtk")));
+    await withEnv(env, () => runReplays([synth("rtk", [{ key: "k0", input: text(0), args: ["pipe", "--filter", "pytest"] }])], ["rtk"], { tools, full: true, concurrency: 1 }));
+    const runs = readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    assert.deepEqual(runs.map((r) => r.args[0]), ["--version", "pipe"]);
+    for (const r of runs) assert.deepEqual([r.env.RTK_TELEMETRY_DISABLED, r.env.RTK_SUPPRESS_HOOK_WARNING], ["1", "1"], r.args[0]);
+  } finally {
+    t.done();
+  }
+});
