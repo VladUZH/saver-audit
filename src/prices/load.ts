@@ -1,17 +1,11 @@
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import bundled from "../../data/prices.json" with { type: "json" };
+import { cacheHome } from "../savers/cache.ts";
 import type { PriceTable } from "./table.ts";
 
 /** The snapshot shipped with this version. */
 export const BUNDLED = bundled as PriceTable;
-
-/** $XDG_CACHE_HOME, or ~/.cache when it is unset, empty or relative (XDG spec). */
-export function cacheHome(): string {
-  const x = process.env.XDG_CACHE_HOME;
-  return x && isAbsolute(x) ? x : join(homedir(), ".cache");
-}
 
 /** Where --update-prices saves a fresh table. */
 export function userPricesPath(): string {
