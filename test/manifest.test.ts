@@ -74,25 +74,41 @@ test("routes match on tool, category, family, command and size", () => {
   assert.equal(routeMatches(undefined, view({})), true);
 });
 
-test("the last segment is the program the model ran: past wrapper options, subshells and groups", () => {
+test("the last segment is the program rtk's hook would rewrite: past what it looks past, and nothing else", () => {
   const cases: Array<[string, string | undefined]> = [
     ["nice -n 10 make", "make"],
-    ["sudo -u www git pull", "git pull"],
+    ["nice -5 pytest -q", "pytest -q"],
     ["timeout -s KILL 60 cargo test", "cargo test"],
     ["timeout 60 pytest -q", "pytest -q"],
-    ["xargs -n 1 grep foo", "grep foo"],
-    ["env -u HOME CI=1 vitest run", "vitest run"],
-    ["sudo -u www env CI=1 nice -n 5 pytest -q", "pytest -q"],
+    ["timeout -k5s 60 cargo test", "cargo test"],
+    ["timeout --kill-after=5s 60 cargo test", "cargo test"],
+    ["timeout -- 60 cargo test", "cargo test"],
+    ["/usr/bin/timeout 60 cargo test", "cargo test"],
+    ["time -p pytest -q", "pytest -q"],
+    ["nohup pytest -q", "pytest -q"],
+    ["time CI=1 pytest -q", "pytest -q"],
+    ["env CI=1 nice -n 5 pytest -q", "pytest -q"],
+    ["command rg foo", "rg foo"],
+    ["exec pytest -q", "pytest -q"],
     ["(cd web && npm test)", "npm test"],
-    ["make && (npm test)", "npm test"],
-    ["{ make; }", "make"],
     ["cat $(ls)", "cat $(ls)"],
-    ["cd web && sudo", undefined],
+    // rtk leaves these as they are, so no route anchored on the program matches them.
+    ["sudo -u www git pull", "sudo -u www git pull"],
+    ["sudo git diff", "sudo git diff"],
+    ["timeout 60 sudo pytest -q", "sudo pytest -q"],
+    ["xargs -n 1 grep foo", "xargs -n 1 grep foo"],
+    ["env -u HOME CI=1 vitest run", "env -u HOME CI=1 vitest run"],
+    ["command -v rg", "command -v rg"],
+    ["timeout --unknown 60 cargo test", "timeout --unknown 60 cargo test"],
+    ["(pytest -q)", "(pytest -q)"],
+    ["make && (npm test)", "(npm test)"],
+    ["{ make; }", "{ make"],
+    ["cd web && sudo", "sudo"],
   ];
   for (const [command, seg] of cases) assert.equal(lastSegment(command), seg, command);
-  // So a route anchored on the program matches.
+  // So a route anchored on the program matches only what rtk rewrites.
   assert.equal(routeMatches({ command: "^cargo (test|nextest)\\b" }, view({ command: "timeout -s KILL 60 cargo test" })), true);
-  assert.equal(routeMatches({ command: "^git (diff|show)\\b" }, view({ command: "sudo -u www git diff" })), true);
+  assert.equal(routeMatches({ command: "^git (diff|show)\\b" }, view({ command: "sudo -u www git diff" })), false);
 });
 
 test("user manifests load next to the built-ins; bad or clashing ones are reported", () => {

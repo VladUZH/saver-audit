@@ -9,7 +9,6 @@
 // goes through code review as code).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { programIndex } from "../accounting/categories.ts";
 import { toolsDir } from "./toolsdir.ts";
 import type { OutputView } from "./types.ts";
 
@@ -124,19 +123,61 @@ export function validateManifest(m: any): string[] {
   return p;
 }
 
-/** The last real segment of a shell command: drops `cd …&&`, env assignments, wrappers, pipes. */
+// What rtk's hook (`rtk rewrite`, rtk 0.50.0) looks past to find the program it rewrites,
+// in any order: env assignments, also after `env`; shell keywords; and process wrappers
+// with the options it knows (timeout also takes its duration). It leaves any other command
+// as it is (`sudo …`, `xargs …`, `env -u …`, `command -v …`, `(pytest)`, `{ pytest; }`), so
+// command routes, anchored on the program, do not match those either.
+const KEYWORDS = new Set(["env", "exec", "command", "builtin", "noglob", "nocorrect"]);
+const PROCESS_WRAPPERS: Record<string, { values: string[]; flags: string[]; positionals: number }> = {
+  timeout: { values: ["-s", "-k", "--signal", "--kill-after"], flags: ["--preserve-status", "--foreground", "-v", "--verbose"], positionals: 1 },
+  time: { values: ["-f", "-o", "--format", "--output"], flags: ["-p", "-a", "-v", "--append", "--verbose", "--portability", "--quiet"], positionals: 0 },
+  nice: { values: ["-n", "--adjustment"], flags: [], positionals: 0 },
+  nohup: { values: [], flags: [], positionals: 0 },
+};
+
+/** Index of the program rtk's hook sees in a command's words (see PROCESS_WRAPPERS). */
+function hookProgramIndex(words: string[]): number {
+  let i = 0;
+  while (i < words.length) {
+    const w = words[i]!;
+    const name = w.replace(/^.*\//, ""); // `/usr/bin/timeout`
+    const wrapper = PROCESS_WRAPPERS[name];
+    if (!wrapper) {
+      if (/^[A-Z_][A-Z0-9_]*=/.test(w) || (KEYWORDS.has(w) && !words[i + 1]?.startsWith("-"))) i++;
+      else return i;
+      continue;
+    }
+    let j = i + 1;
+    let positionals = wrapper.positionals;
+    for (let optionsDone = false; j < words.length; ) {
+      const a = words[j]!;
+      if (!optionsDone && a === "--") optionsDone = true;
+      else if (!optionsDone && a.startsWith("-") && a !== "-") {
+        const attached = a.includes("=") ? wrapper.values.includes(a.split("=")[0]!) : wrapper.values.some((v) => !v.startsWith("--") && a.length > v.length && a.startsWith(v));
+        if (wrapper.values.includes(a)) j++; // its value is the next word
+        else if (!wrapper.flags.includes(a) && !attached && !(name === "nice" && /^-\d+$/.test(a))) return i; // rtk does not know it
+      } else if (positionals > 0) positionals--;
+      else break;
+      j++;
+    }
+    i = j;
+  }
+  return i;
+}
+
+/** The last real segment of a shell command, from the program rtk's hook would rewrite: drops `cd …&&`, env assignments, wrappers, pipes. */
 export function lastSegment(command: string): string | undefined {
   // A line ending in "\" or "|" continues on the next line.
   const joined = command.replace(/[ \t]*\\\r?\n[ \t]*/g, " ").replace(/\|[ \t]*\r?\n/g, "| ");
   const segments = joined.split(/&&|;|\n/).map((s) => s.trim()).filter(Boolean);
   for (let i = segments.length - 1; i >= 0; i--) {
-    // Subshells and groups: `(cd web && npm test)`, `{ make; }`.
-    let seg = segments[i]!.split("|")[0]!.trim().replace(/^(\(\s*|\{\s+)+/, "");
+    // The end of a subshell: `(cd web && npm test)` ends in `npm test)`.
+    let seg = segments[i]!.split("|")[0]!.trim();
     const count = (c: string) => seg.split(c).length - 1;
     while (seg.endsWith(")") && count(")") > count("(")) seg = seg.slice(0, -1).trimEnd();
-    // Env assignments, wrappers and their options, in any order (`env CI=1 vitest`, `nice -n 10 make`).
     const words = [...seg.matchAll(/\S+/g)];
-    const at = words[programIndex(words.map((w) => w[0]))]?.index;
+    const at = words[hookProgramIndex(words.map((w) => w[0]))]?.index;
     if (at === undefined) continue;
     seg = seg.slice(at);
     if (/^cd\b|^echo\b|^export\b|^source\b|^\}$/.test(seg)) continue;

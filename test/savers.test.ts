@@ -40,6 +40,20 @@ test("rtk filter chosen from the command; git status/log excluded", () => {
   for (const [cmd, f] of cases) assert.equal(rtkFilter(cmd), f, cmd);
 });
 
+test("rtk is credited only for commands its hook rewrites (`rtk rewrite`, rtk 0.50.0)", () => {
+  const rewritten: Array<[string, string]> = [
+    ["nice -n 10 pytest -q", "pytest"],
+    ["timeout -s KILL 60 cargo test", "cargo-test"],
+    ["nohup pytest -q", "pytest"],
+    ["exec pytest -q", "pytest"],
+    ["command rg foo", "grep"],
+    ["(cd web && pytest -q)", "pytest"],
+  ];
+  for (const [cmd, f] of rewritten) assert.equal(rtkFilter(cmd), f, cmd);
+  const leftAlone = ["sudo git diff", "sudo -u www git diff", "sudo -E pytest -q", "xargs -n 1 grep foo", "env -u HOME CI=1 npx vitest run", "(pytest -q)", "make && (pytest -q)", "cd web && (pytest -q)", "{ pytest -q; }", "command -v rg", "timeout --unknown 60 cargo test"];
+  for (const cmd of leftAlone) assert.equal(rtkFilter(cmd), undefined, cmd);
+});
+
 test("Codex header and Claude persisted-output header are split off", () => {
   assert.deepEqual(splitCodexHeader("Exit code: 0\nWall time: 1s\nOutput:\nhello"), { header: "Exit code: 0\nWall time: 1s\nOutput:\n", body: "hello" });
   assert.deepEqual(splitCodexHeader("no header"), { header: "", body: "no header" });
