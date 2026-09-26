@@ -754,3 +754,64 @@ A bug hunt after 0.6.0 changed the method in the places below. Each fix has a re
 - **Broken installs.** A copy in `~/.saver-audit/tools/bin` whose version check fails counts as not installed, so the installer offers it again.
 
 **Period:** `--last` counts back from `--until` (the end of that day), not from now. Dates are read the same way for `--since` and `--until`.
+
+### 8.13 Quick-mode estimator (PPS) (2026-09-26)
+
+This replaces the quick-mode sample and extrapolation of §8.11 and §8.12. Code: `src/savers/quick.ts` (`planQuick`, `fitQuick`), wired in `runReplays`.
+
+**Problem.** The old quick sample (the largest half of the budget, plus a hash-order stratum of smaller outputs whose per-class ratio was applied to the rest) was biased and noisy. On the author's month at the old 1,000-token floor it came out −46% (token-saver) and −20% (lean-ctx) in dollars, and the note could only say "can be off by half".
+
+**The study.** Numbers and hashes only, never log text:
+- `SAVER_AUDIT_DUMP` wrote one line per unique (saver, output): its hash, size, and exact saving from a complete replay cache. A simulator replayed four candidate designs on those dumps: 23 windows (the month, 14-day and 7-day rolling windows, the four weeks) × 4 savers (token-saver, lean-ctx, caveman engine, headroom) × 50 seeds, at the real quick budgets (270, 270, 1,500, 100). The error is estimated vs exact total saving in tokens (Σd, each output counted once).
+- A judge reproduced every figure, checked for leakage (no design reads the savings of an output it did not replay), and re-ran all designs on fresh seeds 50–199 that no designer saw. Its scripts also checked warm caches and clock cut-offs.
+- Weakness shared by every design: one user's logs, and rolling windows that overlap, so "held out" is weaker than it looks.
+
+**The method** (per saver, per run):
+- **Population.** Each output's size x is the tokens the model saw, summed over its occurrences in the period. Outputs cached when the run starts are exact and leave the population; they never set a ratio.
+- **Salt.** `sha1("saver-audit/quick/v1\0" + saver + "\0" + F)`, where F fingerprints every key in the replay cache (count plus an XOR of 52-bit hashes). Any cache change gives a fresh draw; an unchanged cache repeats the same one. `SAVER_AUDIT_STRICT_SAMPLE=1` uses F = "" and treats nothing as cached. An output's u is its salted hash mapped to (0,1).
+- **Previews** (`<persisted-output>`) go first, in u order, up to half the budget B. They never set a ratio, and an unmeasured one means no number.
+- **Sample.** The other n = B − previews are drawn with probability proportional to size: π = min(1, c·x), Σπ = n, with the largest peeled off as certainties while c·x ≥ 1. The rest are replayed in u/x order (sequential Poisson sampling). That rank does not depend on n or the window, so any prefix is itself a valid sample. When all outputs fit in n, all are replayed and the result is exact.
+- **Clock stop.** The sample is the certainties plus the longest prefix of the u/x order in which every output was measured or failed. With k measured there, π = min(1, k·x/X), X = Σx over the non-certain outputs that did not fail. An output measured after a gap is exact but sets no ratio.
+- **Estimate.** Each unmeasured occurrence gets R_g × its baseline, with R_g = Σw·d / Σw·x over the sampled non-certain outputs of its size band and w = (1 − π)/π, the weight of the part that was not measured. Bands are ×2 wide from 500 tokens, merged upward until each holds ≥ 20 sampled outputs; the tail joins the last group.
+- **Error bar.** se² = Σ (1 − π)/π² · (d − R_g·x)² over the sampled outputs (Poisson approximation).
+- **No number** with fewer than 20 sampled outputs while any output is unmeasured, or an unmeasured preview. Failed replays keep their rule: unchanged in the run, never cached, out of the ratio and X; more failed than measured still gives no number.
+- **Exact mode** replays the same order over every uncached output, so a stopped run leaves the quick sample's start and more of the u/x order. The next run takes those as exact and draws the rest with a new salt.
+- **Removed:** the size-cut rule, the ratio keys and the per-class ratios (per-class ratios with a pooled fallback added −8% bias for lean-ctx).
+- **Unchanged:** headroom and the caveman engine stay cache-only in quick mode. Since cached results never set a ratio, an output new since their last exact run now means no number until the next one. rtk's budget (12,000) is above its output count, so it stays exact.
+
+**Simulator results on fresh seeds 50–199** (|error| median / p90 / RMSE, in tokens; old design → PPS):
+
+| Saver | Month | 7-day, held out | 14-day | Heavy windows |
+|---|---|---|---|---|
+| token-saver | 24/51/32 → 12/25/16 | 7/35/22 → 5/22/13 | 7/26/19 → 4/17/11 | 24/59/36 → 13/34/21 |
+| lean-ctx | 12/31/18 → 5/14/8 | 8/21/13 → 6/14/9 | | |
+| caveman engine | 16/40/27 → 10/24/15 | 5/21/14 → 4/15/8 | | |
+| headroom | 14/34/21 → 7/18/11 | 18/40/25 → 6/17/10 | | |
+
+- **Bias.** The old design was −2 to −6% for lean-ctx and −10 to −13% for headroom; PPS stays within ±3%.
+- **Worst draw** over 150 seeds is smaller than the runner-up (stratified) everywhere, e.g. token-saver 7-day held out +62% vs +122%.
+- **Weak spot.** Heavy token-saver windows (~9k outputs, 3% sampled) keep an sd of 22–25%: its savings are all or nothing. The per-run se reports it.
+- **Coverage.** 62–71% of draws within 1 se, 91–98% within 2 se, except headroom's month at 82%. So "±2 s.e." is a fair "likely range", not a 95% interval.
+- **Warm caches** (50 salts per scenario: quick runs on one window then another, a daily chain of 7-day runs then the month, an exact week then the month, exact runs stopped at 30–50%). Reusing the salt and letting cached outputs set the ratio was biased by up to +45% (token-saver); dropping cached outputs but keeping the same salt, up to +38%. A fresh salt whenever the cache changes, with cached outputs exact and never in the ratio, stayed within ±3% for every saver and scenario.
+- **Clock cut-off.** With π recomputed for the outputs actually measured, a run cut to 50% or 25% of its budget stayed unbiased (≤ 2%; lean-ctx +4% at 25%), with the error growing as expected (token-saver p90 15 → 23 → 41%).
+
+**The label.** "can be off by half" is gone. For each indicative saver the full report says how many outputs the estimate is from, its likely range X = 2·se / |estimated total| in tokens, that dollars weight outputs differently and can be off by more, and how to get exact numbers. The short view lists each saver's ±X% on one line. `--json` carries `replay.seTokens` and `replay.savedTokens`. The card and the X post keep "≈" and show no ±.
+
+**Real-run check** (author's logs, 2026-09-26). Each quick run: `SAVER_AUDIT_STRICT_SAMPLE=1`, an empty cache, `--savers token-saver,lean-ctx --json`; every run replayed its full 270 per saver in time. Exact: the same window on a copy of a complete replay cache. Old = the code before this change, 500-token floor, same setup.
+
+| Window | Saver | Exact | Old $ error | New $ error | Old token error | New token error | New ±X% |
+|---|---|---|---|---|---|---|---|
+| month | token-saver | $65.83 | −52.0% | −37.6% | −20.7% | −0.6% | ±33% |
+| month | lean-ctx | $125.57 | −6.1% | +1.8% | −19.3% | +5.2% | ±17% |
+| week 1 | token-saver | $46.14 | +11.1% | +13.3% | −4.8% | +0.6% | ±10% |
+| week 1 | lean-ctx | $40.48 | −6.8% | −21.3% | −10.9% | −8.1% | ±16% |
+| week 2 | token-saver | $0.48 | −83.4% | +45.2% | −6.9% | −4.6% | ±12% |
+| week 2 | lean-ctx | $1.92 | −1.9% | −25.4% | +0.5% | +9.0% | ±15% |
+| week 3 | token-saver | $6.95 | +1.1% | −5.9% | −3.9% | −5.8% | ±12% |
+| week 3 | lean-ctx | $3.21 | +62.6% | +96.2% | +4.0% | +7.8% | ±18% |
+| week 4 | token-saver | $12.59 | +31.2% | −5.1% | +27.9% | −4.9% | ±44% |
+| week 4 | lean-ctx | $80.42 | −28.2% | +3.5% | −23.8% | +9.8% | ±15% |
+
+- **Tokens** (what the estimator targets): mean |error| 12.3% → 5.6%, and all ten new estimates are within their own ±2 s.e.
+- **Dollars:** mean |error| 28.4% → 25.4%, median 19.7% → 17.3%. Dollars price each saved token for every later call that still holds it, so a few outputs early in a busy session weigh far more than their tokens. That is why the label says dollars can be off by more. Weighting the sample by a per-output dollar weight (x = that weight) is the structural fix; it is not done yet.
+- Run time was unchanged: 13–16 s per window for the two savers, before and after.
