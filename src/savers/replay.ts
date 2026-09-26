@@ -3,9 +3,9 @@
 // installed is skipped with a note. Every saver runs with telemetry off and its
 // state in a temporary folder.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { countProxy } from "../accounting/tokens.ts";
 import type { FileResult } from "../audit.ts";
 import { readReplayCache, saveReplayCache } from "./cache.ts";
@@ -151,17 +151,33 @@ export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): 
   return found;
 }
 
-/** The Python interpreter behind an installed `headroom` command (uv/pipx shebang). */
+/** The Python interpreter behind an installed `headroom` command. */
 function headroomPython(): string | undefined {
-  const cli = onPath("headroom");
-  if (!cli) return undefined;
+  const cli = onPath(`headroom${process.platform === "win32" ? ".exe" : ""}`);
+  return cli ? launcherPython(cli) : undefined;
+}
+
+/**
+ * The Python a console script runs with: its shebang (uv, pipx), the shebang pip's Windows
+ * launcher (headroom.exe) carries before its zip archive, or a python.exe next to it (a
+ * virtualenv's Scripts folder).
+ */
+export function launcherPython(cli: string): string | undefined {
+  let text: string;
   try {
-    const shebang = readFileSync(cli, "utf8").split("\n", 1)[0] ?? "";
-    const m = /^#!\s*(\S+python[\d.]*)\s*$/.exec(shebang);
-    return m && existsSync(m[1]!) ? m[1] : undefined;
+    const fd = openSync(cli, "r");
+    try {
+      const buf = Buffer.alloc(1 << 20);
+      text = buf.toString("latin1", 0, readSync(fd, buf, 0, buf.length, 0));
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return undefined;
   }
+  const script = /^#!\s*(\S+python[\d.]*)\s*$/.exec(text.split("\n", 1)[0] ?? "")?.[1];
+  const launcher = [...text.matchAll(/#!\s*"?([^"\r\n]*?pythonw?[\d.]*\.exe)"?\r?\n/gi)].at(-1)?.[1];
+  return [script, launcher, join(dirname(cli), "python.exe")].find((p) => p && existsSync(p));
 }
 
 /**

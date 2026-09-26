@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import type { FileResult } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
 import { countProxy } from "../src/accounting/tokens.ts";
-import { detectReplayTools, isOutdated, runOnce, runReplays, type ReplayTool } from "../src/savers/replay.ts";
+import { detectReplayTools, isOutdated, launcherPython, runOnce, runReplays, type ReplayTool } from "../src/savers/replay.ts";
 import { replayKey } from "../src/savers/tracker.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import type { ReplayJob } from "../src/savers/types.ts";
@@ -607,6 +607,27 @@ test("every saver process gets the dead proxy, the version probe too", async () 
     for (const r of readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l))) {
       assert.deepEqual([r.env.HTTPS_PROXY, r.env.https_proxy, r.env.HTTP_PROXY, r.env.http_proxy], Array(4).fill("http://127.0.0.1:9"), r.args[0]);
     }
+  } finally {
+    t.done();
+  }
+});
+
+test("a user's headroom is found behind pip's Windows launcher (headroom.exe), and from a uv or pipx script", () => {
+  const t = tmp();
+  try {
+    const put = (file: string, content: string | Buffer) => {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, content);
+      return file;
+    };
+    const py = put(join(t.dir, "pipx venvs", "headroom-ai", "Scripts", "python.exe"), "");
+    // pip's launcher: a Windows program, then the script's shebang, then a zip archive.
+    const launcher = Buffer.concat([Buffer.from("MZ\x90\x00\x03\x00", "latin1"), Buffer.alloc(4096, 0x2e), Buffer.from(`#!"${py}"\r\n`, "latin1"), Buffer.from("PK\x03\x04 zip", "latin1")]);
+    assert.equal(launcherPython(put(join(t.dir, "local", "bin", "headroom.exe"), launcher)), py, "the shebang it carries");
+    assert.equal(launcherPython(put(join(dirname(py), "headroom.exe"), "MZ\x90\x00")), py, "a python.exe next to it");
+    const unix = put(join(t.dir, "venv", "bin", "python3.12"), "");
+    assert.equal(launcherPython(put(join(t.dir, "bin", "headroom"), `#!${unix}\nimport sys\n`)), unix);
+    assert.equal(launcherPython(put(join(t.dir, "bin", "other"), "MZ no shebang")), undefined);
   } finally {
     t.done();
   }
