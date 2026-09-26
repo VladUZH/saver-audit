@@ -111,7 +111,7 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
     if (can.length) out.push(`  ${accent("Not installed:")} ${can.map(name).join(", ")}. ${keys.install ? `${bold("Press [i]")} to install and measure ${them}.` : `To install and measure ${them}: npx saver-audit --install-savers`}`);
     const why = (y: Saver) => o.install?.why.get(y.id) ?? y.install;
     if (cannot.length) out.push(`  ${accent(can.length ? "Also not installed:" : "Not installed:")} ${cannot.map((y) => (why(y) ? `${name(y)} (${why(y)})` : name(y))).join(", ")}.`);
-    if (missing.some((y) => y.id === "headroom")) out.push(dim("  headroom is a 1.6 GB install; add it with: saver-audit --install-savers --with-headroom"));
+    if (missing.some((y) => y.id === "headroom")) out.push(dim("  headroom is a 1.6 GB install; add it with: npx saver-audit --install-savers --with-headroom"));
     out.push(dim("  These numbers replay your past sessions as they happened. A saver can also change"));
     out.push(dim("  how the agent works (e.g. extra steps to get cut output back); that isn't measured."));
     out.push("");

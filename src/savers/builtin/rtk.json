@@ -309,6 +309,6 @@
     }
   ],
   "codexHypothetical": false,
-  "install": "saver-audit --install-savers (or: brew install rtk)",
+  "install": "npx saver-audit --install-savers (or: brew install rtk)",
   "_comment": "git status / git log are left out on purpose: live rtk rewrites them to formats its pipe filters expect (tech-notes §8.5)."
 }

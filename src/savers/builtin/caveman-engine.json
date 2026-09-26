@@ -26,5 +26,5 @@
   ],
   "minTokens": 500,
   "codexHypothetical": true,
-  "install": "saver-audit --install-savers"
+  "install": "npx saver-audit --install-savers"
 }

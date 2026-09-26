@@ -206,7 +206,7 @@ async function main(argv: string[]): Promise<number> {
   const menu = process.stdin.isTTY === true;
   await reveal(process.stdout, shortView(menu), animate);
   if (!menu) {
-    process.stdout.write("\nFull report: saver-audit --full\n");
+    process.stdout.write("\nFull report: npx saver-audit --full\n");
     return code;
   }
   const { copyImage, intentUrl, openExternal, shareText } = await import("./report/share.ts");
@@ -325,7 +325,7 @@ async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; 
   // headroom is 1.6 GB and minutes of waiting: only on explicit request (--with-headroom).
   const plan = installPlan().filter((c) => !have.has(c.id) && (c.id !== "headroom" || o.all));
   if (!plan.length) {
-    out.write(have.has("headroom") || o.all ? "\nAll replayed savers are already installed.\n" : "\nThe quick savers are installed. headroom (1.6 GB, minutes): saver-audit --install-savers --with-headroom\n");
+    out.write(have.has("headroom") || o.all ? "\nAll replayed savers are already installed.\n" : "\nThe quick savers are installed. headroom (1.6 GB, minutes): npx saver-audit --install-savers --with-headroom\n");
     return { installed: 0, failed: 0 };
   }
   out.write("\n");

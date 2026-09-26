@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AuditResult, SaverRow } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
-import { exactPending, menuKeys, renderShort } from "../src/report/terminal.ts";
+import { exactPending, menuKeys, renderShort, renderTerminal } from "../src/report/terminal.ts";
 import { exactSeconds } from "../src/savers/replay.ts";
 import { CLAUDE_ROOT, CODEX_HOME, FAKE_TOOLS, FIXTURES, fixtureOptions } from "./helpers.ts";
 
@@ -104,4 +104,16 @@ test("--short and a run without a terminal on input name no keys", () => {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /caveman engine\s+—\s+exact run needed: --exact/);
   assert.doesNotMatch(r.stdout, /\[e\]|\[i\]/);
+});
+
+test("install hints give the command that works under npx", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sa-e2r-"));
+  temps.push(dir);
+  // No tools: every replayed saver is missing, so its install note is shown.
+  const r = await runAudit(fixtureOptions(), undefined, 1, { ids: ["rtk", "caveman-engine", "token-saver", "lean-ctx", "headroom"], tools: new Map(), cacheFile: join(dir, "c.json"), full: false });
+  const full = renderTerminal(r, OPTS);
+  assert.match(full, /rtk \(npx saver-audit --install-savers \(or: brew install rtk\)\)/);
+  for (const name of ["caveman \\(proxy engine\\)", "token-saver", "lean-ctx"]) assert.match(full, new RegExp(`${name} \\(npx saver-audit --install-savers\\)`), name);
+  assert.match(renderShort(r, OPTS), /headroom is a 1\.6 GB install; add it with: npx saver-audit --install-savers --with-headroom/);
+  assert.doesNotMatch(full + renderShort(r, OPTS), /(^|[^x] )saver-audit --/m);
 });
