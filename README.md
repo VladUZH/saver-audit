@@ -82,7 +82,9 @@ The headroom number is a lower estimate (see below). On Codex alone, where shell
   - **Quick by default:**
     - A normal run gives each saver a few seconds; the first run on a busy month takes about 20 s, later runs about 9 s.
     - rtk replays up to about 12,000 distinct outputs in its 15 s (the author's month had 3,291), so its number is usually **exact**. Past that, or on a machine too slow to finish in 15 s, the rest is estimated and marked **indicative**.
-    - token-saver and lean-ctx are estimated from a sample and marked **indicative**. They can be off by up to half on a small period. With fewer than 20 measured outputs to estimate from, they show no number until you ask for exact numbers.
+    - token-saver and lean-ctx are estimated from a sample and marked **indicative**. Larger outputs are more likely to be picked, since that is where savings are.
+    - Each estimate comes with its own likely range, ±X%: two standard errors, in tokens. On the author's month it was ±33% for token-saver and ±17% for lean-ctx. Dollars weight outputs differently, so they can be off by more.
+    - With fewer than 20 sampled outputs to estimate from, they show no number until you ask for exact numbers.
     - The caveman engine and headroom show "—" until you ask for exact numbers: a quick sample was too far off for them.
     - A replay that fails counts as unchanged, is not cached, and is tried again next run. A number with failed replays is marked **indicative**. When most replays fail, the saver shows "not measured" and why, for example headroom without its model.
   - **Exact on request:** press `e` or pass `--exact`.
@@ -90,7 +92,7 @@ The headroom number is a lower estimate (see below). On Codex alone, where shell
     - `e` first shows how long that will take on your logs. headroom can take hours on a busy month, so `e` asks about it separately.
     - `--exact` asks nothing: it replays every saver, headroom included. To leave headroom out, list the others with `--savers`.
     - Results are saved as it goes, so you can stop with Ctrl+C and the next run carries on.
-    - Results are cached, so later quick runs are exact too.
+    - Results are cached and count as exact in later quick runs. Outputs new since then are sampled again; for the caveman engine and headroom, they wait for the next exact run.
     - The floors make caveman about 5%, token-saver about 9% and lean-ctx about 1% low, and the report says so.
 - **modeled.** An estimate from a published measurement, with the assumption printed next to it.
 - **upper bound.** The saver changes how the agent behaves (which tools it calls), so replay can only give a ceiling: everything it could possibly remove.
