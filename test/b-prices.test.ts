@@ -149,9 +149,30 @@ test("a table saved by --update-prices overlays the bundled one: dropped models 
   assert.deepEqual(t.sources, ["https://models.dev/api.json (MIT)", `bundled snapshot of ${snapshot.date} for 4 models the update lacks`]);
 });
 
+test("a saved Claude price with no >200k tier keeps the bundled tier; a saved tier or an OpenAI entry without one is taken as saved", () => {
+  const models: Record<string, unknown> = { ...snapshot.models };
+  // As a table saved after a failed LiteLLM fetch, or by a version that read no Claude tiers.
+  for (const id of ["claude-sonnet-4-5", "claude-sonnet-4-5-20250929"]) models[id] = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, cacheWrite1h: 6 };
+  const ownTier = { above: 200_000, input: 7, output: 30, cacheRead: 0.7, cacheWrite: 8.75, cacheWrite1h: 14 };
+  models["claude-sonnet-4-20250514"] = { ...snapshot.models["claude-sonnet-4-20250514"], tiers: [ownTier] };
+  models["gpt-5.4"] = { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0, cacheWrite1h: 0 };
+  const dir = savedTable({ date: "2999-01-01", sources: ["https://models.dev/api.json (MIT)"], models, aliases: {} });
+  const t = loadPrices(join(dir, "saver-audit", "prices.json"));
+  const tier = { input: 6, output: 22.5, cacheRead: 0.6, cacheWrite: 7.5, cacheWrite1h: 12 };
+  for (const id of ["claude-sonnet-4-5", "claude-sonnet-4-5-20250929"]) {
+    const { above, ...r } = ratesFor(t.models[id]!, 500_000) as Rates & { above?: number };
+    assert.deepEqual([above, r], [200_000, tier], id);
+    assert.equal(ratesFor(t.models[id]!, 200_000).input, 3, `${id} at 200k: saved base rates`);
+  }
+  assert.deepEqual(t.models["claude-sonnet-4-20250514"]!.tiers, [ownTier], "a saved tier wins");
+  assert.equal(t.models["gpt-5.4"]!.tiers, undefined, "models.dev lists OpenAI tiers itself");
+  assert.deepEqual(t.sources, ["https://models.dev/api.json (MIT)", `bundled snapshot of ${snapshot.date} for the >200k-token rates the update lacks on 2 Claude models`]);
+});
+
 test("--update-prices with a failed LiteLLM fetch warns, does not list LiteLLM, and keeps retired Codex prices", async () => {
   const cost = { input: 2, output: 12, cache_read: 0.2, cache_write: 2.5 };
-  const modelsDev = { anthropic: { models: {} }, openai: { models: { "gpt-5.6-terra": { cost } } } };
+  const sonnet = { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75 };
+  const modelsDev = { anthropic: { models: { "claude-sonnet-4-5-20250929": { cost: sonnet } } }, openai: { models: { "gpt-5.6-terra": { cost } } } };
   const real = globalThis.fetch;
   globalThis.fetch = (async (url: string) => {
     if (String(url) === LITELLM_URL) throw new TypeError("fetch failed");
@@ -165,9 +186,10 @@ test("--update-prices with a failed LiteLLM fetch warns, does not list LiteLLM, 
   } finally {
     globalThis.fetch = real;
   }
-  assert.ok(log.some((l) => l.includes("LiteLLM fetch failed (fetch failed)")), log.join("\n"));
+  assert.ok(log.some((l) => l.includes("LiteLLM fetch failed (fetch failed)") && l.includes("Claude >200k-token rates keep their bundled prices")), log.join("\n"));
   const t = loadPrices(target);
   for (const id of ["gpt-5-codex", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1-codex-max", "gpt-5.2-codex"]) {
     assert.deepEqual(t.models[id], BUNDLED.models[id], id);
   }
+  assert.equal(ratesFor(t.models["claude-sonnet-4-5-20250929"]!, 500_000).input, 6, "the >200k tier survives the failed fetch");
 });

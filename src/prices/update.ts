@@ -12,7 +12,7 @@ export async function updatePrices(target: string, log: (s: string) => void): Pr
   const modelsDev = await getJson(MODELS_DEV_URL);
   log(`--update-prices: fetching ${LITELLM_URL} (models models.dev lacks, Claude >200k-token rates)`);
   const litellm = await getJson(LITELLM_URL).catch((e: unknown) => {
-    log(`--update-prices: LiteLLM fetch failed (${e instanceof Error ? e.message : String(e)}); models only LiteLLM lists keep their bundled prices`);
+    log(`--update-prices: LiteLLM fetch failed (${e instanceof Error ? e.message : String(e)}); models only LiteLLM lists and Claude >200k-token rates keep their bundled prices`);
     return {};
   });
   const table = buildPriceTable(modelsDev, litellm, new Date().toISOString().slice(0, 10));

@@ -377,7 +377,7 @@ Sources: [mcp](https://code.claude.com/docs/en/mcp#scale-with-mcp-tool-search), 
   - Keeps retired models.
   - ccusage embeds snapshots of both and prices 1h writes at 2× input ([pricing.rs](https://github.com/ccusage/ccusage/blob/main/rust/crates/ccusage-core/src/pricing.rs)).
 - **Recommendation.** Ship a dated snapshot of models.dev with LiteLLM as a fallback for retired models. Print the snapshot date in every report. Fetch fresh prices only with an explicit flag.
-- **As built (2026-09-26):** LiteLLM supplies the models models.dev lacks and Claude's >200k-token rates. Claude 4/4.1 prices come from an archived LiteLLM file (commit bae04591), because the current one has dropped them. `--update-prices` lays the fresh table over the bundled one, so a model the update lacks keeps its bundled price, and aliases always come from the installed version.
+- **As built (2026-09-26):** LiteLLM supplies the models models.dev lacks and Claude's >200k-token rates. Claude 4/4.1 prices come from an archived LiteLLM file (commit bae04591), because the current one has dropped them. `--update-prices` lays the fresh table over the bundled one, so a model the update lacks keeps its bundled price. A Claude entry the update has without a >200k-token tier (LiteLLM failed, or an older version saved the table) keeps the bundled tier; OpenAI tiers come from models.dev with the base rates, so they are taken as saved. Aliases always come from the installed version.
 
 ---
 
