@@ -576,7 +576,9 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         try {
           if (!(await side.ready)) {
             failAll("compression model not cached");
-            warn?.("headroom: its compression model is not cached; skipped (run headroom once online to download it).");
+            // The installer's own headroom is finished by the installer; another runs once online.
+            const fix = tool.command === toolPaths.headroomPython() ? "finish its install with: npx saver-audit --install-savers --with-headroom" : "run headroom once online to download it";
+            warn?.(`headroom: its compression model is not cached; skipped (${fix}).`);
             return;
           }
           if (side.tokenizer === false) {

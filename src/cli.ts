@@ -137,6 +137,8 @@ async function main(argv: string[]): Promise<number> {
     const t0 = performance.now();
     const progress = new Map<string, string>();
     const spinner = new Spinner(process.stderr, showSpinner);
+    // Warnings (cache not saved, a saver's model missing) wait until the spinner is gone.
+    const warnings: string[] = [];
     // The spinner line is cleared before anything else is printed, an error included.
     try {
       spinner.set("Reading your agent logs…");
@@ -145,7 +147,7 @@ async function main(argv: string[]): Promise<number> {
         new URL(import.meta.url),
         values.jobs ? Math.max(1, Number(values.jobs)) : defaultJobs(),
         // With a spinner, replay progress shows there instead of as log lines.
-        { ids: saverIndex(saverIds).map((x) => x.id), full: exact, cacheFile: defaultReplayCachePath(), log: showSpinner ? undefined : log },
+        { ids: saverIndex(saverIds).map((x) => x.id), full: exact, cacheFile: defaultReplayCachePath(), log: showSpinner ? undefined : log, warn: showSpinner ? (s) => void warnings.push(s) : log },
         {
           files: (done, total) => spinner.set(`Reading logs… ${fmt(done)}/${fmt(total)} files`),
           replay: (saver, done, total) => {
@@ -173,6 +175,7 @@ async function main(argv: string[]): Promise<number> {
       return { result, opts: { showProjects, verbose: values.verbose, color, elapsedMs, cardPath } };
     } finally {
       spinner.stop();
+      for (const w of warnings) log(w);
     }
   };
 

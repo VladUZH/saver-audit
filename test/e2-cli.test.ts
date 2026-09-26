@@ -43,3 +43,10 @@ test("a bad --last stops --install-savers before it installs anything", () => {
   assert.match(r.stderr, /--last: expected/);
   assert.equal(r.stdout, "", "the installer never started");
 });
+
+test("a replay warning is shown in a terminal too, after the spinner, not dropped", { skip: noTerminal }, () => {
+  const out = term(["--since", "2026-09-01", "--until", "2026-09-30", "--exact", "--savers", "headroom", "--full", "--no-animation"], { SAVER_AUDIT_HEADROOM_PYTHON: join(BIN, "fake-headroom"), FAKE_READY: "0" });
+  assert.match(out, /headroom[^\n]*not measured: compression model not cached/);
+  // On a line of its own, once the spinner line is cleared.
+  assert.match(out, /\r\x1b\[Kheadroom: its compression model is not cached; skipped \(run headroom once online to download it\)\.\r?\n/);
+});
