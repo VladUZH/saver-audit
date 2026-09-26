@@ -65,17 +65,36 @@ const PKG_MANAGERS = new Set(["npm", "npx", "pnpm", "yarn", "uv", "cargo", "go",
 const PKG_BUILD = new Set(["build", "tsc", "lint", "check", "vet", "fmt", "typecheck", "clippy"]);
 const PKG_INSTALL = new Set(["install", "i", "add", "ci", "sync", "update", "get", "fetch"]);
 const WRAPPERS = new Set(["sudo", "time", "env", "nice", "timeout", "exec", "command", "xargs", "nohup"]);
+// Wrapper options that take the next word as their value, e.g. `nice -n 10`, `sudo -u www`.
+const WRAPPER_OPTS: Record<string, Set<string>> = {
+  sudo: new Set(["-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T", "-R"]),
+  env: new Set(["-u", "-C", "-S"]),
+  nice: new Set(["-n"]),
+  timeout: new Set(["-s", "-k"]),
+  xargs: new Set(["-n", "-I", "-L", "-P", "-s", "-d", "-E", "-a", "-J", "-R", "-S"]),
+};
+const DURATION = /^\d+(\.\d+)?[smhd]?$/;
 
 /** Classifies a shell command into a fixed family label. */
 export function shellFamily(command: string): string {
   // First real command: drop leading `cd …&&`, env assignments and wrappers.
   const segments = command.split(/&&|\|\||;|\n|\|/);
   for (const seg of segments) {
-    const words = seg.trim().split(/\s+/).filter(Boolean);
+    // Subshells and groups: `(cd web && npm test)`, `{ make; }`.
+    const words = seg.trim().split(/\s+/).map((w) => w.replace(/^\(+|\)+$/g, "")).filter((w) => w && w !== "{");
     let i = 0;
-    while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!) || WRAPPERS.has(words[i]!) || /^-/.test(words[i]!))) i++;
+    let wrapper = "";
+    while (i < words.length) {
+      const w = words[i]!;
+      if (WRAPPERS.has(w)) wrapper = w;
+      else if (w.startsWith("-")) {
+        if (WRAPPER_OPTS[wrapper]?.has(w)) i++; // skip its value
+      } else if (wrapper === "timeout" && DURATION.test(w)) wrapper = "";
+      else if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) break;
+      i++;
+    }
     const prog = words[i]?.replace(/^.*\//, "");
-    if (!prog || prog === "cd" || prog === "echo" || prog === "set" || prog === "export" || prog === "source" || prog === "(") continue;
+    if (!prog || prog === "cd" || prog === "echo" || prog === "set" || prog === "export" || prog === "source") continue;
     const rest = words.slice(i + 1).filter((w) => !w.startsWith("-"));
     if (/(^|\s)test(\s|$)|pytest|vitest|jest/.test(words.slice(i, i + 4).join(" ")) && (PKG_MANAGERS.has(prog) || prog === "python" || prog === "python3" || prog === "node" || prog === "make" || prog === "swift" || prog === "xcodebuild" || prog === "gradle" || prog === "mvn" || prog === "dotnet")) {
       return "tests";

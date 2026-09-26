@@ -20,6 +20,24 @@ test("shell families", () => {
   for (const [cmd, fam] of cases) assert.equal(shellFamily(cmd), fam, cmd);
 });
 
+test("shell families: wrapper arguments and subshells are skipped", () => {
+  const cases: Array<[string, string]> = [
+    ["timeout 120 npm test", "tests"],
+    ["timeout 60 pytest -q", "tests"],
+    ["cd x && timeout 30 cargo test", "tests"],
+    ["timeout -s KILL 1.5m make", "build & lint"],
+    ["nice -n 10 make", "build & lint"],
+    ["sudo -u www git pull", "git"],
+    ["xargs -n 1 grep foo", "search"],
+    ["env -u FOO FOO2=1 rg x", "search"],
+    ["(cd web && npm test)", "tests"],
+    ["( cd web && npm test )", "tests"],
+    ["{ cd web; make; }", "build & lint"],
+    ["time npm test", "tests"],
+  ];
+  for (const [cmd, fam] of cases) assert.equal(shellFamily(cmd), fam, cmd);
+});
+
 test("tool categories never echo unknown names", () => {
   assert.equal(toolCategory("Bash"), "Shell");
   assert.equal(toolCategory("mcp__private_server__tool"), "MCP tools");
