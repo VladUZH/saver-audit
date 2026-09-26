@@ -10,13 +10,15 @@ import { shellFamily } from "../accounting/categories.ts";
 
 export function claudeRoots(): string[] {
   const base = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-  return [join(base, "projects"), join(homedir(), ".config", "claude", "projects")];
+  return [...new Set([join(base, "projects"), join(homedir(), ".config", "claude", "projects")])];
 }
 
 export function findClaudeFiles(roots: string[], sinceMs: number): string[] {
   const out: string[] = [];
+  // Shared across roots: ~/.config/claude linked to ~/.claude is read once.
+  const seen = new Set<string>();
   for (const root of roots) {
-    for (const f of listFiles(root, sinceMs)) {
+    for (const f of listFiles(root, sinceMs, [], seen)) {
       // Set-aside copies of a transcript (.orphaned-…) would double count.
       if (f.endsWith(".jsonl") && !basename(f).includes(".orphaned-")) out.push(f);
     }
@@ -24,23 +26,74 @@ export function findClaudeFiles(roots: string[], sinceMs: number): string[] {
   return out.sort();
 }
 
-interface OpenCall { key: string; turn: Turn }
+/** A response still being written, and the user-side turns logged while it was. */
+interface OpenCall { key: string; turn: Turn; held: Turn[] }
 interface ToolMeta { tool: string; family: string; command?: string }
+
+/** Position in one timeline's conversation, to spot a prompt that goes back to an earlier point. */
+interface Chain {
+  /** Keys of the responses so far, in file order. */
+  keys: string[];
+  /** The last line (uuid), and how many responses had started by then. */
+  tip?: string;
+  tipAt: number;
+  /** Parent line of each earlier prompt → responses started by then. */
+  parents: Map<string, number>;
+}
+
+/**
+ * For a real prompt: undefined when it continues from the last line. A rewind or an
+ * edited prompt continues from an earlier point (its parentUuid) and the abandoned lines
+ * stay in the file: then the key of the last response it keeps, or null for none. Only a
+ * null parent or a parent shared with an earlier prompt is recognised.
+ */
+function rewindTo(chain: Chain, parent: unknown): string | null | undefined {
+  let at: number | undefined;
+  if (parent === null) at = 0;
+  else if (typeof parent === "string") {
+    if (parent === chain.tip) chain.parents.set(parent, chain.tipAt);
+    else at = chain.parents.get(parent);
+  }
+  if (at === undefined || at >= chain.keys.length) return undefined;
+  return at ? chain.keys[at - 1]! : null;
+}
 
 export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent> {
   const isSubagentFile = file.includes(`${sep}subagents${sep}`);
   const tools = new Map<string, ToolMeta>();
   const calls = new Map<string, Call>();
   let session: Session | undefined;
-  let open: OpenCall | undefined;
   let index = 0;
+  // One response is written as one line per content block, with a placeholder
+  // output count on the early lines, and tool results or attachments can land between
+  // those lines. They reach the model after the response, so they are held until it is
+  // complete: a new response starts, the context is compacted or the file ends.
+  const open = new Map<string, OpenCall>();
 
-  function* flush(): Generator<SourceEvent> {
-    if (open) yield { t: "turn", turn: open.turn };
-    open = undefined;
+  function* flush(timeline: string): Generator<SourceEvent> {
+    const cur = open.get(timeline);
+    if (!cur) return;
+    open.delete(timeline);
+    yield { t: "turn", turn: cur.turn };
+    for (const turn of cur.held) yield { t: "turn", turn };
   }
 
+  function* user(turn: Turn): Generator<SourceEvent> {
+    const cur = open.get(turn.timeline);
+    if (cur) cur.held.push(turn);
+    else yield { t: "turn", turn };
+  }
+
+  const chains = new Map<string, Chain>();
+  let last: { chain: Chain; uuid: string } | undefined;
+
   for await (const line of readLines(file)) {
+    // The previous line is fully processed: it is now the tip of its chain.
+    if (last) {
+      last.chain.tip = last.uuid;
+      last.chain.tipAt = last.chain.keys.length;
+      last = undefined;
+    }
     let o: any;
     try {
       o = JSON.parse(line);
@@ -65,22 +118,25 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
     }
     const timeline = o.isSidechain === true && !isSubagentFile ? `side:${o.agentId ?? ""}` : "main";
     const timestamp = typeof o.timestamp === "string" ? o.timestamp : undefined;
+    let chain = chains.get(timeline);
+    if (!chain) chains.set(timeline, (chain = { keys: [], tipAt: 0, parents: new Map() }));
+    if (typeof o.uuid === "string") last = { chain, uuid: o.uuid };
 
     if (type === "attachment") {
       // Reminders, hook context and attached files are rendered into the next prompt
       // from this object. Its string values approximate that text.
       const text = NOT_IN_PROMPT.has(o.attachment?.type) ? "" : attachmentText(o.attachment);
-      if (text) {
-        yield* flush();
-        yield { t: "turn", turn: { index: index++, role: "user", timeline, timestamp, blocks: [{ kind: "text", text }], userKind: "injected" } };
-      }
+      if (text) yield* user({ index: index++, role: "user", timeline, timestamp, blocks: [{ kind: "text", text }], userKind: "injected" });
       continue;
     }
 
     if (type === "system") {
       if (o.subtype === "compact_boundary") {
-        yield* flush();
+        yield* flush(timeline);
         yield { t: "compact", timeline };
+        // No going back across a compaction: its context is not restored.
+        chain.keys.length = 0;
+        chain.parents.clear();
       }
       continue;
     }
@@ -92,12 +148,15 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
       const model = typeof msg.model === "string" ? msg.model : "";
       if (model === "<synthetic>" || o.isApiErrorMessage === true) continue;
       const blocks = assistantBlocks(msg.content, tools);
+      const thinking = Array.isArray(msg.content) && msg.content.some((b: any) => b?.type === "thinking" || b?.type === "redacted_thinking");
       if (!msg.usage || typeof msg.id !== "string") continue;
       const key = `${msg.id}|${typeof o.requestId === "string" ? o.requestId : ""}`;
       const usage = claudeUsage(msg.usage);
-      if (open?.key === key) {
-        open.turn.blocks.push(...blocks);
-        maxUsage(open.turn.call!.usage, usage);
+      const cur = open.get(timeline);
+      if (cur?.key === key) {
+        cur.turn.blocks.push(...blocks);
+        if (thinking) cur.turn.thinking = true;
+        maxUsage(cur.turn.call!.usage, usage);
         continue;
       }
       const seen = calls.get(key);
@@ -106,15 +165,17 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
         maxUsage(seen.usage, usage);
         continue;
       }
-      yield* flush();
+      yield* flush(timeline);
       const call: Call = { key, model, usage, multiplier: claudeMultiplier(msg.usage), billable: true };
       calls.set(key, call);
-      open = { key, turn: { index: index++, role: "assistant", timeline, timestamp, blocks, call } };
+      chain.keys.push(key);
+      const turn: Turn = { index: index++, role: "assistant", timeline, timestamp, blocks, call };
+      if (thinking) turn.thinking = true;
+      open.set(timeline, { key, turn, held: [] });
       continue;
     }
 
     // user
-    yield* flush();
     const content = msg.content;
     const kind = o.isCompactSummary === true ? "compaction-summary" : o.isMeta === true ? "injected" : "prompt";
     const blocks: Block[] = [];
@@ -134,9 +195,14 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
     }
     if (blocks.length === 0) continue;
     const userKind = blocks.every((b) => b.kind === "tool_result") ? "tool-results" : kind === "prompt" && isInjectedText(blocks) ? "injected" : kind;
-    yield { t: "turn", turn: { index: index++, role: "user", timeline, timestamp, blocks, userKind } };
+    const turn: Turn = { index: index++, role: "user", timeline, timestamp, blocks, userKind };
+    if (userKind === "prompt") {
+      const rewind = rewindTo(chain, o.parentUuid);
+      if (rewind !== undefined) turn.rewind = rewind;
+    }
+    yield* user(turn);
   }
-  yield* flush();
+  for (const timeline of [...open.keys()]) yield* flush(timeline);
 }
 
 /** Full Bash output from the structured result, when Claude Code kept it. */
@@ -175,12 +241,15 @@ export function resultText(content: unknown): string {
 // subagent's structured output (already counted as its tool result).
 const NOT_IN_PROMPT = new Set(["prompt_snapshot", "hook_success", "structured_output"]);
 
-const ATTACHMENT_META = /^(type|uuid|id|.*Id|.*Ids|.*Hash(es)?|hash|filename|displayPath|filePath|path|timestamp|durationMs|commit|hookEvent|hookName|exitCode)$/;
+// Metadata keys, and the base64 payload of attached images and PDFs: those reach the
+// model as media blocks, not text, so they are left to the residual like tool-result images.
+const ATTACHMENT_META = /^(type|uuid|id|.*Id|.*Ids|.*Hash(es)?|hash|filename|displayPath|filePath|path|timestamp|durationMs|commit|hookEvent|hookName|exitCode|base64|media_type|mediaType)$/;
 
-/** Concatenated string values of an attachment object, skipping metadata keys. */
+/** Concatenated string values of an attachment object, skipping metadata and media payloads. */
 export function attachmentText(a: unknown, depth = 0): string {
   if (typeof a === "string") return a;
   if (!a || typeof a !== "object" || depth > 5) return "";
+  if ((a as { type?: unknown }).type === "base64") return ""; // { type: "base64", media_type, data }
   const parts: string[] = [];
   if (Array.isArray(a)) {
     for (const x of a) {

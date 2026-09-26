@@ -72,6 +72,15 @@ export interface Turn {
   userKind?: UserKind;
   /** Assistant turns only: the API call that produced it. */
   call?: Call;
+  /** Assistant turns only: the response had thinking blocks (their text is not logged). */
+  thinking?: boolean;
+  /** User-side turns only: sent again with every request, so it outlives compaction (Codex base instructions). */
+  resent?: boolean;
+  /**
+   * Prompts only: the prompt continues from an earlier point of the conversation (a
+   * rewind or an edited prompt). Key of the last call it keeps; null keeps none.
+   */
+  rewind?: string | null;
 }
 
 export type SourceEvent =

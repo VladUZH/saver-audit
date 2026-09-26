@@ -1,24 +1,45 @@
-import { createReadStream, readdirSync, statSync } from "node:fs";
+import { createReadStream, lstatSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import { join } from "node:path";
 
-/** Recursively lists files modified at or after sinceMs (0 = all). Missing dirs are fine. */
-export function listFiles(dir: string, sinceMs: number, out: string[] = []): string[] {
+/**
+ * Recursively lists files modified at or after sinceMs (0 = all). Missing dirs are fine.
+ * Symbolic links are followed. `seen` holds real paths, so a link loop ends and a folder
+ * or file reached twice (two roots that are the same folder) is listed once.
+ */
+export function listFiles(dir: string, sinceMs: number, out: string[] = [], seen = new Set<string>()): string[] {
+  let real: string;
   let entries;
   try {
+    real = realpathSync(dir);
+    if (seen.has(real)) return out;
+    seen.add(real);
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     return out;
   }
   for (const e of entries) {
     const p = join(dir, e.name);
-    if (e.isDirectory()) listFiles(p, sinceMs, out);
-    else if (e.isFile()) {
-      if (sinceMs > 0) {
+    let st: Stats | undefined;
+    if (e.isSymbolicLink()) {
+      try {
+        st = statSync(p);
+      } catch {
+        // Broken link: listed anyway, so reading it fails and it is counted as unreadable.
         try {
-          if (statSync(p).mtimeMs < sinceMs) continue;
-        } catch {
-          continue;
-        }
+          if (!sinceMs || lstatSync(p).mtimeMs >= sinceMs) out.push(p);
+        } catch {}
+        continue;
+      }
+    }
+    if (st ? st.isDirectory() : e.isDirectory()) listFiles(p, sinceMs, out, seen);
+    else if (st ? st.isFile() : e.isFile()) {
+      try {
+        const file = st ? realpathSync(p) : join(real, e.name);
+        if (seen.has(file)) continue;
+        seen.add(file);
+        if (sinceMs > 0 && (st ?? statSync(p)).mtimeMs < sinceMs) continue;
+      } catch {
+        continue;
       }
       out.push(p);
     }
