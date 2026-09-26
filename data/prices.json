@@ -2,7 +2,7 @@
  "date": "2026-09-25",
  "sources": [
   "https://models.dev/api.json (MIT)",
-  "LiteLLM model_prices_and_context_window.json (MIT), retired models only"
+  "LiteLLM model_prices_and_context_window.json (MIT), for models models.dev lacks"
  ],
  "models": {
   "claude-fable-5": {
@@ -32,6 +32,41 @@
    "cacheRead": 0.1,
    "cacheWrite": 1.25,
    "cacheWrite1h": 2
+  },
+  "claude-mythos-5": {
+   "input": 10,
+   "output": 50,
+   "cacheRead": 1,
+   "cacheWrite": 12.5,
+   "cacheWrite1h": 20
+  },
+  "claude-mythos-5-1": {
+   "input": 10,
+   "output": 50,
+   "cacheRead": 0.25,
+   "cacheWrite": 12.5,
+   "cacheWrite1h": 20
+  },
+  "claude-opus-4-1": {
+   "input": 15,
+   "output": 75,
+   "cacheRead": 1.5,
+   "cacheWrite": 18.75,
+   "cacheWrite1h": 30
+  },
+  "claude-opus-4-1-20250805": {
+   "input": 15,
+   "output": 75,
+   "cacheRead": 1.5,
+   "cacheWrite": 18.75,
+   "cacheWrite1h": 30
+  },
+  "claude-opus-4-20250514": {
+   "input": 15,
+   "output": 75,
+   "cacheRead": 1.5,
+   "cacheWrite": 18.75,
+   "cacheWrite1h": 30
   },
   "claude-opus-4-5": {
    "input": 5,
@@ -81,6 +116,13 @@
    "cacheRead": 0.2,
    "cacheWrite": 5,
    "cacheWrite1h": 8
+  },
+  "claude-sonnet-4-20250514": {
+   "input": 3,
+   "output": 15,
+   "cacheRead": 0.3,
+   "cacheWrite": 3.75,
+   "cacheWrite1h": 6
   },
   "claude-sonnet-4-5": {
    "input": 3,

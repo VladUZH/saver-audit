@@ -10,7 +10,7 @@ export const LITELLM_URL = "https://raw.githubusercontent.com/BerriAI/litellm/ma
 export async function updatePrices(target: string, log: (s: string) => void): Promise<PriceTable> {
   log(`--update-prices: fetching ${MODELS_DEV_URL}`);
   const modelsDev = await getJson(MODELS_DEV_URL);
-  log(`--update-prices: fetching ${LITELLM_URL} (retired models only)`);
+  log(`--update-prices: fetching ${LITELLM_URL} (models models.dev lacks)`);
   const litellm = await getJson(LITELLM_URL).catch((e: unknown) => {
     log(`--update-prices: LiteLLM fetch failed (${e instanceof Error ? e.message : String(e)}); models only LiteLLM lists keep their bundled prices`);
     return {};

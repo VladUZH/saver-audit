@@ -1,5 +1,5 @@
 // Price table: USD per 1M tokens. Built from models.dev (MIT), with LiteLLM (MIT)
-// filling in retired models only. Pure functions; no I/O here.
+// filling in models models.dev lacks. Pure functions; no I/O here.
 
 export interface Rates {
   input: number;
@@ -34,11 +34,31 @@ export const ALIASES: Record<string, Alias[]> = {
   "codex-auto-review": [{ until: "2026-07-29", model: "gpt-5.4" }, { model: "gpt-5.6-luna" }],
 };
 
-// Retired models seen in real Codex logs that models.dev no longer lists.
-const RETIRED = ["gpt-5-codex", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1-codex-max", "gpt-5.2-codex"];
+// Models seen in logs that models.dev does not list, priced from LiteLLM: retired Codex
+// and Claude models (the Claude ones only in an archived LiteLLM file, see
+// scripts/snapshot-prices.ts) and the Project Glasswing Mythos models.
+const FROM_LITELLM = [
+  "gpt-5-codex", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1-codex-max", "gpt-5.2-codex",
+  "claude-opus-4-20250514", "claude-opus-4-1", "claude-opus-4-1-20250805", "claude-sonnet-4-20250514",
+  "claude-mythos-5", "claude-mythos-5-1",
+];
 
 function round(n: number): number {
   return Math.round(n * 1e6) / 1e6;
+}
+
+/** LiteLLM per-token costs as per-1M rates; missing Claude cache writes derived as in rates(). */
+function litellmRates(e: any, claude: boolean): Rates {
+  const perM = (v: unknown) => (typeof v === "number" ? round(v * 1e6) : undefined);
+  const input = perM(e.input_cost_per_token) ?? 0;
+  const cacheWrite = perM(e.cache_creation_input_token_cost) ?? (claude ? round(input * 1.25) : 0);
+  return {
+    input,
+    output: perM(e.output_cost_per_token) ?? 0,
+    cacheRead: perM(e.cache_read_input_token_cost) ?? 0,
+    cacheWrite,
+    cacheWrite1h: perM(e.cache_creation_input_token_cost_above_1hr) ?? (claude ? round(input * 2) : cacheWrite),
+  };
 }
 
 function rates(c: any, claude: boolean): Rates {
@@ -71,21 +91,14 @@ export function buildPriceTable(modelsDev: any, litellm: any, date: string): Pri
     }
   }
   let fromLitellm = 0;
-  for (const id of RETIRED) {
+  for (const id of FROM_LITELLM) {
     const e = litellm?.[id];
     if (models[id] || !e || typeof e.input_cost_per_token !== "number") continue;
-    const perM = (v: unknown) => (typeof v === "number" ? round(v * 1e6) : 0);
-    models[id] = {
-      input: perM(e.input_cost_per_token),
-      output: perM(e.output_cost_per_token),
-      cacheRead: perM(e.cache_read_input_token_cost),
-      cacheWrite: 0,
-      cacheWrite1h: 0,
-    };
+    models[id] = litellmRates(e, id.startsWith("claude-"));
     fromLitellm++;
   }
   const sources = ["https://models.dev/api.json (MIT)"];
-  if (fromLitellm) sources.push("LiteLLM model_prices_and_context_window.json (MIT), retired models only");
+  if (fromLitellm) sources.push("LiteLLM model_prices_and_context_window.json (MIT), for models models.dev lacks");
   return {
     date,
     sources,

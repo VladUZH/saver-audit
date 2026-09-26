@@ -71,6 +71,18 @@ test("OpenAI dated snapshot ids price as their base model; listed snapshots keep
   assert.equal(resolveModel(BUNDLED, "gpt-5-2025-08"), undefined, "not a full date");
 });
 
+test("retired Claude models and the Mythos models have list prices from LiteLLM", async () => {
+  const ids = ["claude-opus-4-20250514", "claude-opus-4-1", "claude-opus-4-1-20250805", "claude-sonnet-4-20250514", "claude-mythos-5", "claude-mythos-5-1"];
+  for (const id of ids) assert.equal(resolveModel(BUNDLED, id), id);
+  assert.deepEqual(BUNDLED.models["claude-opus-4-1-20250805"], { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75, cacheWrite1h: 30 });
+  assert.deepEqual(BUNDLED.models["claude-mythos-5-1"], { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5, cacheWrite1h: 20 });
+  // 100k uncached input + 10k output each: 0.5+0.25, 0.3+0.15, 1.5+0.75, 1+0.5 dollars.
+  const usage = { input_tokens: 100_000, output_tokens: 10_000 };
+  const r = await auditClaude(["claude-opus-5", "claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-mythos-5-1"].map((model) => ({ model, usage })));
+  assert.deepEqual(r.models.filter((m) => !m.pricedAs), []);
+  assert.ok(Math.abs(r.billing.total.cost - 4.95) < 1e-9, String(r.billing.total.cost));
+});
+
 test("a table saved by --update-prices overlays the bundled one: dropped models keep their price, aliases come from this version", () => {
   const models: Record<string, unknown> = { ...snapshot.models, "claude-opus-5-5": { ...snapshot.models["claude-opus-5-5"], input: 3 } };
   for (const id of ["gpt-5.4", "gpt-5.1-codex", "claude-sonnet-4-5", "claude-sonnet-4-5-20250929"]) delete models[id];
