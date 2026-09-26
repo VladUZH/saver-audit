@@ -54,6 +54,15 @@ test("codexUsage and shellCommand edge cases", () => {
   assert.equal(shellCommand("apply_patch", "*** Begin Patch"), undefined);
 });
 
+test("exec: an unclosed cmd string with many escapes returns quickly", () => {
+  const input = 'await tools.exec_command({cmd: "cat <<EOF\\n' + "line\\n".repeat(22) + "EOF";
+  const t = performance.now();
+  assert.equal(shellCommand("exec", input), "");
+  assert.ok(performance.now() - t < 250, "no catastrophic backtracking");
+  assert.equal(shellCommand("exec", 'tools.exec_command({cmd: "echo \\"hi\\" && ls"})'), 'echo \\"hi\\" && ls');
+  assert.equal(shellCommand("exec", "tools.exec_command({cmd: 'a\\'b'})"), "a\\'b");
+});
+
 test("shell_command (string command) is a shell tool", () => {
   const cmd = shellCommand("shell_command", { command: "rg -n compute src", workdir: "/x" });
   assert.equal(cmd, "rg -n compute src");

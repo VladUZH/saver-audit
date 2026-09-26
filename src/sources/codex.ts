@@ -180,7 +180,8 @@ function parseJson(s: unknown): unknown {
   }
 }
 
-const EXEC_CMD = /exec_command\s*\(\s*\{[\s\S]*?["']?\bcmd["']?\s*:\s*(["'`])((?:\\[\s\S]|(?!\1)[\s\S])*)\1/;
+// A backslash only matches the escape branch; otherwise an unclosed string backtracks exponentially.
+const EXEC_CMD = /exec_command\s*\(\s*\{[\s\S]*?["']?\bcmd["']?\s*:\s*(["'`])((?:\\[\s\S]|(?!\1|\\)[\s\S])*)\1/;
 
 /** The shell command of a shell-type tool call, or undefined for other tools. */
 export function shellCommand(tool: string, input: any): string | undefined {
