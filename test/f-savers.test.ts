@@ -3,11 +3,14 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { detectReplayTools } from "../src/savers/replay.ts";
+import type { FileResult } from "../src/audit.ts";
+import { countProxy } from "../src/accounting/tokens.ts";
+import { detectReplayTools, runReplays } from "../src/savers/replay.ts";
+import type { ReplayJob } from "../src/savers/types.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import { withEnv } from "./env.ts";
 
@@ -113,4 +116,35 @@ test("the installer's own copy that fails its version probe counts as not instal
   rmSync(rtk);
   writeFileSync(join(path, "rtk"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
   assert.deepEqual((await detect()).get("rtk"), { saver: "rtk", command: join(path, "rtk"), version: undefined });
+});
+
+test("a relative saver path is found as an absolute one, so replays in their empty folder can start it", { skip: process.platform === "win32" ? "needs a script as the program" : false }, async () => {
+  const s = scratch();
+  for (const d of ["bin", "node", join("nm", ".bin")]) mkdirSync(join(s.dir, d), { recursive: true });
+  for (const f of ["caveman-engine", "headroom-python"]) copyFileSync(join(BIN, f), join(s.dir, "bin", f));
+  copyFileSync(join(BIN, "rtk"), join(s.dir, "nm", ".bin", "rtk"));
+  symlinkSync(process.execPath, join(s.dir, "node", "node")); // the fakes' `#!/usr/bin/env node`
+  const env = { TMPDIR: s.temp, HOME: s.dir, SAVER_AUDIT_HOME: join(s.dir, "home"), PATH: ["nm/.bin", join(s.dir, "node")].join(delimiter), SAVER_AUDIT_RTK: undefined, CAVEMAN_ENGINE_BIN: "./bin/caveman-engine", SAVER_AUDIT_HEADROOM_PYTHON: "bin/headroom-python" };
+  const synth = (saver: string, input: string, args?: string[]): FileResult => {
+    const job: ReplayJob = { saver, tool: "Bash", cls: "Shell|tests", baseline: countProxy(input), headerTokens: 0, addTokens: 0, timeline: "main", block: 0, key: "k0", input, args };
+    return { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: [{ d: [0] }] } }, jobs: [job], covered: [0], toolTokens: 0 } };
+  };
+  const cwd = process.cwd();
+  process.chdir(s.dir);
+  try {
+    await withEnv(env, async () => {
+      const tools = detectReplayTools(SAVERS.filter((x) => x.id === "rtk" || x.id === "caveman-engine"));
+      assert.equal(tools.get("caveman-engine")?.command, join(s.dir, "bin", "caveman-engine"), "an override, from the current folder");
+      assert.equal(tools.get("headroom")?.command, join(s.dir, "bin", "headroom-python"), "SAVER_AUDIT_HEADROOM_PYTHON, from the current folder");
+      assert.equal(tools.has("rtk"), false, "a relative PATH folder is not searched");
+      const warnings: string[] = [];
+      for (const [saver, args] of [["caveman-engine", ["compress"]], ["headroom", undefined]] as const) {
+        const stats = await runReplays([synth(saver, "x".repeat(4000), args && [...args])], [saver], { tools, full: true, concurrency: 1, warn: (w) => warnings.push(w) });
+        assert.deepEqual([stats.get(saver)?.ran, stats.get(saver)?.failed], [1, 0], saver);
+      }
+      assert.deepEqual(warnings, []);
+    });
+  } finally {
+    process.chdir(cwd);
+  }
 });

@@ -5,7 +5,7 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 import { countProxy } from "../accounting/tokens.ts";
 import type { FileResult } from "../audit.ts";
 import { readReplayCache, saveReplayCache } from "./cache.ts";
@@ -84,12 +84,21 @@ export function exactSeconds(stats: Map<string, ReplayStats>): { total: number; 
 /** Savers that mostly wait (interpreter start-up) run more processes than cores. */
 const WAIT_BOUND = new Set(["token-saver", "lean-ctx"]);
 
+/** A program in one of PATH's absolute folders (a relative one would point elsewhere from the folder replays run in). */
 function onPath(name: string): string | undefined {
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
     const p = join(dir, name);
-    if (dir && existsSync(p)) return p;
+    if (isAbsolute(dir) && existsSync(p)) return p;
   }
   return undefined;
+}
+
+/**
+ * A program path the user gave, from the current folder: replays run in an empty
+ * temporary folder, where `./bin/rtk` would not be found. A bare name is looked up on PATH.
+ */
+function fromHere(program: string): string {
+  return basename(program) === program || isAbsolute(program) ? program : join(process.cwd(), program);
 }
 
 /** A version probe: its first line, and whether the program failed (did not start or exited non-zero; a timeout is not a failure). */
@@ -166,11 +175,11 @@ function detect(savers: SaverAdapter[], probeEnv: (m?: SaverManifest) => NodeJS.
     };
     const override = m.binaryEnv ? process.env[m.binaryEnv] : undefined;
     if (override) {
-      found.set(s.id, probe(override).tool);
+      found.set(s.id, probe(fromHere(override)).tool);
       continue;
     }
     const ours = exists(join(toolsDir(), "bin", m.binary + exe));
-    const extra = (m.paths ?? []).map((p) => join(p.replace(/^~(?=\/|$)/, homedir()), m.binary + exe));
+    const extra = (m.paths ?? []).map((p) => fromHere(join(p.replace(/^~(?=\/|$)/, homedir()), m.binary + exe)));
     const candidates = [...new Set([onPath(m.binary + exe), ours, ...extra.filter((p) => existsSync(p))])].filter((p): p is string => !!p);
     let pick: ReplayTool | undefined;
     for (const c of candidates) {
@@ -186,7 +195,8 @@ function detect(savers: SaverAdapter[], probeEnv: (m?: SaverManifest) => NodeJS.
     }
     if (pick) found.set(s.id, pick);
   }
-  const own = process.env.SAVER_AUDIT_HEADROOM_PYTHON ?? headroomPython();
+  const given = process.env.SAVER_AUDIT_HEADROOM_PYTHON;
+  const own = given ? fromHere(given) : (given ?? headroomPython()); // "": not looked for on PATH
   const ours = own ? undefined : exists(toolPaths.headroomPython());
   const py = own ?? ours;
   if (py) {
