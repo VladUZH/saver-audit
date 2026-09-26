@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { renderJson } from "./report/json.ts";
 import type { Source } from "./sources/types.ts";
 import type { AuditResult } from "./audit.ts";
-import { parsePeriod, parseUntil } from "./period.ts";
+import { periodOf } from "./period.ts";
 import { normalizeCardArg } from "./args.ts";
 import { exactSeconds } from "./savers/replay.ts";
 import { HEADROOM_VERSION, installOffer, installPlan, toolPaths, toolsDir, type InstallChoice, type InstallOffer } from "./savers/toolsdir.ts";
@@ -24,9 +24,9 @@ const HELP = `saver-audit — where your Claude Code and Codex tokens really go
 
 Usage: saver-audit [options]
 
-  --last <N>d|w|h        period to audit (default 30d)
+  --last <N>d|w|h        period to audit, counted back from --until (default 30d)
   --since <YYYY-MM-DD>   start date instead of --last
-  --until <YYYY-MM-DD>   end date (default: now)
+  --until <YYYY-MM-DD>   last day included (default: now)
   --source <s>           claude-code | codex | all (default all)
   --full                 print the full report (default in a terminal: a short one,
                          with a key for the full report, sharing and the card)
@@ -116,8 +116,7 @@ async function main(argv: string[]): Promise<number> {
   const sources: Source[] = src === "all" ? ["claude-code", "codex"] : [src];
   const now = Date.now();
   // Checked before anything starts, so a typo never leaves a spinner or an install behind.
-  const sinceMs = parsePeriod(values.last, values.since, now);
-  const untilMs = parseUntil(values.until, now);
+  const { sinceMs, untilMs } = periodOf(values, now);
   const interactive = process.stdout.isTTY === true && !values.json;
   const color = (process.stdout.isTTY === true || !!process.env.FORCE_COLOR) && !process.env.NO_COLOR;
   const showSpinner = process.stderr.isTTY === true && !values.json && !process.env.CI;

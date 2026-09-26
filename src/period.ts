@@ -19,15 +19,25 @@ function parseDay(flag: string, v: string, endOfDay: boolean): number {
   throw new Error(`${flag}: not a date: ${v} (expected YYYY-MM-DD, or a time such as 2026-09-20T10:00)`);
 }
 
-export function parsePeriod(last: string | undefined, since: string | undefined, now: number): number {
+/** Start of the period: --since, else --last counted back from `end`, the period's end. */
+export function parsePeriod(last: string | undefined, since: string | undefined, end: number): number {
   if (since) return parseDay("--since", since, false);
   const m = /^(\d+)([dwh])$/.exec(last ?? "30d");
   if (!m) throw new Error(`--last: expected e.g. 30d, 2w or 12h, got ${last}`);
   const unit = m[2] === "h" ? 3600e3 : m[2] === "w" ? 7 * 864e5 : 864e5;
-  return now - Number(m[1]) * unit;
+  return end - Number(m[1]) * unit;
 }
 
 /** End of the period: --until date (end of that day when only a date is given), else now. */
 export function parseUntil(until: string | undefined, now: number): number {
   return until ? parseDay("--until", until, true) : now;
+}
+
+/** The audited period: it ends at --until (or now), and --last counts back from that end. */
+export function periodOf(o: { last?: string; since?: string; until?: string }, now: number): { sinceMs: number; untilMs: number } {
+  const untilMs = parseUntil(o.until, now);
+  const sinceMs = parsePeriod(o.last, o.since, untilMs);
+  // Only --since can start after the end.
+  if (sinceMs > untilMs) throw new Error(`--since ${o.since} is ${o.until ? `after --until ${o.until}` : "in the future"}`);
+  return { sinceMs, untilMs };
 }
