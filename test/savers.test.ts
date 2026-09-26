@@ -50,10 +50,26 @@ test("rtk is credited only for commands its hook rewrites (`rtk rewrite`, rtk 0.
     ["(cd web && pytest -q)", "pytest"],
     ["grep '$(foo)' src", "grep"],
     ["grep \"<<\" src", "grep"],
+    // routes follow the program names and forms rtk's hook rewrites
+    ["./vendor/bin/phpunit", "phpunit"],
+    ["./vendor/bin/pest", "pest"],
+    ["./vendor/bin/paratest", "pest"],
+    ["./vendor/bin/phpstan analyse", "phpstan"],
+    ["phpstan analyze src", "phpstan"],
+    ["./vendor/bin/pint", "pint"],
+    ["./vendor/bin/ecs", "ecs"],
+    ["pnpm prettier --check .", "prettier"],
+    ["pnpm exec prettier --check .", "prettier"],
+    ["bunx tsc --noEmit", "tsc"], // `rtk bunx tsc` runs rtk's tsc filter
+    ["ruff check --fix .", "ruff-check"],
   ];
   for (const [cmd, f] of rewritten) assert.equal(rtkFilter(cmd), f, cmd);
   const leftAlone = ["sudo git diff", "sudo -u www git diff", "sudo -E pytest -q", "xargs -n 1 grep foo", "env -u HOME CI=1 npx vitest run", "(pytest -q)", "make && (pytest -q)", "cd web && (pytest -q)", "{ pytest -q; }", "command -v rg", "timeout --unknown 60 cargo test"];
   // A command substitution or a heredoc anywhere in the command.
+  leftAlone.push("cargo nextest run", "cargo nextest run --workspace", "yarn tsc", "yarn tsc --noEmit", "yarn vitest", "yarn vitest run", "egrep -rn foo src", "fd x", "fd -e ts", "ruff .", "ruff src/", "ruff --fix .");
+  leftAlone.push("phpstan", "vendor/bin/phpstan", "pytest-watch", "ecs-cli deploy", "tsc-alias", "phpunit-watcher");
+  // Rewritten to `rtk bunx vitest run`, which passes the output through bunx's generic filter, not vitest's.
+  leftAlone.push("bunx vitest run");
   leftAlone.push("git diff $(git merge-base HEAD main)", "pytest \"$(cat args)\"", "echo `date` && pytest -q", "cat > x.txt <<EOF\nhello\nEOF\npytest -q", "pytest -q <<< y");
   for (const cmd of leftAlone) assert.equal(rtkFilter(cmd), undefined, cmd);
 });

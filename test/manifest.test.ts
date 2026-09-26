@@ -121,7 +121,7 @@ test("the last segment is the program rtk's hook would rewrite: past what it loo
   ];
   for (const [command, seg] of cases) assert.equal(lastSegment(command), seg, command);
   // So a route anchored on the program matches only what rtk rewrites.
-  assert.equal(routeMatches({ command: "^cargo (test|nextest)\\b" }, view({ command: "timeout -s KILL 60 cargo test" })), true);
+  assert.equal(routeMatches({ command: "^cargo test\\b" }, view({ command: "timeout -s KILL 60 cargo test" })), true);
   assert.equal(routeMatches({ command: "^git (diff|show)\\b" }, view({ command: "sudo -u www git diff" })), false);
 });
 

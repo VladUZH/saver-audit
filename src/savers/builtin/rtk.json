@@ -19,7 +19,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(python3? -m )?pytest\\b"
+        "command": "^(python3? -m )?pytest(\\s|$)"
       },
       "args": [
         "pipe",
@@ -33,7 +33,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^cargo (test|nextest)\\b"
+        "command": "^cargo test\\b"
       },
       "args": [
         "pipe",
@@ -89,7 +89,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(?!.*\\|)ctest\\b"
+        "command": "^(?!.*\\|)ctest(\\s|$)"
       },
       "args": [
         "pipe",
@@ -103,7 +103,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(?!.*\\|)(npx |pnpm (exec )?|yarn |bunx )?tsc\\b"
+        "command": "^(?!.*\\|)(npx |pnpm (exec )?|bunx )?tsc(\\s|$)"
       },
       "args": [
         "pipe",
@@ -117,7 +117,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(?!.*\\|)(npx |pnpm (exec )?|yarn |bunx )?vitest\\b"
+        "command": "^(?!.*\\|)(npx |pnpm (exec )?)?vitest(\\s|$)"
       },
       "args": [
         "pipe",
@@ -131,7 +131,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(grep|rg|egrep)\\b"
+        "command": "^(grep|rg)(\\s|$)"
       },
       "args": [
         "pipe",
@@ -145,7 +145,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(find|fd)\\b"
+        "command": "^find(\\s|$)"
       },
       "args": [
         "pipe",
@@ -173,7 +173,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(python3? -m )?mypy\\b"
+        "command": "^(python3? -m )?mypy(\\s|$)"
       },
       "args": [
         "pipe",
@@ -187,7 +187,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^ruff check\\b|^ruff\\b(?! format)"
+        "command": "^ruff check\\b"
       },
       "args": [
         "pipe",
@@ -229,7 +229,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(npx )?prettier\\b"
+        "command": "^(npx |pnpm (exec )?)?prettier(\\s|$)"
       },
       "args": [
         "pipe",
@@ -243,7 +243,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(vendor/bin/)?phpunit\\b"
+        "command": "^(\\./)?(vendor/bin/)?phpunit(\\s|$)"
       },
       "args": [
         "pipe",
@@ -257,7 +257,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(vendor/bin/)?(pest|paratest)\\b"
+        "command": "^(\\./)?(vendor/bin/)?(pest|paratest)(\\s|$)"
       },
       "args": [
         "pipe",
@@ -271,7 +271,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(vendor/bin/)?phpstan\\b"
+        "command": "^(\\./)?(vendor/bin/)?phpstan analy[sz]e\\b"
       },
       "args": [
         "pipe",
@@ -285,7 +285,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(vendor/bin/)?pint\\b"
+        "command": "^(\\./)?(vendor/bin/)?pint(\\s|$)"
       },
       "args": [
         "pipe",
@@ -299,7 +299,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(vendor/bin/)?ecs\\b"
+        "command": "^(\\./)?(vendor/bin/)?ecs(\\s|$)"
       },
       "args": [
         "pipe",
@@ -310,5 +310,5 @@
   ],
   "codexHypothetical": false,
   "install": "npx saver-audit --install-savers (or: brew install rtk)",
-  "_comment": "git status / git log are left out on purpose: live rtk rewrites them to formats its pipe filters expect (tech-notes §8.5). `(?!.*\\|)`: rtk's hook leaves ctest, tsc, vitest and sqlfluff alone when their output is piped on, even to head or tail."
+  "_comment": "git status / git log are left out on purpose: live rtk rewrites them to formats its pipe filters expect (tech-notes §8.5). `(?!.*\\|)`: rtk's hook leaves ctest, tsc, vitest and sqlfluff alone when their output is piped on, even to head or tail. Routes follow the forms `rtk rewrite` (0.50.0) rewrites to the matching filter: a program name ends at a space (not `pytest-watch`); no yarn prefix, cargo nextest, egrep, fd or bare ruff (left alone); no `bunx vitest` (rtk runs bunx's generic filter there)."
 }
