@@ -105,6 +105,8 @@ export interface RunHooks {
 }
 
 export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJobs(), saverOpts?: SaverOptions, hooks: RunHooks = {}): Promise<AuditResult> {
+  // Not a number of workers (NaN, 0): one, never none (no workers would read no files).
+  jobs = jobs >= 1 ? Math.floor(jobs) : 1;
   const ids = saverOpts?.ids ?? [];
   if (!ids.length) return summarize(opts, await processAll(findFiles(opts), entry, jobs, undefined, hooks.files));
   const savers = saverIndex(ids);
@@ -117,7 +119,7 @@ export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJo
     versions: Object.fromEntries([...tools].flatMap(([id, t]) => (t.version ? [[id, t.version]] : []))),
   };
   const results = await processAll(findFiles(opts), entry, jobs, config, hooks.files);
-  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: Math.max(1, jobs), log: saverOpts?.log, warn: saverOpts?.warn, progress: hooks.replay });
+  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: jobs, log: saverOpts?.log, warn: saverOpts?.warn, progress: hooks.replay });
   return summarize(opts, results, { savers, tools, stats });
 }
 

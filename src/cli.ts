@@ -14,7 +14,7 @@ import { renderJson } from "./report/json.ts";
 import type { Source } from "./sources/types.ts";
 import type { AuditResult } from "./audit.ts";
 import { periodOf } from "./period.ts";
-import { normalizeCardArg } from "./args.ts";
+import { normalizeCardArg, parseJobs } from "./args.ts";
 import { exactSeconds } from "./savers/replay.ts";
 import { HEADROOM_VERSION, installOffer, installPlan, toolPaths, toolsDir, type InstallChoice, type InstallOffer } from "./savers/toolsdir.ts";
 import { VERSION } from "./version.ts";
@@ -117,6 +117,7 @@ async function main(argv: string[]): Promise<number> {
   const now = Date.now();
   // Checked before anything starts, so a typo never leaves a spinner or an install behind.
   const { sinceMs, untilMs } = periodOf(values, now);
+  const jobs = parseJobs(values.jobs) ?? defaultJobs();
   const interactive = process.stdout.isTTY === true && !values.json;
   const color = (process.stdout.isTTY === true || !!process.env.FORCE_COLOR) && !process.env.NO_COLOR;
   const showSpinner = process.stderr.isTTY === true && !values.json && !process.env.CI;
@@ -145,7 +146,7 @@ async function main(argv: string[]): Promise<number> {
       const result = await runAudit(
         { sinceMs, untilMs, sources, claudeRoots: claudeRoots(), codexHome: codexHome(), prices: loadPrices() },
         new URL(import.meta.url),
-        values.jobs ? Math.max(1, Number(values.jobs)) : defaultJobs(),
+        jobs,
         // With a spinner, replay progress shows there instead of as log lines.
         { ids: saverIndex(saverIds).map((x) => x.id), full: exact, cacheFile: defaultReplayCachePath(), log: showSpinner ? undefined : log, warn: showSpinner ? (s) => void warnings.push(s) : log },
         {

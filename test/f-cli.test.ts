@@ -6,7 +6,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CLAUDE_ROOT, CODEX_HOME } from "./helpers.ts";
+import { parseJobs } from "../src/args.ts";
+import { runAudit } from "../src/pool.ts";
+import { CLAUDE_ROOT, CODEX_HOME, fixtureOptions } from "./helpers.ts";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const temps: string[] = [];
@@ -33,4 +35,19 @@ test("a --since after --until is an error, not an empty report", () => {
   assert.equal(r.status, 1);
   assert.equal(r.stderr, "saver-audit: --since 2026-09-25 is after --until 2026-09-01\n");
   assert.equal(r.stdout, "");
+});
+
+test("--jobs takes a whole number of at least 1; anything else is an error, not a crash", () => {
+  assert.equal(parseJobs(undefined), undefined);
+  assert.equal(parseJobs("4"), 4);
+  for (const v of ["abc", "0", "-2", "2.5", ""]) assert.throws(() => parseJobs(v), { message: `--jobs: expected a whole number of at least 1, got ${v}` }, v);
+  const r = cli(["--json", "--jobs", "abc"]);
+  assert.equal(r.status, 1);
+  assert.equal(r.stderr, "saver-audit: --jobs: expected a whole number of at least 1, got abc\n");
+});
+
+test("a worker count that is not a number reads every file on one thread", async () => {
+  const one = await runAudit(fixtureOptions(), undefined, 1);
+  // The worker entry is the CLI module, as in the CLI; not imported here.
+  assert.deepEqual(await runAudit(fixtureOptions(), new URL("../src/cli.ts", import.meta.url), NaN), one);
 });
