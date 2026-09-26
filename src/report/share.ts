@@ -6,7 +6,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { win32 } from "node:path";
 import type { AuditResult } from "../audit.ts";
-import { agentNames, isIndicative, loggedDays, measuredCost, onlyHypothetical, plural, tooLittleData, unpricedCalls } from "./terminal.ts";
+import { agentNames, isIndicative, loggedDays, measuredCost, onlyHypothetical, plural, tooLittleData, totalIsLowerBound } from "./terminal.ts";
 
 export const REPO_URL = "https://github.com/VladUZH/saver-audit";
 
@@ -67,8 +67,8 @@ export function shareText(r: AuditResult): string {
     const c = measuredCost(s);
     return c >= 0 ? `−${pct(c)} (${usd(c)})` : `+${pct(-c)} (costs ${usd(-c)})`;
   };
-  // Calls on unpriced models are not in the total, so it is a lower bound.
-  const spend = `${unpricedCalls(r) ? "at least " : ""}${usd(total)}`;
+  // Calls on unpriced models and Codex web search fees are not in the total, so it is a lower bound.
+  const spend = `${totalIsLowerBound(r) ? "at least " : ""}${usd(total)}`;
 
   const best = ceiling ? `Best case (changes how the agent works): at most −${pct(ceiling.cost)} (${ceiling.name}).` : "";
   const tail = ["", measured.length ? "What would they cut for you? npx saver-audit" : "What would savers cut for you? npx saver-audit"];

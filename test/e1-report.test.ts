@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AuditResult, SaverRow } from "../src/audit.ts";
+import { processFile, summarize, type AuditResult, type SaverRow } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
 import { cardSvg, fitList } from "../src/report/card.ts";
 import { shareText, xLength } from "../src/report/share.ts";
-import { renderShort, renderTerminal } from "../src/report/terminal.ts";
-import { CLAUDE_ROOT, FAKE_TOOLS, fixtureOptions } from "./helpers.ts";
+import { renderShort, renderTerminal, unpricedCalls } from "../src/report/terminal.ts";
+import { CLAUDE_ROOT, CODEX_HOME, FAKE_TOOLS, fixtureOptions } from "./helpers.ts";
 
 const OPTS = { showProjects: false, verbose: false, color: false };
 
@@ -74,6 +74,21 @@ test("calls on unpriced models are named next to the total in the short view, on
   assert.doesNotMatch(renderShort(priced, OPTS), /unpriced/);
   assert.doesNotMatch(cardSvg(priced), /unpriced/);
   assert.doesNotMatch(shareText(priced), /at least/);
+});
+
+test("Codex web searches left out of the total are named next to it in the short view, on the card and in the post", async () => {
+  const r = summarize(fixtureOptions({ sources: ["codex"] }), [await processFile(join(CODEX_HOME, "cases", "rollout-web-search.jsonl"), "codex", 0)]);
+  assert.deepEqual(r.billing.webSearch, { requests: 0, cost: 0, unpriced: 3 });
+  assert.equal(unpricedCalls(r), 0, "every model is priced: the searches alone leave something out");
+  assert.match(renderShort(r, OPTS), /API-equivalent at list prices[^\n]*\nExcludes the fees for 3 Codex web searches: the price list has no OpenAI per-search fee\./);
+  assert.match(cardSvg(r), />excludes fees for 3 Codex web searches</);
+  assert.match(shareText(r), /used at least \$0\.\d\d of API-equivalent tokens/);
+  assert.match(shareText({ ...r, savers: [saver("rtk", "rtk", 0.01)] }), /of at least \$0\.\d\d API-equivalent spend/);
+  // With calls on an unpriced model too, the card says both on its one line.
+  const both = { ...r, models: [...r.models, { model: "gpt-zeta-1", calls: 2, tokens: 1000, cost: 0 }] };
+  assert.match(cardSvg(both), />excludes 2 calls on unpriced models and fees for 3 Codex web searches</);
+  const one = { ...r, billing: { ...r.billing, webSearch: { ...r.billing.webSearch, unpriced: 1 } } };
+  assert.match(renderShort(one, OPTS), /Excludes the fees for 1 Codex web search:/);
 });
 
 test("hypothetical Codex savings are left out of the short view, card and post, and named in the short view", () => {

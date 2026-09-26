@@ -109,7 +109,7 @@ Offline replay can't show whether a saver changes how the agent behaves: extra t
   - Fast mode is priced per model: 6× on Opus 4.6 and 4.7, 2× on Opus 4.8, 5 and 5.5. A fast call on a model with no published fast price gets the standard rate, and the full report says so.
   - A dated model id such as `gpt-5-2025-08-07` is priced as its base model.
   - A model with no price counts its tokens at $0, and the total says how many calls that leaves out.
-  - Codex web searches are not in the total: the price list has no OpenAI per-search fee. The full report counts them.
+  - Codex web searches are not in the total: the price list has no OpenAI per-search fee. The total says how many searches that leaves out.
 
 ## Privacy
 

@@ -67,6 +67,7 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
   out.push(`${bold(accent(fmtUsd(total)))} ${bold("API-equivalent at list prices")} · ${fmtTokens(r.billing.total.tokens)} tokens`);
   const unpriced = unpricedCalls(r);
   if (unpriced) out.push(accent(`Excludes ${plural(unpriced, "call")} on unpriced models: ${[...new Set(r.models.filter((m) => !m.pricedAs).map((m) => m.model))].join(", ")} (tokens counted, $0).`));
+  if (r.billing.webSearch.unpriced) out.push(accent(`Excludes the fees for ${codexSearches(r.billing.webSearch.unpriced)}: the price list has no OpenAI per-search fee.`));
   out.push(dim(`Not your bill: on a subscription you pay the plan price. List prices of ${r.prices.date}.`));
   out.push("");
 
@@ -176,6 +177,16 @@ function signedUsd(n: number): string {
 /** Calls on models without a price: their tokens are counted, their dollars are not in the total. */
 export function unpricedCalls(r: AuditResult): number {
   return r.models.reduce((n, m) => n + (m.pricedAs ? 0 : m.calls), 0);
+}
+
+/** "1 Codex web search", "3 Codex web searches": hosted searches whose fees are not in the total. */
+export function codexSearches(n: number): string {
+  return `${n.toLocaleString("en-US")} Codex web search${n === 1 ? "" : "es"}`;
+}
+
+/** The total leaves out known costs (calls on unpriced models, Codex web search fees), so it is a lower bound. */
+export function totalIsLowerBound(r: AuditResult): boolean {
+  return unpricedCalls(r) > 0 || r.billing.webSearch.unpriced > 0;
 }
 
 const BAR = 24;

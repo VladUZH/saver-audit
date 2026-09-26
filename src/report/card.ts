@@ -4,7 +4,7 @@
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AuditResult } from "../audit.ts";
-import { agentNames, confidence, fmtTokens, fmtUsd, loggedDays, measuredCost, onlyHypothetical, periodDays, plural, sessionCount, shortLabel, tooLittleData, unpricedCalls } from "./terminal.ts";
+import { agentNames, codexSearches, confidence, fmtTokens, fmtUsd, loggedDays, measuredCost, onlyHypothetical, periodDays, plural, sessionCount, shortLabel, tooLittleData, unpricedCalls } from "./terminal.ts";
 
 const W = 1200;
 const H = 675;
@@ -83,8 +83,12 @@ export function cardSvg(r: AuditResult): string {
   // Headline
   parts.push(text(PAD, 172, fmtUsd(total), 84, C.text, { bold: true }));
   parts.push(text(PAD, 208, `API-equivalent at list prices of ${r.prices.date}, prompt cache included`, 18, C.muted));
+  // What the total leaves out, on one line: calls on unpriced models, Codex web search fees.
   const unpriced = unpricedCalls(r);
-  if (unpriced) parts.push(text(PAD, 233, `excludes ${plural(unpriced, "call")} on unpriced models`, 15, C.accent));
+  const left: string[] = [];
+  if (unpriced) left.push(`${plural(unpriced, "call")} on unpriced models`);
+  if (r.billing.webSearch.unpriced) left.push(`fees for ${codexSearches(r.billing.webSearch.unpriced)}`);
+  if (left.length) parts.push(text(PAD, 233, `excludes ${left.join(" and ")}`, 15, C.accent));
   parts.push(text(W - PAD, 132, `${fmtTokens(r.billing.total.tokens)} tokens`, 26, C.text, { anchor: "end", bold: true }));
   parts.push(text(W - PAD, 166, `${plural(r.calls, "API call")} · ${sessionCount(r)}`, 18, C.muted, { anchor: "end" }));
   parts.push(text(W - PAD, 196, agentNames(r), 18, C.muted, { anchor: "end" }));
