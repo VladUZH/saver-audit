@@ -245,6 +245,7 @@ export function tokenSaverWrapper(python: string, script: string): string {
   return `#!/bin/sh\nexec ${q(python)} ${q(script)} "$@"\n`;
 }
 
+/** Runs a step of the headroom install. A failure's error keeps the last lines of output (`output`: all that was kept). */
 function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, onLine: Say): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { env, stdio: ["ignore", "pipe", "pipe"] });
@@ -257,7 +258,11 @@ function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, onLine: Say): 
     child.stdout.on("data", feed);
     child.stderr.on("data", feed);
     child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}: ${tail.trim().split("\n").pop()}`))));
+    child.on("close", (code) => {
+      if (code === 0) return resolve();
+      const last = tail.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-5).join(" / ");
+      reject(Object.assign(new Error(`${basename(cmd)} exited ${code}: ${last}`), { output: tail }));
+    });
   });
 }
 
@@ -270,21 +275,49 @@ _load_kompress(allow_download=False)
 print("ready")
 `;
 
+const headroomEnv = (): NodeJS.ProcessEnv => ({ ...process.env, DO_NOT_TRACK: "1", HEADROOM_BEACON: "off", HF_HOME: paths.hfHome(), HEADROOM_WORKSPACE_DIR: paths.headroomState(), PIP_DISABLE_PIP_VERSION_CHECK: "1" });
+
+/**
+ * The tools folder's headroom imports but cannot load its model offline (the check the
+ * replay makes), e.g. after a failed or interrupted model download: not finished.
+ */
+export function headroomIncomplete(): boolean {
+  if (!existsSync(paths.headroomPython())) return false;
+  const ready = "from headroom.transforms.kompress_compressor import _load_kompress; _load_kompress(allow_download=False)";
+  const env = { ...headroomEnv(), HEADROOM_OFFLINE: "1", HF_HUB_OFFLINE: "1", TRANSFORMERS_OFFLINE: "1" };
+  return spawnSync(paths.headroomPython(), ["-c", ready], { env, stdio: "ignore", timeout: 120_000 }).status !== 0;
+}
+
 /**
  * headroom into its own virtualenv, with its compression model. Steps found while
  * building the adapter (tech-notes §8.7): onnxruntime is not pulled in by the [ml]
  * extra, and the model's tokenizer files are not fetched by headroom's prefetch.
+ * Running it again finishes an interrupted install: pip skips what is there.
  */
 export async function installHeadroom(say: Say): Promise<string> {
   const py = findPython();
   if (!py) throw new Error("headroom needs Python 3.10 or newer on PATH");
   const venv = join(toolsDir(), "headroom-venv");
-  const env = { ...process.env, DO_NOT_TRACK: "1", HEADROOM_BEACON: "off", HF_HOME: paths.hfHome(), HEADROOM_WORKSPACE_DIR: paths.headroomState(), PIP_DISABLE_PIP_VERSION_CHECK: "1" };
+  const env = headroomEnv();
   mkdirSync(toolsDir(), { recursive: true });
-  say("creating a Python environment for headroom…");
-  await run(py, ["-m", "venv", venv], env, say);
+  // A venv whose Python no longer runs (its base Python was removed) is rebuilt:
+  // `python -m venv` over it would keep the dangling link.
+  if (spawnSync(paths.headroomPython(), ["-c", ""], { stdio: "ignore" }).status !== 0) {
+    rmSync(venv, { recursive: true, force: true });
+    say("creating a Python environment for headroom…");
+    try {
+      await run(py, ["-m", "venv", venv], env, say);
+    } catch (err) {
+      rmSync(venv, { recursive: true, force: true });
+      const output = (err as { output?: string }).output ?? "";
+      if (!/ensurepip is not\s+available|python3(\.\d+)?-venv/.test(output)) throw err;
+      const pkg = /apt install (\S+-venv)/.exec(output)?.[1] ?? "python3-venv";
+      throw new Error(`Python's venv module is missing; install it (for example: sudo apt install ${pkg}) and try again`);
+    }
+  }
   say(`installing headroom-ai ${HEADROOM_VERSION} from PyPI (about 1.3 GB, a few minutes)…`);
-  await run(paths.headroomPython(), ["-m", "pip", "install", "--quiet", `headroom-ai[ml]==${HEADROOM_VERSION}`, "onnxruntime>=1.24"], env, (l) => say(`pip: ${l}`));
+  // No pip cache: it would leave the downloads outside the tools folder.
+  await run(paths.headroomPython(), ["-m", "pip", "install", "--quiet", "--no-cache-dir", `headroom-ai[ml]==${HEADROOM_VERSION}`, "onnxruntime>=1.24"], env, (l) => say(`pip: ${l}`));
   say("downloading headroom's compression model from Hugging Face (about 260 MB)…");
   await run(paths.headroomPython(), ["-c", PREFETCH], env, (l) => say(`model: ${l}`));
   return paths.headroomPython();
@@ -301,12 +334,14 @@ export interface InstallChoice {
 /** What can be installed on this machine, for the confirmation prompt. */
 export function installPlan(): InstallChoice[] {
   const py = findPython();
+  // Debian and Ubuntu ship Python without its venv module (package python3-venv).
+  const venv = !!py && spawnSync(py, ["-c", "import ensurepip, venv"], { stdio: "ignore" }).status === 0;
   return [
     { id: "rtk", what: `rtk ${RTK_TAG}`, size: "about 4 MB, seconds", available: !!rtkAsset(), why: rtkAsset() ? undefined : "no build for this platform" },
     { id: "caveman-engine", what: `caveman engine ${CAVEMAN_BIN_TAG}`, size: "about 28 MB; its first measurement then takes about a minute, cached after", available: !!cavemanAsset(), why: cavemanAsset() ? undefined : "no build for this platform" },
     { id: "token-saver", what: `token-saver ${TOKEN_SAVER_TAG}`, size: "under 1 MB, seconds; needs Python 3.10+; its first measurement takes a few minutes on a busy month, cached after", available: !!py && process.platform !== "win32", why: py ? (process.platform === "win32" ? "installer supports macOS and Linux" : undefined) : "needs Python 3.10+" },
     { id: "lean-ctx", what: `lean-ctx ${LEAN_CTX_TAG}`, size: "about 23 MB; its first measurement takes a few minutes on a busy month, cached after", available: !!leanCtxAsset(), why: leanCtxAsset() ? undefined : "no build for this platform" },
-    { id: "headroom", what: `headroom ${HEADROOM_VERSION} + its model`, size: "about 1.6 GB, a few minutes", available: !!py, why: py ? undefined : "needs Python 3.10+" },
+    { id: "headroom", what: `headroom ${HEADROOM_VERSION} + its model`, size: "about 1.6 GB, a few minutes", available: venv, why: !py ? "needs Python 3.10+" : venv ? undefined : "needs Python's venv module; on Debian or Ubuntu: sudo apt install python3-venv" },
   ];
 }
 

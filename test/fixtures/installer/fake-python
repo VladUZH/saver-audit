@@ -1,0 +1,41 @@
+#!/bin/sh
+# Fake Python 3.12 for installer tests: answers the calls saver-audit makes to
+# create headroom's venv, pip-install it and fetch its model, without a network.
+# Each call is logged to $FAKE_PY_LOG. FAKE_PY_NO_VENV=1: no venv module (as on
+# Debian without python3-venv). FAKE_PY_NO_MODEL=1: the model download fails.
+# FAKE_PY_VERSION: the version it reports (default 3.12).
+self="$0"
+venv="${self%/*}/.."
+case "$1" in
+  -c)
+    case "$2" in
+      *sys.version_info*) printf '%s\n%s\n' "${FAKE_PY_VERSION:-3.12}" "$self"; exit 0 ;;
+      *"import ensurepip"*) [ -z "$FAKE_PY_NO_VENV" ]; exit $? ;;
+      *prefetch_kompress_artifacts*)
+        echo "prefetch" >> "$FAKE_PY_LOG"
+        if [ -n "$FAKE_PY_NO_MODEL" ]; then echo "requests.exceptions.HTTPError: 503 Server Error" >&2; exit 1; fi
+        mkdir -p "$HF_HOME" && : > "$HF_HOME/model" && echo ready; exit 0 ;;
+      *_load_kompress*) [ -f "$HF_HOME/model" ]; exit $? ;;
+      *"import headroom"*) if [ -f "$venv/headroom" ]; then echo 0.38.0; exit 0; fi; exit 1 ;;
+      *) exit 0 ;;
+    esac ;;
+  -m)
+    case "$2" in
+      venv)
+        echo "venv" >> "$FAKE_PY_LOG"
+        mkdir -p "$3/bin"
+        if [ -n "$FAKE_PY_NO_VENV" ]; then
+          printf 'The virtual environment was not created successfully because ensurepip is not\navailable.  On Debian/Ubuntu systems, you need to install the python3-venv\npackage using the following command.\n\n    apt install python3.12-venv\n\nYou may need to use sudo with that command.  After installing the python3-venv\npackage, recreate your virtual environment.\n\nFailing command: %s/bin/python3\n' "$3"
+          exit 1
+        fi
+        # Like Python's venv: an existing link, even a dangling one, is left alone.
+        [ -L "$3/bin/python" ] || cp "$self" "$3/bin/python"
+        exit 0 ;;
+      pip)
+        shift 2
+        echo "pip $*" >> "$FAKE_PY_LOG"
+        : > "$venv/headroom"
+        exit 0 ;;
+    esac ;;
+esac
+exit 1

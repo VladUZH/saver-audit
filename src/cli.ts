@@ -283,13 +283,18 @@ interface InstallFlowOptions {
 
 /** Explains, asks, then installs the missing savers. Returns false if nothing was installed. */
 async function installFlow(o: InstallFlowOptions): Promise<boolean> {
-  const { install, installPlan } = await import("./savers/install.ts");
+  const { headroomIncomplete, install, installPlan } = await import("./savers/install.ts");
   const { detectReplayTools } = await import("./savers/replay.ts");
-  const { toolsDir } = await import("./savers/toolsdir.ts");
+  const { toolPaths, toolsDir } = await import("./savers/toolsdir.ts");
   const have = detectReplayTools();
   const out = process.stdout;
   const bold = (x: string) => (o.color ? `\x1b[1m${x}\x1b[0m` : x);
   const ask = o.ask ?? askLine;
+  // Our headroom imports but its model is missing (a download that failed): finish it.
+  if (o.all && have.get("headroom")?.command === toolPaths.headroomPython() && headroomIncomplete()) {
+    have.delete("headroom");
+    out.write("\nheadroom is installed but its model is missing; finishing the install.\n");
+  }
   // headroom is 1.6 GB and minutes of waiting: only on explicit request (--with-headroom).
   const plan = installPlan().filter((c) => !have.has(c.id) && (c.id !== "headroom" || o.all));
   if (!plan.length) {
