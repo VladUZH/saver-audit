@@ -420,6 +420,29 @@ test("quick mode does not extrapolate from a cache that holds only the larger ou
   }
 });
 
+test("quick mode's extrapolation reads each output a bounded number of times, not once per unmeasured output", async () => {
+  const t = tmp();
+  try {
+    // The quick sample is cached: the 50 largest ("a…") and the first 50 smaller ones in key order.
+    const large = Array.from({ length: 50 }, (_, i) => ({ key: `a${String(i).padStart(4, "0")}`, input: text(i, 6000) }));
+    const small = Array.from({ length: 1050 }, (_, i) => ({ key: `k${String(i).padStart(4, "0")}`, input: text(i, 1000 + ((i * 37) % 4000)) }));
+    await exactRun(synth("headroom", [...large, ...small.slice(0, 50)]), t.cacheFile);
+    const f = synth("headroom", [...large, ...small]);
+    const n = f.savers!.jobs.length;
+    let reads = 0;
+    for (const j of f.savers!.jobs) {
+      const b = j.baseline;
+      Object.defineProperty(j, "baseline", { get: () => (reads++, b) });
+    }
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.deepEqual({ insufficient: st.insufficient, extrapolated: st.extrapolated }, { insufficient: undefined, extrapolated: 1000 });
+    // Sorting by size reads each output about 2·log2(n) times; one pass per unmeasured output would be ~n².
+    assert.ok(reads < 100 * n, `${reads} reads of ${n} outputs' sizes`);
+  } finally {
+    t.done();
+  }
+});
+
 test("an older saver earlier on PATH does not hide the current one in the tools folder", async () => {
   const t = tmp();
   try {

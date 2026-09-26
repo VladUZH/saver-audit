@@ -750,13 +750,15 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     }
     return measured !== Infinity && rest !== -Infinity && measured > rest;
   };
+  // Once per saver: it walks all of the saver's outputs.
+  const cut = new Map([...bySaver.keys()].map((saver) => [saver, sizeCut(saver)]));
   // Too few measured outputs to extrapolate from: no number rather than a guess.
   for (const [, j] of pending) {
     const st = o.tools.has(j.saver) ? stats.get(j.saver) : undefined;
     if (!st || st.insufficient) continue;
     const guess = j.persistedHeader === undefined && (basis.get(j.saver)?.size ?? 0) >= MIN_QUICK_SAMPLE && ratioFor(j) !== undefined;
     if (!guess) Object.assign(st, { insufficient: true, reason: QUICK_REASON });
-    else if (sizeCut(j.saver)) Object.assign(st, { insufficient: true, reason: "cached results hold only the larger outputs, not a sample" });
+    else if (cut.get(j.saver)) Object.assign(st, { insufficient: true, reason: "cached results hold only the larger outputs, not a sample" });
   }
   const extrapolated = new Map<string, Set<string>>();
   for (const [r, j] of pending) {
