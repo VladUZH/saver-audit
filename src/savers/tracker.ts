@@ -45,8 +45,15 @@ interface TimelineBlocks {
   calls: number;
 }
 
+/**
+ * Earlier releases cached a failed run as "unchanged", indistinguishable from a real
+ * result. Savers run as one process per output (where a broken install fails every
+ * output, and a re-run is cheap) get new keys; headroom keeps its costly results.
+ */
+const keySalt = (id: string) => (id === "headroom" ? "" : "#2");
+
 export function replayKey(saver: SaverAdapter, tool: string, arg: string | undefined, input: string): string {
-  return createHash("sha256").update(`${saver.id}@${saver.version}\0${tool}\0${arg ?? ""}\0`).update(input).digest("base64url").slice(0, 32);
+  return createHash("sha256").update(`${saver.id}@${saver.version}${keySalt(saver.id)}\0${tool}\0${arg ?? ""}\0`).update(input).digest("base64url").slice(0, 32);
 }
 
 /**

@@ -303,6 +303,8 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const strict = process.env.SAVER_AUDIT_STRICT_SAMPLE === "1";
   const sampled = new Map<string, Set<string>>();
   const smallSampled = new Map<string, Set<string>>();
+  /** Outputs whose replay failed in this run: counted as unchanged, never cached. */
+  const failed = new Set<string>();
   const state = mkdtempSync(join(tmpdir(), "saver-audit-"));
   const env = saverEnv(state);
   let dirty = false;
@@ -333,18 +335,16 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       o.log?.(`replaying ${todo.length.toLocaleString("en-US")} new outputs through ${saver} (results are cached for next time)…`);
       const store = (key: string, out: string | undefined, counted?: ReplayResult) => {
         if (counted) cache.set(key, counted);
+        else if (out !== undefined) cache.set(key, { t: countProxy(out), c: out.length, p: countProxy(out.slice(0, PREVIEW_CHARS)) });
         else {
-          if (out === undefined) {
-            // A failed run is recorded as a pass-through (what caveman and rtk do on
-            // error), so the result is stable across runs.
-            st.failed++;
-            out = unique.get(key)!.input;
-          }
-          cache.set(key, { t: countProxy(out), c: out.length, p: countProxy(out.slice(0, PREVIEW_CHARS)) });
+          // A failed run is never cached, so the next run (or a fixed saver) tries again;
+          // in this run the output counts as unchanged.
+          st.failed++;
+          failed.add(key);
         }
         st.ran++;
         st.pending = Math.max(0, st.pending - 1);
-        dirty = true;
+        dirty ||= out !== undefined || !!counted;
         o.progress?.(saver, st.ran, todo.length);
         // Long replays save as they go, so an interrupted run resumes where it stopped.
         if (st.ran % CHECKPOINT === 0) {
@@ -410,6 +410,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const pending: Array<[FileResult, ReplayJob]> = [];
   for (const r of results) {
     for (const j of r.savers?.jobs ?? []) {
+      if (failed.has(j.key)) continue; // unchanged: d stays 0
       const hit = sampled.get(j.saver)?.has(j.key) ? cache.get(j.key) : undefined;
       if (!hit) {
         pending.push([r, j]);
