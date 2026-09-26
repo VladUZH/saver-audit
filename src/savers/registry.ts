@@ -134,7 +134,7 @@ let loaded: { savers: SaverAdapter[]; problems: string[] } | undefined;
 /** Built-in savers plus the user's own manifests from ~/.saver-audit/savers. */
 export function allSavers(): { savers: SaverAdapter[]; problems: string[] } {
   if (!loaded) {
-    const { manifests, problems } = loadManifests(BUILTIN);
+    const { manifests, problems } = loadManifests(BUILTIN, undefined, CODE_SAVERS.map((s) => s.id));
     loaded = { savers: build(manifests), problems };
   }
   return loaded;

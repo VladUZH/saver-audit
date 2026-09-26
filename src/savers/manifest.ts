@@ -181,8 +181,11 @@ export function userSaversDir(): string {
   return join(toolsDir(), "..", "savers");
 }
 
-/** Built-in manifests plus the user's own; a user manifest cannot replace a built-in id. */
-export function loadManifests(builtin: SaverManifest[], dir = userSaversDir()): LoadedManifests {
+/**
+ * Built-in manifests plus the user's own; a user manifest cannot replace a built-in id,
+ * nor a `reserved` one (the savers written as code).
+ */
+export function loadManifests(builtin: SaverManifest[], dir = userSaversDir(), reserved: string[] = []): LoadedManifests {
   const manifests = [...builtin];
   const problems: string[] = [];
   if (!existsSync(dir)) return { manifests, problems };
@@ -196,7 +199,7 @@ export function loadManifests(builtin: SaverManifest[], dir = userSaversDir()): 
     }
     const errs = validateManifest(m);
     if (errs.length) problems.push(`${f}: ${errs.join("; ")}`);
-    else if (manifests.some((x) => x.id === m.id)) problems.push(`${f}: id "${m.id}" is already taken`);
+    else if (manifests.some((x) => x.id === m.id) || reserved.includes(m.id)) problems.push(`${f}: id "${m.id}" is already taken`);
     else manifests.push(m as SaverManifest);
   }
   return { manifests, problems };

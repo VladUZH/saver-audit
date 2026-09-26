@@ -90,6 +90,21 @@ test("user manifests load next to the built-ins; bad or clashing ones are report
   }
 });
 
+test("a user manifest cannot take the id of a saver written as code (headroom)", async () => {
+  const home = mkdtempSync(join(tmpdir(), "sa-home-"));
+  try {
+    mkdirSync(join(home, "savers"));
+    writeFileSync(join(home, "savers", "headroom.json"), JSON.stringify({ ...COMMUNITY, id: "headroom" }));
+    const { execFileSync } = await import("node:child_process");
+    const registry = new URL("../src/savers/registry.ts", import.meta.url).href;
+    const script = `const { allSavers } = await import(${JSON.stringify(registry)}); const a = allSavers(); console.log(JSON.stringify({ problems: a.problems, headroom: a.savers.filter((s) => s.id === "headroom").map((s) => s.manifest ? "manifest" : "code") }));`;
+    const out = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], { env: { ...process.env, SAVER_AUDIT_HOME: home }, encoding: "utf8" }));
+    assert.deepEqual(out, { problems: ['headroom.json: id "headroom" is already taken'], headroom: ["code"] });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("a community saver is replayed and reported like a built-in one", async () => {
   const home = mkdtempSync(join(tmpdir(), "sa-home-"));
   try {
