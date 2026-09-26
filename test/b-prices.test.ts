@@ -6,7 +6,7 @@ import { isAbsolute, join } from "node:path";
 import snapshot from "../data/prices.json" with { type: "json" };
 import { runAudit } from "../src/pool.ts";
 import { BUNDLED, loadPrices, userPricesPath } from "../src/prices/load.ts";
-import { resolveModel } from "../src/prices/table.ts";
+import { ratesFor, resolveModel, type Rates } from "../src/prices/table.ts";
 import { LITELLM_URL, updatePrices } from "../src/prices/update.ts";
 import { fixtureOptions } from "./helpers.ts";
 
@@ -81,6 +81,19 @@ test("retired Claude models and the Mythos models have list prices from LiteLLM"
   const r = await auditClaude(["claude-opus-5", "claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-mythos-5-1"].map((model) => ({ model, usage })));
   assert.deepEqual(r.models.filter((m) => !m.pricedAs), []);
   assert.ok(Math.abs(r.billing.total.cost - 4.95) < 1e-9, String(r.billing.total.cost));
+});
+
+test("Sonnet 4.5 and Sonnet 4 calls over 200k prompt tokens pay the long-context rates; Claude 4.6+ has none", async () => {
+  const tier = { input: 6, output: 22.5, cacheRead: 0.6, cacheWrite: 7.5, cacheWrite1h: 12 };
+  for (const id of ["claude-sonnet-4-5", "claude-sonnet-4-5-20250929", "claude-sonnet-4-20250514"]) {
+    const { above, ...r } = ratesFor(BUNDLED.models[id]!, 500_000) as Rates & { above?: number };
+    assert.deepEqual([above, r], [200_000, tier], id);
+    assert.equal(ratesFor(BUNDLED.models[id]!, 200_000).input, 3, `${id} at 200k`);
+  }
+  for (const id of ["claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-5-5", "claude-sonnet-5"]) assert.equal(BUNDLED.models[id]!.tiers, undefined, id);
+  // 500k uncached input on the 1M-context Sonnet 4.5: 500k × $6.
+  const r = await auditClaude([{ model: "claude-sonnet-4-5-20250929[1m]", usage: { input_tokens: 500_000, output_tokens: 0 } }]);
+  assert.ok(Math.abs(r.billing.total.cost - 3) < 1e-9, String(r.billing.total.cost));
 });
 
 test("a table saved by --update-prices overlays the bundled one: dropped models keep their price, aliases come from this version", () => {

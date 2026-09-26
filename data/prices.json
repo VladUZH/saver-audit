@@ -2,7 +2,7 @@
  "date": "2026-09-25",
  "sources": [
   "https://models.dev/api.json (MIT)",
-  "LiteLLM model_prices_and_context_window.json (MIT), for models models.dev lacks"
+  "LiteLLM model_prices_and_context_window.json (MIT), for models models.dev lacks and Claude >200k-token rates"
  ],
  "models": {
   "claude-fable-5": {
@@ -122,21 +122,51 @@
    "output": 15,
    "cacheRead": 0.3,
    "cacheWrite": 3.75,
-   "cacheWrite1h": 6
+   "cacheWrite1h": 6,
+   "tiers": [
+    {
+     "above": 200000,
+     "input": 6,
+     "output": 22.5,
+     "cacheRead": 0.6,
+     "cacheWrite": 7.5,
+     "cacheWrite1h": 12
+    }
+   ]
   },
   "claude-sonnet-4-5": {
    "input": 3,
    "output": 15,
    "cacheRead": 0.3,
    "cacheWrite": 3.75,
-   "cacheWrite1h": 6
+   "cacheWrite1h": 6,
+   "tiers": [
+    {
+     "above": 200000,
+     "input": 6,
+     "output": 22.5,
+     "cacheRead": 0.6,
+     "cacheWrite": 7.5,
+     "cacheWrite1h": 12
+    }
+   ]
   },
   "claude-sonnet-4-5-20250929": {
    "input": 3,
    "output": 15,
    "cacheRead": 0.3,
    "cacheWrite": 3.75,
-   "cacheWrite1h": 6
+   "cacheWrite1h": 6,
+   "tiers": [
+    {
+     "above": 200000,
+     "input": 6,
+     "output": 22.5,
+     "cacheRead": 0.6,
+     "cacheWrite": 7.5,
+     "cacheWrite1h": 12
+    }
+   ]
   },
   "claude-sonnet-4-6": {
    "input": 3,

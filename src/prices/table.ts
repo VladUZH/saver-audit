@@ -47,19 +47,24 @@ function round(n: number): number {
   return Math.round(n * 1e6) / 1e6;
 }
 
-/** LiteLLM per-token costs as per-1M rates; missing Claude cache writes derived as in rates(). */
-function litellmRates(e: any, claude: boolean): Rates {
-  const perM = (v: unknown) => (typeof v === "number" ? round(v * 1e6) : undefined);
-  const input = perM(e.input_cost_per_token) ?? 0;
-  const cacheWrite = perM(e.cache_creation_input_token_cost) ?? (claude ? round(input * 1.25) : 0);
+/**
+ * LiteLLM per-token costs as per-1M rates, for the fields ending in `suffix` (a context
+ * tier such as "_above_200k_tokens"); missing Claude cache writes derived as in rates().
+ */
+function litellmRates(e: any, claude: boolean, suffix = ""): Rates {
+  const perM = (field: string) => (typeof e[field + suffix] === "number" ? round(e[field + suffix] * 1e6) : undefined);
+  const input = perM("input_cost_per_token") ?? 0;
+  const cacheWrite = perM("cache_creation_input_token_cost") ?? (claude ? round(input * 1.25) : 0);
   return {
     input,
-    output: perM(e.output_cost_per_token) ?? 0,
-    cacheRead: perM(e.cache_read_input_token_cost) ?? 0,
+    output: perM("output_cost_per_token") ?? 0,
+    cacheRead: perM("cache_read_input_token_cost") ?? 0,
     cacheWrite,
-    cacheWrite1h: perM(e.cache_creation_input_token_cost_above_1hr) ?? (claude ? round(input * 2) : cacheWrite),
+    cacheWrite1h: perM("cache_creation_input_token_cost_above_1hr") ?? (claude ? round(input * 2) : cacheWrite),
   };
 }
+
+const ABOVE_200K = "_above_200k_tokens";
 
 function rates(c: any, claude: boolean): Rates {
   const input = Number(c.input ?? 0);
@@ -97,8 +102,17 @@ export function buildPriceTable(modelsDev: any, litellm: any, date: string): Pri
     models[id] = litellmRates(e, id.startsWith("claude-"));
     fromLitellm++;
   }
+  // models.dev lists no long-context tier for Claude. LiteLLM keeps the >200k premium
+  // for the models that still have one (Sonnet 4.5, Sonnet 4).
+  for (const [id, price] of Object.entries(models)) {
+    const e = litellm?.[id];
+    if (!id.startsWith("claude-") || price.tiers || !e) continue;
+    if (["input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost"].some((f) => typeof e[f + ABOVE_200K] !== "number")) continue;
+    price.tiers = [{ above: 200_000, ...litellmRates(e, true, ABOVE_200K) }];
+    fromLitellm++;
+  }
   const sources = ["https://models.dev/api.json (MIT)"];
-  if (fromLitellm) sources.push("LiteLLM model_prices_and_context_window.json (MIT), for models models.dev lacks");
+  if (fromLitellm) sources.push("LiteLLM model_prices_and_context_window.json (MIT), for models models.dev lacks and Claude >200k-token rates");
   return {
     date,
     sources,
