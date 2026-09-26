@@ -143,7 +143,9 @@ export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): 
   const py = own ?? ours;
   if (py) {
     const v = firstLine(py, ["-c", `${NO_CWD}; import headroom; print(getattr(headroom, '__version__', 'unknown'))`]);
-    const env = ours ? { HF_HOME: toolPaths.hfHome() } : undefined;
+    // --install-savers keeps headroom's model, and its tokenizer vocabulary, in the tools folder.
+    const vocab = join(toolsDir(), "tiktoken");
+    const env = ours ? { HF_HOME: toolPaths.hfHome(), ...(existsSync(vocab) ? { TIKTOKEN_CACHE_DIR: vocab } : {}) } : undefined;
     if (v) found.set("headroom", { saver: "headroom", command: py, version: v, env });
   }
   return found;
@@ -169,6 +171,17 @@ function headroomPython(): string | undefined {
  */
 const OWN_SETTINGS = /^(CAVEMAN|TOKEN_SAVER)_/;
 
+/**
+ * No saver reaches the network during an audit: web requests go through a proxy on a
+ * local port where nothing listens, so they fail at once (headroom's tokenizer would
+ * download its vocabulary; its offline flags do not cover that).
+ */
+const DEAD_PROXY = "http://127.0.0.1:9";
+const NO_NETWORK: Record<string, string> = Object.fromEntries([
+  ...["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"].flatMap((k) => [[k, DEAD_PROXY], [k.toLowerCase(), DEAD_PROXY]]),
+  ...["NO_PROXY", "no_proxy"].map((k) => [k, "localhost,127.0.0.1,::1"]),
+]);
+
 function saverEnv(stateDir: string): NodeJS.ProcessEnv {
   return {
     ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !OWN_SETTINGS.test(k))),
@@ -181,6 +194,7 @@ function saverEnv(stateDir: string): NodeJS.ProcessEnv {
     HEADROOM_OFFLINE: "1",
     HF_HUB_OFFLINE: "1",
     TRANSFORMERS_OFFLINE: "1",
+    ...NO_NETWORK,
     ...(stateDir ? { CAVEMAN_HOME: join(stateDir, "caveman"), CAVEMAN_CCR_DB: join(stateDir, "caveman", "ccr.db"), HEADROOM_WORKSPACE_DIR: join(stateDir, "headroom") } : {}),
   };
 }
@@ -269,7 +283,15 @@ try:
     ready = True
 except Exception:
     pass
-print(json.dumps({"ready": ready}), flush=True)
+# headroom counts tokens with tiktoken's o200k_base for Claude models; without it cached,
+# it would download it (blocked here) and fall back to an estimate.
+tokenizer = True
+try:
+    import tiktoken
+    tiktoken.get_encoding("o200k_base")
+except Exception:
+    tokenizer = False
+print(json.dumps({"ready": ready, "tokenizer": tokenizer}), flush=True)
 for line in sys.stdin.buffer:
     req = json.loads(line)
     msgs = [{"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": req["tool"], "input": {}}]},
@@ -304,6 +326,8 @@ class HeadroomSidecar {
   private waiting = new Map<number, (out: string | undefined) => void>();
   private next = 0;
   readonly ready: Promise<boolean>;
+  /** False when the sidecar reported that headroom's tokenizer vocabulary is not cached. */
+  tokenizer?: boolean;
 
   constructor(python: string, env: NodeJS.ProcessEnv, cwd: string) {
     const child = spawn(python, ["-u", "-c", HEADROOM_SIDECAR], { env, cwd, stdio: ["pipe", "pipe", "ignore"] });
@@ -331,7 +355,10 @@ class HeadroomSidecar {
         } catch {
           continue;
         }
-        if ("ready" in msg) resolveReady(msg.ready === true);
+        if ("ready" in msg) {
+          this.tokenizer = msg.tokenizer;
+          resolveReady(msg.ready === true);
+        }
         else {
           const f = this.waiting.get(msg.i);
           this.waiting.delete(msg.i);
@@ -530,6 +557,11 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
           if (!(await side.ready)) {
             failAll("compression model not cached");
             warn?.("headroom: its compression model is not cached; skipped (run headroom once online to download it).");
+            return;
+          }
+          if (side.tokenizer === false) {
+            failAll("tokenizer not cached");
+            warn?.("headroom: its tokenizer (tiktoken's o200k_base) is not cached, and an audit never downloads it; skipped (run headroom once online).");
             return;
           }
           for (const key of todo) {

@@ -432,7 +432,7 @@ const PY_STUBS = fileURLToPath(new URL("./fixtures/python/", import.meta.url));
 const REPLAY = new URL("../src/savers/replay.ts", import.meta.url).href;
 
 /** Detects headroom (the stub) and replays `texts` through it, in a separate process started in `cwd`. */
-function stubHeadroom(cwd: string, texts: string[], env: Record<string, string> = {}): { version?: string; stats?: Record<string, number>; d: number[] } {
+function stubHeadroom(cwd: string, texts: string[], env: Record<string, string> = {}): { version?: string; stats?: Record<string, unknown>; d: number[] } {
   const script = `
     import { detectReplayTools, runReplays } from ${JSON.stringify(REPLAY)};
     import { countProxy } from ${JSON.stringify(new URL("../src/accounting/tokens.ts", import.meta.url).href)};
@@ -442,7 +442,7 @@ function stubHeadroom(cwd: string, texts: string[], env: Record<string, string> 
     const tools = detectReplayTools([]);
     const stats = tools.has("headroom") ? (await runReplays([f], ["headroom"], { tools, full: true, concurrency: 1 })).get("headroom") : undefined;
     console.log(JSON.stringify({ version: tools.get("headroom")?.version, stats, d: f.savers.timelines.main.blocks.map((b) => b.d[0]) }));`;
-  const out = execFileSync(process.execPath, ["--input-type=module", "-e", script], { cwd, env: { ...process.env, SAVER_AUDIT_HEADROOM_PYTHON: PYTHON!, PYTHONPATH: PY_STUBS, SAVER_AUDIT_HOME: join(cwd, "..", "home"), ...env }, encoding: "utf8" });
+  const out = execFileSync(process.execPath, ["--input-type=module", "-e", script], { cwd, env: { ...process.env, SAVER_AUDIT_HEADROOM_PYTHON: PYTHON!, PYTHONPATH: PY_STUBS, SAVER_AUDIT_HOME: join(cwd, "..", "home"), TIKTOKEN_CACHE_DIR: join(PY_STUBS, "tiktoken-cache"), ...env }, encoding: "utf8" });
   return JSON.parse(out);
 }
 
@@ -574,6 +574,39 @@ test("a timed-out saver is ended with the processes it started, which may hold i
     assert.equal(out, undefined, "a timeout is a failed replay");
     assert.ok(Date.now() - t0 < 5000, `returned after ${Date.now() - t0} ms, not when the worker ended`);
     assert.ok(await gone(Number(readFileSync(pidFile, "utf8"))), "the worker was ended too");
+  } finally {
+    t.done();
+  }
+});
+
+test("headroom never downloads its tokenizer during an audit: not cached means not measured", async (c) => {
+  if (!PYTHON) return c.skip("no python3");
+  const t = tmp();
+  try {
+    const repo = join(t.dir, "repo");
+    mkdirSync(repo);
+    const log = join(t.dir, "downloads.jsonl");
+    const proxy = "http://proxy.example:8080"; // the user's own proxy would reach the internet
+    const r = stubHeadroom(repo, [text(0)], { TIKTOKEN_CACHE_DIR: join(t.dir, "no-cache"), FAKE_TIKTOKEN_LOG: log, HTTPS_PROXY: proxy, https_proxy: proxy, NO_PROXY: "*" });
+    const proxies = JSON.parse(readFileSync(log, "utf8").trim());
+    assert.equal(proxies.https, "http://127.0.0.1:9", "a download would go to a local port where nothing listens");
+    assert.doesNotMatch(proxies.no, /\*/, "and is not exempted");
+    assert.deepEqual({ insufficient: r.stats?.insufficient, reason: r.stats?.reason, failed: r.stats?.failed }, { insufficient: true, reason: "tokenizer not cached", failed: 1 });
+  } finally {
+    t.done();
+  }
+});
+
+test("every saver process gets the dead proxy, the version probe too", async () => {
+  const t = tmp();
+  try {
+    const log = join(t.dir, "runs.jsonl");
+    const env = { SAVER_AUDIT_RTK: join(BIN, "fake-saver"), FAKE_ENV_LOG: log, SAVER_AUDIT_HOME: t.dir, SAVER_AUDIT_HEADROOM_PYTHON: "", https_proxy: "http://proxy.example:8080" };
+    const tools = await withEnv(env, () => detectReplayTools(SAVERS.filter((s) => s.id === "rtk")));
+    await withEnv(env, () => runReplays([synth("rtk", [{ key: "k0", input: text(0), args: ["pipe"] }])], ["rtk"], { tools, full: true, concurrency: 1 }));
+    for (const r of readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l))) {
+      assert.deepEqual([r.env.HTTPS_PROXY, r.env.https_proxy, r.env.HTTP_PROXY, r.env.http_proxy], Array(4).fill("http://127.0.0.1:9"), r.args[0]);
+    }
   } finally {
     t.done();
   }
