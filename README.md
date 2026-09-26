@@ -73,14 +73,14 @@ The two biggest items are things no tool-output saver touches:
 - **Re-reading earlier turns:** about a quarter of the cost is earlier assistant turns, thinking included, read again from cache on every call.
 - **The fixed system prompt and tool definitions:** another 17%.
 
-The headroom number is a lower estimate (see below). On Codex alone, where shell output is 44% of the cost, headroom would cut 10.4% and rtk at least 2.1% (token-saver 12.4% and lean-ctx 7.8%, but they work through Claude Code hooks, so those figures are hypothetical).
+lean-ctx and token-saver include a Codex part ($9.81 and $15.51) that is hypothetical, because Codex hooks can't rewrite tool input; the short view and the card above leave it out, so they show $116 and $50. The headroom number is a lower estimate (see below). On Codex alone, where shell output is 44% of the cost, headroom would cut 10.4% and rtk at least 2.1% (token-saver 12.4% and lean-ctx 7.8%, but they work through Claude Code hooks, so those figures are hypothetical).
 
 ## What the labels mean
 
 - **replayed.** saver-audit sends the recorded tool output through *your installed copy* of the saver and counts what is left, measured against what the model actually saw.
   - For example, Claude Code cuts large Bash output down to a preview, so that preview is the baseline.
   - **Quick by default:**
-    - A normal run gives each saver a few seconds; the first run on a busy month takes about 20 s, later runs about 9 s.
+    - A normal run gives each saver a few seconds; the first run on a busy month takes about 20 s, later runs about 10 s.
     - rtk replays up to about 12,000 distinct outputs in its 15 s (the author's month had 3,291), so its number is usually **exact**. Past that, or on a machine too slow to finish in 15 s, the rest is estimated and marked **indicative**.
     - token-saver and lean-ctx are estimated from a sample and marked **indicative**. Outputs worth more in dollars (larger, and re-read by more calls) are more likely to be picked.
     - Each estimate comes with its own likely range, ±X%: two standard errors, in dollars. On the author's month it was ±21% for token-saver and ±16% for lean-ctx.
