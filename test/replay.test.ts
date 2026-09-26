@@ -604,6 +604,20 @@ test("savers run in an empty folder, without the user's own saver settings or st
   }
 });
 
+test("caveman's recovery store can be opened: its folder exists before the engine runs", async () => {
+  // The engine opens CAVEMAN_CCR_DB as given and only creates CAVEMAN_HOME when it
+  // falls back to it; the fake saver does the same with FAKE_STATE.
+  const t = tmp();
+  try {
+    const f = synth("caveman-engine", [0, 1].map((i) => ({ key: `k${i}`, input: text(i) })));
+    const st = (await runReplays([f], ["caveman-engine"], { tools: tool("caveman-engine", "fake-saver", { FAKE_STATE: "1" }), full: true, concurrency: 1 })).get("caveman-engine")!;
+    assert.deepEqual({ ran: st.ran, failed: st.failed, insufficient: st.insufficient }, { ran: 2, failed: 0, insufficient: undefined });
+    assert.ok(deltas(f).every((d) => d > 0), "both outputs measured");
+  } finally {
+    t.done();
+  }
+});
+
 test("rtk runs with its telemetry and hook warning off, for the version probe too", async () => {
   const t = tmp();
   try {

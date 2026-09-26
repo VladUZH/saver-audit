@@ -271,11 +271,15 @@ export function saverRunEnv(m: SaverManifest | undefined, stateDir: string, tool
   return { ...saverEnv(stateDir), ...menv, ...toolEnv };
 }
 
-/** A temporary folder for the savers' state, with an empty working folder ("empty") in it. */
+/**
+ * A temporary folder for the savers' state, with an empty working folder ("empty") in it,
+ * and caveman's home: its engine opens CAVEMAN_CCR_DB as given, without creating the folder.
+ */
 export function makeStateDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "saver-audit-"));
   try {
     mkdirSync(join(dir, "empty")); // no project settings to pick up
+    mkdirSync(join(dir, "caveman"), { mode: 0o700 });
   } catch (err) {
     rmSync(dir, { recursive: true, force: true });
     throw err;
