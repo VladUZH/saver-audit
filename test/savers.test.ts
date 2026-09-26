@@ -7,7 +7,9 @@ import { summarize, type FileResult } from "../src/audit.ts";
 import type { CallRecord } from "../src/accounting/buckets.ts";
 import { runAudit } from "../src/pool.ts";
 import { rtkFilter, SAVERS, saverIndex, splitCodexHeader } from "../src/savers/registry.ts";
-import { persistedHeader, presentedTokens } from "../src/savers/tracker.ts";
+import { persistedHeader, presentedTokens, SaverTracker } from "../src/savers/tracker.ts";
+import { countProxy } from "../src/accounting/tokens.ts";
+import { routeMatches } from "../src/savers/manifest.ts";
 import { emptyUsage } from "../src/sources/types.ts";
 import type { OutputView } from "../src/savers/types.ts";
 import { FAKE_TOOLS, fixtureOptions } from "./helpers.ts";
@@ -56,6 +58,21 @@ test("coverage rules", () => {
   assert.equal(byId.get("rtk")!.appliesTo(view({ command: "pytest" })), true);
   assert.equal(byId.get("rtk")!.appliesTo(view({ command: "ls -la" })), false);
   assert.throws(() => saverIndex(["nope"]));
+});
+
+test("a Claude preview does not hide the full output from tool-stage size rules", () => {
+  const byId = new Map(SAVERS.map((s) => [s.id, s]));
+  const raw = `collected 1200 items\n${"tests/test_x.py::test_case PASSED\n".repeat(1200)}`;
+  const text = `<persisted-output>\nOutput too large (40KB). Full output saved to: /x/y.txt\n\nPreview (first 2KB):\n${raw.slice(0, 2000)}\n</persisted-output>`;
+  const o: OutputView = { source: "claude-code", tool: "Bash", category: "Shell", family: "tests", command: "pytest -q", text, raw, tokens: countProxy(text) };
+  assert.ok(o.tokens < 1000, "the preview is under token-saver's and lean-ctx's floor");
+  const t = new SaverTracker(["token-saver", "lean-ctx", "context-mode"].map((id) => byId.get(id)!), new Set(["token-saver", "lean-ctx"]), () => undefined);
+  t.output("main", undefined, o);
+  assert.deepEqual(t.jobs.map((j) => [j.saver, j.persistedHeader !== undefined]), [["token-saver", true], ["lean-ctx", true]], "the full output is replayed");
+  assert.equal(t.timelines.main!.blocks[0]!.d[2], o.tokens, "context-mode's ceiling: the preview tokens the model saw");
+  // A proxy (request stage) sees the preview, so its size rules apply to that.
+  assert.equal(routeMatches({ minBytes: 5000 }, o), false);
+  assert.equal(routeMatches({ minBytes: 5000 }, o, "tool"), true);
 });
 
 test("saver notes state method caveats only: no sampling claim, no retired flag", () => {

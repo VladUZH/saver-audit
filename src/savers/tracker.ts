@@ -138,17 +138,18 @@ export class SaverTracker {
         return;
       }
       if (!s.replayInput || !this.replayable.has(s.id)) return;
-      if (s.minTokens && o.tokens < s.minTokens) return; // counted as unchanged
+      // Tool-stage savers (hooks like rtk) see the full output before the agent does:
+      // the size floor applies to that, not to a Claude preview of it; a Codex shell
+      // header is kept around their output, and a Claude preview may be re-presented as
+      // a preview if their output is still too long.
+      const toolStage = s.stage === "tool";
+      const full = toolStage && o.raw !== undefined;
+      if (s.minTokens && o.tokens < s.minTokens && !(full && countProxy(o.raw!) >= s.minTokens)) return; // counted as unchanged
       const inp = s.replayInput(o);
       if (!inp || !inp.input) return;
       const key = replayKey(s, o.tool, inp.arg, inp.input, this.versions[s.id]);
-      // Codex shell output keeps its Exit code / Wall time header around rtk's output.
-      // Tool-stage savers (hooks like rtk) see the full output before the agent does:
-      // a Codex shell header is kept around their output, and a Claude preview may be
-      // re-presented as a preview if their output is still too long.
-      const toolStage = s.stage === "tool";
       const header = toolStage && o.source === "codex" && !o.raw ? splitCodexHeader(o.text).header : "";
-      const persisted = o.raw !== undefined && toolStage ? persistedHeader(o.text) : undefined;
+      const persisted = full ? persistedHeader(o.text) : undefined;
       const job: ReplayJob = {
         saver: s.id,
         key,

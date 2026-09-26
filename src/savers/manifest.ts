@@ -118,13 +118,14 @@ export function lastSegment(command: string): string | undefined {
 
 const compiled = new WeakMap<RouteMatch, RegExp>();
 
-export function routeMatches(match: RouteMatch | undefined, o: OutputView): boolean {
+/** `stage` "tool": sizes are those of the full output (behind a Claude preview), which such a saver acts on. */
+export function routeMatches(match: RouteMatch | undefined, o: OutputView, stage?: "tool" | "request"): boolean {
   if (!match) return true;
   if (match.tools && !match.tools.includes(o.tool)) return false;
   if (match.excludeTools?.includes(o.tool)) return false;
   if (match.categories && !match.categories.includes(o.category)) return false;
   if (match.families && !match.families.includes(o.family)) return false;
-  if (match.minBytes !== undefined && Buffer.byteLength(o.text, "utf8") <= match.minBytes) return false;
+  if (match.minBytes !== undefined && Buffer.byteLength(stage === "tool" ? (o.raw ?? o.text) : o.text, "utf8") <= match.minBytes) return false;
   if (match.command !== undefined) {
     const seg = o.command ? lastSegment(o.command) : undefined;
     if (!seg) return false;
@@ -136,7 +137,7 @@ export function routeMatches(match: RouteMatch | undefined, o: OutputView): bool
 }
 
 export function findRoute(m: SaverManifest, o: OutputView): Route | undefined {
-  return m.routes.find((r) => routeMatches(r.match, o));
+  return m.routes.find((r) => routeMatches(r.match, o, m.stage));
 }
 
 export interface LoadedManifests {

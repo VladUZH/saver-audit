@@ -7,6 +7,7 @@
   "method": "upper-bound",
   "covers": "tool outputs over 5,000 bytes",
   "assumption": "ceiling: every tool output over 5,000 bytes disappears (in reality only when the agent passes an intent, or over 102,400 bytes)",
+  "stage": "tool",
   "routes": [
     {
       "match": {
