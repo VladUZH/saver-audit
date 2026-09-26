@@ -1,7 +1,7 @@
 // --card: a 1200×675 PNG share card. It holds numbers, model names, dates and fixed
 // labels only (CLAUDE.md non-negotiable 2): never prompts, paths, commands or project
 // names. SVG is built here and rasterized offline with resvg (WASM) and a bundled font.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AuditResult } from "../audit.ts";
 import { agentNames, confidence, fmtTokens, fmtUsd, loggedDays, measuredCost, onlyHypothetical, periodDays, plural, sessionCount, shortLabel, tooLittleData, unpricedCalls } from "./terminal.ts";
@@ -163,7 +163,17 @@ export async function writeCard(r: AuditResult, path: string): Promise<void> {
   const fontBuffers = [asset("./fonts/JetBrainsMono-Regular.ttf", "../../assets/fonts/JetBrainsMono-Regular.ttf"), asset("./fonts/JetBrainsMono-Bold.ttf", "../../assets/fonts/JetBrainsMono-Bold.ttf")];
   const resvg = new Resvg(cardSvg(r), { font: { fontBuffers, defaultFontFamily: "JetBrains Mono", loadSystemFonts: false } as never, fitTo: { mode: "original" } });
   const png = resvg.render();
-  writeFileSync(path, png.asPng());
+  const bytes = png.asPng();
   png.free();
   resvg.free();
+  // A new file renamed over `path`: a symlink or hard link there (a repo can ship a
+  // saver-audit.png that links to ~/.zshrc) is replaced, never written through.
+  const tmp = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, bytes, { flag: "wx" });
+    renameSync(tmp, path);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
 }
