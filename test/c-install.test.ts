@@ -6,7 +6,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installLeanCtx, installRtk, leanCtxAsset, rtkAsset } from "../src/savers/install.ts";
+import { download, installLeanCtx, installRtk, leanCtxAsset, rtkAsset } from "../src/savers/install.ts";
 import { toolPaths, toolsDir } from "../src/savers/toolsdir.ts";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
@@ -38,6 +38,32 @@ function serve(files: Record<string, Buffer | string>): void {
     return body === undefined ? new Response("", { status: 404 }) : new Response(new Uint8Array(Buffer.from(body)));
   }) as typeof fetch;
 }
+
+/** A body that arrives in `chunks` pieces, one every `gapMs`; then it stalls, or ends. */
+function trickle(chunks: number, gapMs: number, stall = false): void {
+  globalThis.fetch = (async () => {
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(c) {
+        if (sent === chunks) return stall ? new Promise<void>(() => {}) : c.close();
+        await new Promise((r) => setTimeout(r, gapMs));
+        c.enqueue(new Uint8Array(1000).fill(++sent));
+      },
+    });
+    return new Response(body);
+  }) as typeof fetch;
+}
+
+test("a download slower in total than the deadline still finishes while bytes keep arriving", async () => {
+  trickle(8, 40); // ~320 ms in all, never more than 40 ms without a byte
+  const got = await download("https://example.invalid/big", 100, 200);
+  assert.equal(got.length, 8000);
+});
+
+test("a download that stops sending is aborted as stalled", async () => {
+  trickle(2, 10, true);
+  await assert.rejects(download("https://example.invalid/big", 1000, 100), /download stalled/);
+});
 
 const RTK = "#!/bin/sh\necho 'rtk 0.50.0'\n";
 /** Not a program for this machine (like an x86_64 build on 32-bit ARM). */

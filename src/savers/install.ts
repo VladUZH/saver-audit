@@ -86,10 +86,33 @@ export function cavemanSignatureValid(sums: Buffer, bundleJson: string, pubkey =
 
 const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
-async function download(url: string): Promise<Buffer> {
-  const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(120_000) });
-  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+/**
+ * The deadline covers the connection and the response headers. The body may take as
+ * long as a slow link needs; it is aborted only when no bytes arrive for `stallMs`.
+ */
+export async function download(url: string, headersMs = 120_000, stallMs = 30_000): Promise<Buffer> {
+  const ac = new AbortController();
+  const abortIn = (ms: number, why: string) => setTimeout(() => ac.abort(new Error(`${url}: ${why}`)), ms);
+  const aborted = new Promise<never>((_, reject) => ac.signal.addEventListener("abort", () => reject(ac.signal.reason), { once: true }));
+  aborted.catch(() => {});
+  let timer = abortIn(headersMs, `no response in ${headersMs / 1000} s`);
+  try {
+    const res = await Promise.race([fetch(url, { redirect: "follow", signal: ac.signal }), aborted]);
+    if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+    if (!res.body) return Buffer.alloc(0);
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      clearTimeout(timer);
+      timer = abortIn(stallMs, `download stalled (nothing received for ${stallMs / 1000} s)`);
+      const { done, value } = await Promise.race([reader.read(), aborted]);
+      if (done) break;
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export type Say = (s: string) => void;
@@ -280,9 +303,9 @@ export function installPlan(): InstallChoice[] {
   const py = findPython();
   return [
     { id: "rtk", what: `rtk ${RTK_TAG}`, size: "about 4 MB, seconds", available: !!rtkAsset(), why: rtkAsset() ? undefined : "no build for this platform" },
-    { id: "caveman-engine", what: `caveman engine ${CAVEMAN_BIN_TAG}`, size: "about 28 MB, seconds; its first measurement then takes about a minute, cached after", available: !!cavemanAsset(), why: cavemanAsset() ? undefined : "no build for this platform" },
+    { id: "caveman-engine", what: `caveman engine ${CAVEMAN_BIN_TAG}`, size: "about 28 MB; its first measurement then takes about a minute, cached after", available: !!cavemanAsset(), why: cavemanAsset() ? undefined : "no build for this platform" },
     { id: "token-saver", what: `token-saver ${TOKEN_SAVER_TAG}`, size: "under 1 MB, seconds; needs Python 3.10+; its first measurement takes a few minutes on a busy month, cached after", available: !!py && process.platform !== "win32", why: py ? (process.platform === "win32" ? "installer supports macOS and Linux" : undefined) : "needs Python 3.10+" },
-    { id: "lean-ctx", what: `lean-ctx ${LEAN_CTX_TAG}`, size: "about 23 MB, seconds; its first measurement takes a few minutes on a busy month, cached after", available: !!leanCtxAsset(), why: leanCtxAsset() ? undefined : "no build for this platform" },
+    { id: "lean-ctx", what: `lean-ctx ${LEAN_CTX_TAG}`, size: "about 23 MB; its first measurement takes a few minutes on a busy month, cached after", available: !!leanCtxAsset(), why: leanCtxAsset() ? undefined : "no build for this platform" },
     { id: "headroom", what: `headroom ${HEADROOM_VERSION} + its model`, size: "about 1.6 GB, a few minutes", available: !!py, why: py ? undefined : "needs Python 3.10+" },
   ];
 }
