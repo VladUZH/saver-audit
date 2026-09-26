@@ -37,6 +37,27 @@ function localDay(iso: string): string {
 
 const METHOD: Record<string, string> = { replayed: "replayed", modeled: "modeled", "upper-bound": "ceiling" };
 
+/**
+ * `head` and as many `items` as fit in `max` characters (the font is monospaced), then
+ * "+N more" for the rest. A first item too long on its own is cut with "…".
+ */
+export function fitList(head: string, items: string[], max: number): string {
+  let line = head;
+  for (let i = 0; i < items.length; i++) {
+    const rest = items.length - i - 1;
+    const more = rest ? ` · +${rest} more` : "";
+    const next = `${line}${i ? " ·" : ""} ${items[i]}`;
+    if ((next + more).length <= max) {
+      line = next;
+      continue;
+    }
+    // The previous step left room for "+N more".
+    if (i) return `${line} · +${rest + 1} more`;
+    return `${line} ${items[0]!.slice(0, Math.max(1, max - line.length - more.length - 2))}…${more}`;
+  }
+  return line;
+}
+
 export function cardSvg(r: AuditResult): string {
   const total = r.billing.total.cost;
   // Logs can cover less than the period (Claude Code keeps 30 days by default); say so.
@@ -87,10 +108,10 @@ export function cardSvg(r: AuditResult): string {
     parts.push(text(rx + 4, top + 88, "No saver measured yet.", 17, C.muted));
     parts.push(text(rx + 4, top + 114, "npx saver-audit --install-savers", 15, C.muted));
   }
-  const bounds = r.savers.filter((s) => s.status === "ok" && s.method === "upper-bound");
+  const bounds = r.savers.filter((s) => s.status === "ok" && s.method === "upper-bound").sort((a, b) => b.cost - a.cost);
   if (bounds.length && total) {
-    const line = `best case, not measured: ${bounds.map((s) => `${s.name} ≤ ${((100 * s.cost) / total).toFixed(0)}%`).join(" · ")}`;
-    parts.push(text(rx + 4, top + panelH - 22, line, 13, C.muted));
+    const items = bounds.map((s) => `${s.name} ≤ ${((100 * s.cost) / total).toFixed(0)}%`);
+    parts.push(text(rx + 4, top + panelH - 22, fitList("best case, not measured:", items, Math.floor((rightW - 8) / (0.6 * 13))), 13, C.muted));
   }
   savers.forEach((s, i) => {
     const y = top + 82 + i * ROW;

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AuditResult, SaverRow } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
-import { cardSvg } from "../src/report/card.ts";
+import { cardSvg, fitList } from "../src/report/card.ts";
 import { shareText, xLength } from "../src/report/share.ts";
 import { renderShort, renderTerminal } from "../src/report/terminal.ts";
 import { CLAUDE_ROOT, FAKE_TOOLS, fixtureOptions } from "./helpers.ts";
@@ -163,4 +163,17 @@ test("a period with only a subagent's calls names its agent and counts subagent 
   assert.match(svg, />Claude Code</);
   assert.match(shareText(r), /^My AI coding agents \(Claude Code\) used /);
   assert.match(renderTerminal(r, OPTS), /^0 sessions \+ 1 subagent runs, /m);
+});
+
+test("the card's best-case line stays inside its panel with any number of ceilings", () => {
+  const bound = (id: string, cost: number) => saver(id, id, cost, { method: "upper-bound" });
+  const line = (r: AuditResult) => /best case, not measured:[^<]*/.exec(cardSvg(r))![0].replace(/&lt;/g, "<");
+  const two = line(result({ savers: [bound("codegraph", 43.7), bound("context-mode", 53.1)] }));
+  assert.equal(two, "best case, not measured: context-mode ≤ 17% · codegraph ≤ 14%");
+  const four = line(result({ savers: [bound("codegraph", 43.7), bound("context-mode", 53.1), bound("smart-file-reader", 25), bound("mcp-slim", 12.5)] }));
+  // The right panel's text area is 512 px: 65 characters of 13 px JetBrains Mono.
+  assert.ok(four.length <= 65, four);
+  assert.match(four, /^best case, not measured: context-mode ≤ 17% · \+3 more$/);
+  assert.equal(fitList("head:", ["a-very-long-community-saver-name ≤ 12%", "b ≤ 1%"], 30), "head: a-very-long-c… · +1 more", "30 characters");
+  assert.equal(fitList("head:", ["aa", "bb", "cc"], 40), "head: aa · bb · cc");
 });
