@@ -4,7 +4,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AuditResult } from "../audit.ts";
-import { confidence, fmtTokens, fmtUsd, shortLabel, tooLittleData } from "./terminal.ts";
+import { confidence, fmtTokens, fmtUsd, shortLabel, tooLittleData, unpricedCalls } from "./terminal.ts";
 
 const W = 1200;
 const H = 675;
@@ -49,7 +49,9 @@ export function cardSvg(r: AuditResult): string {
 
   // Headline
   parts.push(text(PAD, 172, fmtUsd(total), 84, C.text, { bold: true }));
-  parts.push(text(PAD, 208, "API-equivalent at list prices, prompt cache included", 18, C.muted));
+  parts.push(text(PAD, 208, `API-equivalent at list prices of ${r.prices.date}, prompt cache included`, 18, C.muted));
+  const unpriced = unpricedCalls(r);
+  if (unpriced) parts.push(text(PAD, 233, `excludes ${unpriced.toLocaleString("en-US")} ${unpriced === 1 ? "call" : "calls"} on unpriced models`, 15, C.accent));
   parts.push(text(W - PAD, 132, `${fmtTokens(r.billing.total.tokens)} tokens`, 26, C.text, { anchor: "end", bold: true }));
   parts.push(text(W - PAD, 166, `${r.calls.toLocaleString("en-US")} API calls · ${r.sessions.main.toLocaleString("en-US")} sessions`, 18, C.muted, { anchor: "end" }));
   const sources = Object.keys(r.sessions.bySource).map((s) => (s === "claude-code" ? "Claude Code" : "Codex")).join(" + ");

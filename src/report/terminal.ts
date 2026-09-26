@@ -47,7 +47,9 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
   out.push(dim(`${r.sessions.main} sessions · ${r.calls.toLocaleString("en-US")} API calls${took}`));
   out.push("");
   out.push(`${bold(accent(fmtUsd(total)))} ${bold("API-equivalent at list prices")} · ${fmtTokens(r.billing.total.tokens)} tokens`);
-  out.push(dim("Not your bill: on a subscription you pay the plan price."));
+  const unpriced = unpricedCalls(r);
+  if (unpriced) out.push(accent(`Excludes ${unpriced.toLocaleString("en-US")} ${unpriced === 1 ? "call" : "calls"} on unpriced models: ${[...new Set(r.models.filter((m) => !m.pricedAs).map((m) => m.model))].join(", ")} (tokens counted, $0).`));
+  out.push(dim(`Not your bill: on a subscription you pay the plan price. List prices of ${r.prices.date}.`));
   out.push("");
 
   out.push(bold("Where it went"));
@@ -86,6 +88,11 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
   }
   if (o.cardPath) out.push(`Share card: ${bold(o.cardPath)}`);
   return out.join("\n") + "\n";
+}
+
+/** Calls on models without a price: their tokens are counted, their dollars are not in the total. */
+export function unpricedCalls(r: AuditResult): number {
+  return r.models.reduce((n, m) => n + (m.pricedAs ? 0 : m.calls), 0);
 }
 
 const BAR = 24;

@@ -5,7 +5,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { AuditResult } from "../audit.ts";
-import { isIndicative, tooLittleData } from "./terminal.ts";
+import { isIndicative, tooLittleData, unpricedCalls } from "./terminal.ts";
 
 export const REPO_URL = "https://github.com/VladUZH/saver-audit";
 
@@ -33,6 +33,8 @@ export function shareText(r: AuditResult): string {
   const measured = ok.filter((s) => s.method === "replayed" && !tooLittleData(s)).sort((a, b) => b.cost - a.cost);
   const ceiling = ok.filter((s) => s.method === "upper-bound").sort((a, b) => b.cost - a.cost)[0];
   const cut = (s: (typeof ok)[number]) => (s.cost >= 0 ? `−${pct(s.cost)} (${usd(s.cost)})` : `+${pct(-s.cost)} (costs ${usd(-s.cost)})`);
+  // Calls on unpriced models are not in the total, so it is a lower bound.
+  const spend = `${unpricedCalls(r) ? "at least " : ""}${usd(total)}`;
 
   const best = ceiling ? `Best case (changes how the agent works): at most −${pct(ceiling.cost)} (${ceiling.name}).` : "";
   const tail = ["", measured.length ? "What would they cut for you? npx saver-audit" : "What would savers cut for you? npx saver-audit"];
@@ -44,18 +46,18 @@ export function shareText(r: AuditResult): string {
     // "≈" marks numbers not fully measured (a quick sample, or failed replays).
     const approx = (s: (typeof ok)[number]) => (isIndicative(s) ? "≈" : "");
     const lines = measured.map((s) => `${short(s.name)} ${approx(s)}${cut(s)}`);
-    const totalLine = `of ${usd(total)} API-equivalent spend.`;
+    const totalLine = `of ${spend} API-equivalent spend.`;
     // Compact form: every measured saver with its % only, before falling back to the top 3.
     const compact = measured.map((s) => `${short(s.name)} ${approx(s)}${s.cost >= 0 ? "−" : "+"}${pct(Math.abs(s.cost))}`);
     candidates.push(
       [longHead, ...lines, totalLine, best],
       [longHead, ...lines, totalLine],
       [shortHead, ...lines, totalLine],
-      [`${shortHead.replace(/:$/, "")} (of ${usd(total)} API-equivalent spend):`, ...compact],
+      [`${shortHead.replace(/:$/, "")} (of ${spend} API-equivalent spend):`, ...compact],
       [shortHead, ...lines.slice(0, 3), totalLine],
     );
   } else {
-    const head = `My AI coding agents (${agents}) used ${usd(total)} of API-equivalent tokens in ${days} days.`;
+    const head = `My AI coding agents (${agents}) used ${spend} of API-equivalent tokens in ${days} days.`;
     candidates.push([head, best], [head]);
   }
   for (const c of candidates) {
