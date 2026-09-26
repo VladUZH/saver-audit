@@ -321,7 +321,7 @@ interface InstallFlowOptions {
 /** Explains, asks, then installs the missing savers. Counts what was installed and what failed. */
 async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; failed: number }> {
   const { headroomIncomplete, install } = await import("./savers/install.ts");
-  const { detectReplayTools } = await import("./savers/replay.ts");
+  const { detectReplayTools, isOutdated } = await import("./savers/replay.ts");
   const have = detectReplayTools();
   const out = o.out;
   const bold = (x: string) => (o.color ? `\x1b[1m${x}\x1b[0m` : x);
@@ -333,8 +333,15 @@ async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; 
     have.delete("headroom");
     out.write("\nheadroom is installed but its model is missing; finishing the install.\n");
   }
+  // One found but older than its adapter (an old rtk on PATH) is offered too: once the
+  // current one is in the tools folder, detection takes it. Not headroom: a user's own
+  // headroom always comes first.
+  const older = (id: string) => {
+    const t = have.get(id);
+    return t && id !== "headroom" && isOutdated(t.version, saverIndex([id])[0]!.version) ? t.version : undefined;
+  };
   // headroom is 1.6 GB and minutes of waiting: only on explicit request (--with-headroom).
-  const plan = installPlan().filter((c) => !have.has(c.id) && (c.id !== "headroom" || o.all));
+  const plan = installPlan().filter((c) => (!have.has(c.id) || older(c.id)) && (c.id !== "headroom" || o.all));
   if (!plan.length) {
     out.write(have.has("headroom") || o.all ? "\nAll replayed savers are already installed.\n" : "\nThe quick savers are installed. headroom (1.6 GB, minutes): npx saver-audit --install-savers --with-headroom\n");
     return { installed: 0, failed: 0 };
@@ -355,6 +362,7 @@ async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; 
       out.write(`  ${c.what}: skipped (${c.why})\n`);
       continue;
     }
+    if (older(c.id)) out.write(`  ${c.what}: the ${older(c.id)} found is older than the version saver-audit was written for.\n`);
     if (!canAsk) {
       unasked.push(c.what);
       continue;
