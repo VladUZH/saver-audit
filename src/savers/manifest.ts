@@ -166,6 +166,11 @@ export function usesCommand(r: Route): boolean {
   return (r.args ?? []).some((a) => a.includes("{command}"));
 }
 
+/** A route's arguments for one output: "{command}" becomes its shell command. */
+export function routeArgs(r: Route, command: string): string[] {
+  return (r.args ?? []).map((a) => a.split("{command}").join(command)); // literal: no "$&" patterns
+}
+
 /** The first matching route; one that passes "{command}" only matches outputs with a recorded command. */
 export function findRoute(m: SaverManifest, o: OutputView): Route | undefined {
   return m.routes.find((r) => routeMatches(r.match, o, m.stage) && (!!o.command || !usesCommand(r)));

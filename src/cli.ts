@@ -397,11 +397,11 @@ async function askLine(q: string, out: NodeJS.WriteStream): Promise<boolean> {
 
 /** For saver authors: validate a manifest, find its program, run it once on a sample. */
 async function checkSaver(file: string): Promise<number> {
-  const { readFileSync } = await import("node:fs");
+  const { readFileSync, rmSync } = await import("node:fs");
   const { spawnSync } = await import("node:child_process");
-  const { validateManifest } = await import("./savers/manifest.ts");
+  const { routeArgs, usesCommand, validateManifest } = await import("./savers/manifest.ts");
   const { manifestAdapter } = await import("./savers/registry.ts");
-  const { detectReplayTools } = await import("./savers/replay.ts");
+  const { detectReplayTools, makeStateDir, ratioResult, saverRunEnv } = await import("./savers/replay.ts");
   const out = process.stdout;
   let m: any;
   try {
@@ -423,13 +423,34 @@ async function checkSaver(file: string): Promise<number> {
     return 1;
   }
   out.write(`  program: ${tool.command}${tool.version ? ` (${tool.version})` : ""}\n`);
+  // Run as a replay runs it: the first route with a sample command for "{command}", the
+  // manifest's environment, and a temporary state folder (removed after).
   const sample = Array.from({ length: 40 }, (_, i) => `line ${i}: PASSED tests/test_example.py::test_${i}`).join("\n");
-  const args = m.routes[0].args ?? [];
+  const command = "pytest -q";
+  const args = routeArgs(m.routes[0], command);
+  if (usesCommand(m.routes[0])) out.write(`  sample command for "{command}": ${command}\n`);
+  let state: string;
+  try {
+    state = makeStateDir();
+  } catch (err) {
+    out.write(`  cannot create a temporary folder (${(err as NodeJS.ErrnoException).code ?? "error"}); no sample run\n`);
+    return 1;
+  }
   const t0 = performance.now();
-  const r = spawnSync(tool.command, args, { input: sample, encoding: "utf8", timeout: 30_000, env: { ...process.env, DO_NOT_TRACK: "1" } });
+  let r;
+  try {
+    r = spawnSync(tool.command, args, { input: sample, encoding: "utf8", timeout: 30_000, cwd: join(state, "empty"), env: saverRunEnv(m, state, tool.env) });
+  } finally {
+    rmSync(state, { recursive: true, force: true, maxRetries: 3 });
+  }
   const ms = Math.round(performance.now() - t0);
   if (r.status !== 0) {
     out.write(`  sample run failed: exit ${r.status ?? "?"}${r.stderr ? `: ${String(r.stderr).trim().split("\n").pop()}` : ""}\n`);
+    return 1;
+  }
+  // A replay whose output lacks the counts fails too.
+  if (m.jsonRatio && !ratioResult(String(r.stdout), m.jsonRatio, 1000)) {
+    out.write(`  sample run failed: its output is not JSON with numbers in "${m.jsonRatio.before}" and "${m.jsonRatio.after}" (jsonRatio)\n`);
     return 1;
   }
   out.write(`  sample run ok: ${sample.length} chars in, ${String(r.stdout).length} chars out, ${ms} ms\n`);
