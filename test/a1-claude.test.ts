@@ -248,6 +248,47 @@ test("a rewind to an earlier prompt gives the context of the kept conversation",
   });
 });
 
+/** Per call and saver: the saver's deltas on blocks already in context, and on new ones. */
+const credit = (r: FileResult) =>
+  r.records.map((x) => {
+    const blocks = r.savers!.timelines[x.range!.tl]!.blocks;
+    const sum = (a: number, z: number, i: number) => blocks.slice(a, z).reduce((n, b) => n + b.d[i]! + b.r[i]!, 0);
+    return r.savers!.covered.map((_, i) => [sum(x.range!.ctxStart, x.range!.newStart, i), sum(x.range!.newStart, x.range!.newEnd, i)]);
+  });
+
+test("after a rewind, savers keep crediting the kept conversation as without the abandoned branch", async () => {
+  await withDir(async (run) => {
+    const head = [
+      prompt("p0", "00:00", "build it", null),
+      assistant("m0", "00:01", "msg_0", [bash("t0", "npm run build")], usage(5000, 0, 50), undefined, "p0"),
+      toolResult("r0", "00:02", "t0", log(200, "build"), "m0"),
+      assistant("m1", "00:03", "msg_1", [text("fixed it")], usage(900, 5000, 20), undefined, "r0"),
+    ];
+    const abandoned = [
+      prompt("p1", "00:04", "now run the tests", "m1"),
+      assistant("m2", "00:05", "msg_2", [bash("t2", "npm test")], usage(30, 5900, 40), undefined, "p1"),
+      toolResult("r2", "00:06", "t2", log(200, "tests"), "m2"),
+      assistant("m3", "00:07", "msg_3", [text("tests fail")], usage(3000, 5930, 20), undefined, "r2"),
+    ];
+    const tail = [
+      prompt("p2", "00:08", "instead, update the changelog", "m1"),
+      assistant("m4", "00:09", "msg_4", [text("done")], usage(40, 5900, 10), undefined, "p2"),
+      prompt("p3", "00:10", "thanks", "m4"),
+      assistant("m5", "00:11", "msg_5", [text("ok")], usage(20, 5950, 5), undefined, "p3"),
+    ];
+    // An upper bound on tool output, and an output style (its block follows each call).
+    const savers = { ids: ["context-mode", "caveman-skill"], replayable: [] };
+    const branched = await run([...head, ...abandoned, ...tail], savers);
+    const linear = await run([...head, ...tail], savers);
+    assert.deepEqual(credit(branched).slice(4), credit(linear).slice(2));
+    assert.ok(credit(linear)[2]![0]![0]! > 0, "the kept build log is credited on every later call");
+    assert.ok(credit(linear)[2]![1]![1]! > 0, "the rewound-to call's output style counts as new on the next call");
+    // Replay results are written to a job's block after the worker's structured clone: the kept copy is the same object.
+    const blocks = structuredClone(branched).savers!.timelines.main!.blocks;
+    assert.equal(blocks.filter((b) => b === blocks[1]).length, 2);
+  });
+});
+
 test("an ordinary parentUuid chain, with parallel tool results, is not a rewind", async () => {
   await withDir(async (run) => {
     const rows = (withParents: boolean) => {

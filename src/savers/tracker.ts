@@ -22,6 +22,8 @@ export interface CallRange {
   ctxStart: number;
   newStart: number;
   newEnd: number;
+  /** Block count right after the call (its output-style block included). */
+  end: number;
   /** First call in this timeline (a prompt-level addition is new, not cached, here). */
   first: boolean;
 }
@@ -122,6 +124,20 @@ export class SaverTracker {
     t.pendStart = t.blocks.length;
   }
 
+  /**
+   * The context goes back to what it was right after the call with this range (none:
+   * the start). Its blocks are appended again, as the same objects, so replay results
+   * written to the originals count here too.
+   */
+  rewind(timeline: string, range: CallRange | undefined): void {
+    if (!range || range.tl !== timeline) return this.compact(timeline);
+    const t = this.tl(timeline);
+    const start = t.blocks.length;
+    t.blocks.push(...t.blocks.slice(range.ctxStart, range.end));
+    t.ctxStart = start;
+    t.pendStart = start + range.newEnd - range.ctxStart;
+  }
+
   output(timeline: string, timestamp: string | undefined, o: OutputView): void {
     const t = this.tl(timeline);
     const block = this.zero();
@@ -176,7 +192,7 @@ export class SaverTracker {
   /** Marks a call's block range; returns it for the CallRecord. */
   call(timeline: string, output: number): CallRange {
     const t = this.tl(timeline);
-    const range = { tl: timeline, ctxStart: t.ctxStart, newStart: t.pendStart, newEnd: t.blocks.length, first: t.calls++ === 0 };
+    const range = { tl: timeline, ctxStart: t.ctxStart, newStart: t.pendStart, newEnd: t.blocks.length, end: t.blocks.length, first: t.calls++ === 0 };
     // Output-style saver: part of this call's output is never written, so it is also
     // never re-read by later calls in this context.
     if (this.skillIdx >= 0 && output > 0) {
@@ -184,6 +200,7 @@ export class SaverTracker {
       b.r[this.skillIdx] = output * CAVEMAN_SKILL_OUTPUT_CUT;
       t.blocks.push(b);
     }
+    range.end = t.blocks.length;
     t.pendStart = range.newEnd;
     return range;
   }

@@ -124,8 +124,8 @@ export class ContextTracker {
 
   /**
    * The context goes back to what it was right after call `key` (null: the start).
-   * User-side content logged between that call and the prompt is not restored. Saver
-   * blocks cannot be restored this way, so savers restart their context as after a compaction.
+   * User-side content logged between that call and the prompt is not restored, for the
+   * savers either.
    */
   private rewind(timeline: string, key: string | null): void {
     const t = fresh();
@@ -139,7 +139,7 @@ export class ContextTracker {
       if (th) [t.think, t.thinkVis, t.pendThink, t.pendVis] = th;
     }
     this.timelines.set(timeline, t);
-    this.savers?.compact(timeline);
+    this.savers?.rewind(timeline, rec?.range);
   }
 
   turn(turn: Turn): void {
