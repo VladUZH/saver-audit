@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { processFile } from "../src/audit.ts";
 import { codexHome, codexUsage, findCodexFiles, parseCodexFile, shellCommand } from "../src/sources/codex.ts";
 import { shellFamily, toolCategory } from "../src/accounting/categories.ts";
 import { CODEX_HOME, collect } from "./helpers.ts";
@@ -47,6 +48,17 @@ test("tool outputs are labelled with the tool and a shell family", async () => {
   assert.deepEqual(results.map((b) => b.kind === "tool_result" && [b.tool, b.family]), [["exec", "git"], ["exec_command", "tests"]]);
   const kinds = ev.flatMap((e) => (e.t === "turn" && e.turn.role === "user" ? [e.turn.userKind] : []));
   assert.deepEqual(kinds, ["system", "injected", "prompt", "tool-results", "tool-results", "compaction-summary"]);
+});
+
+test("base instructions are marked as sent with every request; nothing else is", async () => {
+  const ev = await collect(parseCodexFile(thr1));
+  const users = ev.flatMap((e) => (e.t === "turn" && e.turn.role === "user" ? [e.turn] : []));
+  assert.deepEqual(users.map((t) => t.resent === true), [true, false, false, false, false, false]);
+  assert.equal(users[0]!.userKind, "system");
+  // So the call after the compaction still has them in context.
+  const recs = (await processFile(thr1, "codex", 0)).records;
+  assert.equal(recs.length, 3);
+  assert.ok((recs[2]!.oldRaw.system ?? 0) > 0, "base instructions in context after the compaction");
 });
 
 test("forked threads: the replayed burst is not billed, the thread's own usage is", async () => {

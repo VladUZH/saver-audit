@@ -77,8 +77,9 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
         }
         yield { t: "session", session };
         const base = p.base_instructions?.text;
+        // Sent with every request, so a compaction keeps them (developer messages it replaces).
         if (typeof base === "string" && base) {
-          yield { t: "turn", turn: { index: index++, role: "user", timeline: "main", timestamp, blocks: [{ kind: "text", text: base }], userKind: "system" } };
+          yield { t: "turn", turn: { index: index++, role: "user", timeline: "main", timestamp, blocks: [{ kind: "text", text: base }], userKind: "system", resent: true } };
         }
         break;
       }

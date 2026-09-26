@@ -106,8 +106,8 @@
       "key": "residual",
       "label": "Not in logs: system prompt, tool definitions",
       "group": "context",
-      "tokens": 7313,
-      "cost": 0.013187
+      "tokens": 7303,
+      "cost": 0.013185
     },
     {
       "key": "output",
@@ -148,8 +148,8 @@
       "key": "system",
       "label": "Recorded system prompt & instructions",
       "group": "context",
-      "tokens": 20,
-      "cost": 0.000022
+      "tokens": 30,
+      "cost": 0.000024
     },
     {
       "key": "compaction",
