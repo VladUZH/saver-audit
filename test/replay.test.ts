@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -208,6 +209,31 @@ test("a replay the OS refuses to start (argument too long, NUL byte) counts as f
     const d = deltas(f);
     assert.deepEqual([d[1], d[3]], [0, 0]);
     assert.ok([d[0], d[2], d[4]].every((x) => x! > 0));
+  } finally {
+    t.done();
+  }
+});
+
+test("Ctrl+C during a replay removes the savers' state folder (copies of tool output) and still exits", async () => {
+  const t = tmp();
+  try {
+    const temp = join(t.dir, "tmp");
+    mkdirSync(temp);
+    const script = `
+      import { runReplays } from ${JSON.stringify(new URL("../src/savers/replay.ts", import.meta.url).href)};
+      const jobs = [0, 1].map((i) => ({ saver: "caveman-engine", key: "k" + i, tool: "Bash", cls: "c", baseline: 100, headerTokens: 0, addTokens: 0, timeline: "main", block: i, input: i + " SLOW tool output", args: [] }));
+      const f = { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: jobs.map(() => ({ d: [0], r: [0] })) } }, jobs, covered: [0], toolTokens: 0 } };
+      const tools = new Map([["caveman-engine", { saver: "caveman-engine", command: ${JSON.stringify(join(BIN, "fake-saver"))}, env: { FAKE_SLEEP_MS: "30000", FAKE_STATE: "1" } }]]);
+      await runReplays([f], ["caveman-engine"], { tools, full: true, concurrency: 2 });`;
+    const child = spawn(process.execPath, ["--input-type=module", "-e", script], { env: { ...process.env, TMPDIR: temp }, stdio: "ignore" });
+    const exited = new Promise<NodeJS.Signals | null>((r) => child.on("exit", (_code, sig) => r(sig)));
+    const stored = () => readdirSync(temp).some((d) => existsSync(join(temp, d, "caveman", "ccr.db")));
+    for (let n = 0; n < 200 && !stored(); n++) await new Promise((r) => setTimeout(r, 50));
+    assert.ok(stored(), "the fake saver wrote its state");
+    child.kill("SIGINT");
+    assert.equal(await exited, "SIGINT", "ends as interrupted");
+    await new Promise((r) => setTimeout(r, 200));
+    assert.deepEqual(readdirSync(temp), []);
   } finally {
     t.done();
   }

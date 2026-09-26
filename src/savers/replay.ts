@@ -2,7 +2,7 @@
 // Never bundles saver code (CLAUDE.md non-negotiable 6); a saver that is not
 // installed is skipped with a note. Every saver runs with telemetry off and its
 // state in a temporary folder.
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -152,7 +152,8 @@ function saverEnv(stateDir: string): NodeJS.ProcessEnv {
   };
 }
 
-function runOnce(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string | undefined> {
+/** Runs one saver process; `live` holds it while it runs. */
+function runOnce(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, timeoutMs: number, live: Set<ChildProcess>): Promise<string | undefined> {
   return new Promise((resolve) => {
     let child;
     try {
@@ -161,15 +162,18 @@ function runOnce(cmd: string, args: string[], input: string, env: NodeJS.Process
       // Refused before starting (e.g. E2BIG: a recorded command over the argument limit).
       return resolve(undefined);
     }
+    live.add(child);
     const chunks: Buffer[] = [];
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.stdout.on("data", (c: Buffer) => chunks.push(c));
     child.on("error", () => {
       clearTimeout(timer);
+      live.delete(child);
       resolve(undefined);
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      live.delete(child);
       resolve(code === 0 ? Buffer.concat(chunks).toString("utf8") : undefined);
     });
     child.stdin.on("error", () => {});
@@ -230,7 +234,7 @@ for line in sys.stdin:
 
 /** One long-lived headroom process; the model loads once, as in a running headroom proxy. */
 class HeadroomSidecar {
-  private child;
+  readonly child: ChildProcess;
   private closed = false;
   private buf = "";
   private waiting = new Map<number, (out: string | undefined) => void>();
@@ -238,7 +242,8 @@ class HeadroomSidecar {
   readonly ready: Promise<boolean>;
 
   constructor(python: string, env: NodeJS.ProcessEnv) {
-    this.child = spawn(python, ["-u", "-c", HEADROOM_SIDECAR], { env, stdio: ["pipe", "pipe", "ignore"] });
+    const child = spawn(python, ["-u", "-c", HEADROOM_SIDECAR], { env, stdio: ["pipe", "pipe", "ignore"] });
+    this.child = child;
     let resolveReady: (v: boolean) => void = () => {};
     this.ready = new Promise((r) => (resolveReady = r));
     this.child.on("error", () => {
@@ -251,7 +256,7 @@ class HeadroomSidecar {
       for (const f of this.waiting.values()) f(undefined);
       this.waiting.clear();
     });
-    this.child.stdout.on("data", (chunk: Buffer) => {
+    child.stdout.on("data", (chunk: Buffer) => {
       this.buf += chunk.toString("utf8");
       for (let nl = this.buf.indexOf("\n"); nl >= 0; nl = this.buf.indexOf("\n")) {
         const line = this.buf.slice(0, nl);
@@ -270,7 +275,7 @@ class HeadroomSidecar {
         }
       }
     });
-    this.child.stdin.on("error", () => {});
+    child.stdin.on("error", () => {});
   }
 
   /** Resolves "timeout" if it takes longer than `ms` (the sidecar is then unusable). */
@@ -280,12 +285,12 @@ class HeadroomSidecar {
     return new Promise((resolve) => {
       const timer = Number.isFinite(ms) ? setTimeout(() => (this.waiting.delete(i), resolve("timeout")), ms) : undefined;
       this.waiting.set(i, (out) => (clearTimeout(timer), resolve(out)));
-      this.child.stdin.write(JSON.stringify({ i, tool, text }) + "\n");
+      this.child.stdin!.write(JSON.stringify({ i, tool, text }) + "\n");
     });
   }
 
   close(): void {
-    this.child.stdin.end();
+    this.child.stdin!.end();
     this.child.kill();
   }
 }
@@ -355,6 +360,20 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     if (saveError) o.log?.(`replay cache not saved (${saveError}); these outputs will be replayed again next run.`);
   };
   let dirty = false;
+  // Ctrl+C or a kill: stop the savers and remove their state folder (it holds copies of
+  // tool output), then end the way the signal would have.
+  const live = new Set<ChildProcess>();
+  const onSignal = (sig: NodeJS.Signals) => {
+    for (const c of live) c.kill("SIGKILL");
+    try {
+      if (state) rmSync(state, { recursive: true, force: true });
+    } catch {
+      // nothing more to do on the way out
+    }
+    process.kill(process.pid, sig);
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
   // Savers run at the same time; each has its own time budget in quick mode.
   const one = async (saver: string, unique: Map<string, ReplayJob>): Promise<void> => {
       const tool = o.tools.get(saver);
@@ -417,6 +436,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       const env = saverEnv(dir);
       if (saver === "headroom") {
         const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(dir, "headroom") });
+        live.add(side.child);
         try {
           if (!(await side.ready)) {
             failAll("compression model not cached");
@@ -433,6 +453,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
           }
         } finally {
           side.close();
+          live.delete(side.child);
         }
       } else {
         const m = adapters.get(saver)?.manifest;
@@ -442,7 +463,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         const ratio = m?.jsonRatio;
         attempted = await pool(todo, WAIT_BOUND.has(saver) ? o.concurrency * 3 : o.concurrency, async (key) => {
           const j = unique.get(key)!;
-          const out = await runOnce(tool.command, j.args ?? [], j.input, runEnv, 60_000);
+          const out = await runOnce(tool.command, j.args ?? [], j.input, runEnv, 60_000, live);
           if (!ratio || out === undefined) return store(key, out);
           // The program reports its own before/after counts: apply its ratio to our count.
           const r = ratioResult(out, ratio, countProxy(j.input));
@@ -459,6 +480,8 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     const order = [...bySaver].sort(([a], [b]) => (RATE[b] ?? DEFAULT_RATE) - (RATE[a] ?? DEFAULT_RATE));
     for (const [saver, unique] of order) await one(saver, unique);
   } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
     try {
       if (state) rmSync(state, { recursive: true, force: true });
     } catch {

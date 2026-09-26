@@ -106,7 +106,14 @@ export async function keyMenu(out: NodeJS.WriteStream, items: () => MenuItem[], 
     };
     const onKey = async (buf: Buffer) => {
       const k = buf.toString("utf8").toLowerCase();
-      if (k === "\u0003") return done();
+      if (k === "\u0003") {
+        if (!busy) return done();
+        // Raw mode turns Ctrl+C into a key. During an action (an exact replay) stop as a
+        // real Ctrl+C would, so the replay stops its savers and removes their state.
+        stdin.setRawMode(false);
+        process.kill(process.pid, "SIGINT");
+        return;
+      }
       if (answer) return answer(k);
       if (busy) return;
       if (k === "q" || k === "\u001b" || k === "\r") return done();
