@@ -160,8 +160,10 @@ Caveman and context-mode can only *deny* on Codex, not rewrite, so their Codex n
 - It keeps more context than the built-in summary, so any token number would be mostly assumption.
 
 **"Sampling?"**
-- By default, big replays run on a deterministic sample, labelled "sample N%".
-- Sampling was checked against full replays and was off by up to 40% for caveman, so rtk and caveman are now replayed in full (caveman above 500 tokens, about 5% conservative). headroom's 300-output sample was within 3% over the month but off by 20–37% on single weeks, so the launch numbers use its full replay (tech-notes §8.9).
+- The launch numbers are exact: every output above each saver's floor was replayed (`--exact`).
+- A default run is quick: token-saver and lean-ctx replay a sample drawn in proportion to each output's dollar weight and are labelled "indicative" with their own ±X% (two standard errors). On the author's month and weeks the dollar error averaged 7.5% (median 4.6%), against 28% for the earlier sampler (tech-notes §8.13–8.14).
+- rtk replays everything in its 15 s. The caveman engine and headroom use results from an exact run and show "—" until there is one.
+- Repeat runs over the same logs reuse the same sample, so the numbers don't jump between runs.
 
 **"Is it biased against savers?"**
 - Conservative choices are listed in STATUS.md:
