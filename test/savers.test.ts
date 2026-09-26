@@ -54,6 +54,51 @@ test("rtk is credited only for commands its hook rewrites (`rtk rewrite`, rtk 0.
   for (const cmd of leftAlone) assert.equal(rtkFilter(cmd), undefined, cmd);
 });
 
+test("in a pipeline rtk is credited for the stage its hook rewrites (`rtk rewrite`, rtk 0.50.0)", () => {
+  const rewritten: Array<[string, string]> = [
+    // a final grep or rg: `pytest -q 2>&1 | rtk grep FAILED`
+    ["pytest -q 2>&1 | grep FAILED", "grep"],
+    ["cargo test 2>&1 | grep -A5 panicked", "grep"],
+    ["git diff | grep foo", "grep"],
+    ["pytest -q | sort | grep FAIL", "grep"],
+    // the first program, when the rest only passes its output through
+    ["pytest -q | tail -5", "pytest"],
+    ["cargo test 2>&1 | tail -30", "cargo-test"],
+    ["git diff | cat", "git-diff"],
+    ["pytest -q | head -5 | tail -2", "pytest"],
+    ["rg -n \"foo|bar\" src | head -20", "grep"],
+    ["grep -E \"a|b\" src", "grep"],
+    // `||` is a list, not a pipe
+    ["false || pytest", "pytest"],
+    ["pytest -q || true", "pytest"],
+    ["pytest -q || exit 1", "pytest"],
+    ["pytest -q | tail -5 && echo done", "pytest"],
+  ];
+  for (const [cmd, f] of rewritten) assert.equal(rtkFilter(cmd), f, cmd);
+  const leftAlone = [
+    "cargo test 2>&1 | grep -E \"test result|FAILED\" | head -20",
+    "pytest | grep -v PASS | tail",
+    "go test ./... | sort",
+    "rg foo | wc -l",
+    "pytest -q | tee out.log",
+    "find . -name x | xargs grep foo",
+    "pytest -q | tail -f",
+    "pytest -q |& grep FAIL",
+    "make && pytest -q | sort",
+    // programs rtk does not rewrite with their output piped on
+    "npx tsc --noEmit 2>&1 | head -30",
+    "vitest run | tail -5",
+    "ctest | head",
+    "sqlfluff lint x.sql | head",
+    // a pipe and a subshell or `{ }` group in one command
+    "(cd web && pytest -q) | tail -20",
+    "(cd web && pytest -q | tail -5)",
+    "(cd web && git diff) | head",
+    "pytest -q ${ARGS} | tail",
+  ];
+  for (const cmd of leftAlone) assert.equal(rtkFilter(cmd), undefined, cmd);
+});
+
 test("Codex header and Claude persisted-output header are split off", () => {
   assert.deepEqual(splitCodexHeader("Exit code: 0\nWall time: 1s\nOutput:\nhello"), { header: "Exit code: 0\nWall time: 1s\nOutput:\n", body: "hello" });
   assert.deepEqual(splitCodexHeader("no header"), { header: "", body: "no header" });

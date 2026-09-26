@@ -64,7 +64,7 @@ test("manifest validation checks the type of every field used later", async () =
 });
 
 test("routes match on tool, category, family, command and size", () => {
-  assert.equal(lastSegment("cd /x && FOO=1 pytest -q | tail -5"), "pytest -q");
+  assert.equal(lastSegment("cd /x && FOO=1 pytest -q | tail -5"), "pytest -q | tail -5");
   assert.equal(routeMatches({ command: "^pytest\\b" }, view({ command: "cd a && pytest" })), true);
   assert.equal(routeMatches({ command: "^pytest\\b" }, view({ command: "npm test" })), false);
   assert.equal(routeMatches({ tools: ["Read"] }, view({})), false);
@@ -104,6 +104,18 @@ test("the last segment is the program rtk's hook would rewrite: past what it loo
     ["make && (npm test)", "(npm test)"],
     ["{ make; }", "{ make"],
     ["cd web && sudo", "sudo"],
+    // In a pipeline: a final grep or rg, or the first program with the stages that only pass its output through.
+    ["pytest -q 2>&1 | grep FAILED", "grep FAILED"],
+    ["pytest -q | timeout 5 grep FAIL", "grep FAIL"],
+    ["timeout 60 pytest -q 2>&1 | tail -5", "pytest -q 2>&1 | tail -5"],
+    ["make || pytest -q | tail -5 # it's fine", "pytest -q | tail -5 # it's fine"],
+    ["grep -E \"a|b\" src; true", "grep -E \"a|b\" src"],
+    ["echo \"a && b\" && git diff", "git diff"],
+    ["pytest -q | wc -l", undefined],
+    ["pytest -q | tail -F", undefined],
+    ["pytest -q | tail --follow=name", undefined],
+    ["pytest -q | | tail", undefined],
+    ["git diff | head; (cd x && pytest)", undefined],
   ];
   for (const [command, seg] of cases) assert.equal(lastSegment(command), seg, command);
   // So a route anchored on the program matches only what rtk rewrites.

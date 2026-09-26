@@ -89,7 +89,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^ctest\\b"
+        "command": "^(?!.*\\|)ctest\\b"
       },
       "args": [
         "pipe",
@@ -103,7 +103,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(npx |pnpm (exec )?|yarn |bunx )?tsc\\b"
+        "command": "^(?!.*\\|)(npx |pnpm (exec )?|yarn |bunx )?tsc\\b"
       },
       "args": [
         "pipe",
@@ -117,7 +117,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^(npx |pnpm (exec )?|yarn |bunx )?vitest\\b"
+        "command": "^(?!.*\\|)(npx |pnpm (exec )?|yarn |bunx )?vitest\\b"
       },
       "args": [
         "pipe",
@@ -215,7 +215,7 @@
         "categories": [
           "Shell"
         ],
-        "command": "^sqlfluff lint\\b"
+        "command": "^(?!.*\\|)sqlfluff lint\\b"
       },
       "args": [
         "pipe",
@@ -310,5 +310,5 @@
   ],
   "codexHypothetical": false,
   "install": "npx saver-audit --install-savers (or: brew install rtk)",
-  "_comment": "git status / git log are left out on purpose: live rtk rewrites them to formats its pipe filters expect (tech-notes §8.5)."
+  "_comment": "git status / git log are left out on purpose: live rtk rewrites them to formats its pipe filters expect (tech-notes §8.5). `(?!.*\\|)`: rtk's hook leaves ctest, tsc, vitest and sqlfluff alone when their output is piped on, even to head or tail."
 }

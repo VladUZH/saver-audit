@@ -166,21 +166,91 @@ function hookProgramIndex(words: string[]): number {
   return i;
 }
 
-/** The last real segment of a shell command, from the program rtk's hook would rewrite: drops `cd …&&`, env assignments, wrappers, pipes. */
+/** Where the program rtk's hook would rewrite starts in a clause or pipeline stage. */
+function programAt(text: string): number | undefined {
+  const words = [...text.matchAll(/\S+/g)];
+  return words[hookProgramIndex(words.map((w) => w[0]))]?.index;
+}
+
+/** The command with quoted and backslash-escaped characters blanked out, at the same positions, so its operators can be found. */
+function blankQuoted(command: string): string {
+  let out = "";
+  let quote = "";
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!;
+    if (c === "\\" && quote !== "'" && i + 1 < command.length) {
+      out += "__";
+      i++;
+    } else if (quote) {
+      if (c === quote) quote = "";
+      out += "_";
+    } else {
+      if (c === "'" || c === '"') quote = c;
+      out += quote ? "_" : c;
+    }
+  }
+  return out;
+}
+
+/** `head`, `cat` or a `tail` that does not follow: rtk's hook still rewrites the program whose output they take. */
+function passesThrough(stage: string): boolean {
+  const [name, ...args] = stage.trim().split(/\s+/);
+  if (name === "head" || name === "cat") return true;
+  return name === "tail" && !args.some((a) => /^-[^-]*[fF]/.test(a) || (/^--[^=]/.test(a) && "--follow".startsWith(a.split("=")[0]!)));
+}
+
+/**
+ * The part of one pipeline rtk's hook rewrites (rtk 0.50.0): a final `grep` or `rg`
+ * (`pytest -q | grep FAIL` becomes `pytest -q | rtk grep FAIL`); otherwise the first
+ * program, kept with the stages after it, when those only pass its output through
+ * (`pytest -q | tail -5`), so a route can still refuse a pipe (rtk leaves `tsc | head`
+ * alone). Any other pipeline rtk leaves alone: undefined.
+ */
+function pipelineSegment(text: string, pipes: RegExpMatchArray[]): string | undefined {
+  if (pipes.some((p) => p[0] === "|&")) return undefined;
+  const starts = [0, ...pipes.map((p) => p.index! + p[0].length)];
+  const stages = starts.map((s, i) => text.slice(s, pipes[i]?.index ?? text.length));
+  if (stages.some((s) => !s.trim())) return undefined;
+  const lastAt = programAt(stages.at(-1)!);
+  const last = lastAt === undefined ? "" : stages.at(-1)!.slice(lastAt).trim();
+  if (/^(grep|rg)(\s|$)/.test(last)) return last;
+  const firstAt = programAt(stages[0]!);
+  if (firstAt === undefined || !stages.slice(1).every(passesThrough)) return undefined;
+  return text.slice(firstAt).trim();
+}
+
+/**
+ * The last real segment of a shell command, from the program rtk's hook would rewrite:
+ * drops `cd …&&`, `|| true`, env assignments and wrappers. In a pipeline it is the stage
+ * rtk rewrites (see pipelineSegment); undefined when rtk leaves the command alone.
+ */
 export function lastSegment(command: string): string | undefined {
   // A line ending in "\" or "|" continues on the next line.
   const joined = command.replace(/[ \t]*\\\r?\n[ \t]*/g, " ").replace(/\|[ \t]*\r?\n/g, "| ");
-  const segments = joined.split(/&&|;|\n/).map((s) => s.trim()).filter(Boolean);
-  for (let i = segments.length - 1; i >= 0; i--) {
-    // The end of a subshell: `(cd web && npm test)` ends in `npm test)`.
-    let seg = segments[i]!.split("|")[0]!.trim();
-    const count = (c: string) => seg.split(c).length - 1;
-    while (seg.endsWith(")") && count(")") > count("(")) seg = seg.slice(0, -1).trimEnd();
-    const words = [...seg.matchAll(/\S+/g)];
-    const at = words[hookProgramIndex(words.map((w) => w[0]))]?.index;
-    if (at === undefined) continue;
-    seg = seg.slice(at);
-    if (/^cd\b|^echo\b|^export\b|^source\b|^\}$/.test(seg)) continue;
+  const plain = blankQuoted(joined);
+  // rtk's hook leaves a command with a pipe alone when it also has a subshell or a `{ }` group.
+  if (/(?<!\|)\|(?!\|)/.test(plain) && /[(){}]/.test(plain)) return undefined;
+  const ends = [...plain.matchAll(/&&|\|\||;|\n/g)];
+  const starts = [0, ...ends.map((m) => m.index! + m[0].length)];
+  for (let i = starts.length - 1; i >= 0; i--) {
+    const text = joined.slice(starts[i], ends[i]?.index ?? joined.length);
+    const pipes = [...plain.slice(starts[i], ends[i]?.index ?? plain.length).matchAll(/\|&?/g)];
+    let seg: string;
+    if (pipes.length) {
+      const piped = pipelineSegment(text, pipes);
+      if (piped === undefined) return undefined;
+      seg = piped;
+    } else {
+      // The end of a subshell: `(cd web && npm test)` ends in `npm test)`.
+      seg = text.trim();
+      const count = (c: string) => seg.split(c).length - 1;
+      while (seg.endsWith(")") && count(")") > count("(")) seg = seg.slice(0, -1).trimEnd();
+      const at = programAt(seg);
+      if (at === undefined) continue;
+      seg = seg.slice(at);
+    }
+    // `cd`, `echo`, `true`, `exit` and the like print little: the output is an earlier clause's.
+    if (/^(cd|echo|export|source|true|false|exit)\b|^:(\s|$)|^\}$/.test(seg)) continue;
     return seg;
   }
   return undefined;
