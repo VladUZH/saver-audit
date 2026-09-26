@@ -74,6 +74,27 @@ test("routes match on tool, category, family, command and size", () => {
   assert.equal(routeMatches(undefined, view({})), true);
 });
 
+test("the last segment is the program the model ran: past wrapper options, subshells and groups", () => {
+  const cases: Array<[string, string | undefined]> = [
+    ["nice -n 10 make", "make"],
+    ["sudo -u www git pull", "git pull"],
+    ["timeout -s KILL 60 cargo test", "cargo test"],
+    ["timeout 60 pytest -q", "pytest -q"],
+    ["xargs -n 1 grep foo", "grep foo"],
+    ["env -u HOME CI=1 vitest run", "vitest run"],
+    ["sudo -u www env CI=1 nice -n 5 pytest -q", "pytest -q"],
+    ["(cd web && npm test)", "npm test"],
+    ["make && (npm test)", "npm test"],
+    ["{ make; }", "make"],
+    ["cat $(ls)", "cat $(ls)"],
+    ["cd web && sudo", undefined],
+  ];
+  for (const [command, seg] of cases) assert.equal(lastSegment(command), seg, command);
+  // So a route anchored on the program matches.
+  assert.equal(routeMatches({ command: "^cargo (test|nextest)\\b" }, view({ command: "timeout -s KILL 60 cargo test" })), true);
+  assert.equal(routeMatches({ command: "^git (diff|show)\\b" }, view({ command: "sudo -u www git diff" })), true);
+});
+
 test("user manifests load next to the built-ins; bad or clashing ones are reported", () => {
   const dir = mkdtempSync(join(tmpdir(), "sa-manifests-"));
   try {

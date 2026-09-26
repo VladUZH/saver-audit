@@ -83,6 +83,22 @@ function runTarget(prog: string, rest: string[]): string | undefined {
   return prog === "yarn" || prog === "pnpm" ? rest[0] : undefined;
 }
 
+/** Index of the program in a command's words: past env assignments, wrappers and their options (`sudo -u www git pull`). */
+export function programIndex(words: string[]): number {
+  let i = 0;
+  let wrapper = "";
+  while (i < words.length) {
+    const w = words[i]!;
+    if (WRAPPERS.has(w)) wrapper = w;
+    else if (w.startsWith("-")) {
+      if (WRAPPER_OPTS[wrapper]?.has(w)) i++; // skip its value
+    } else if (wrapper === "timeout" && DURATION.test(w)) wrapper = "";
+    else if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) break;
+    i++;
+  }
+  return i;
+}
+
 /** Classifies a shell command into a fixed family label. */
 export function shellFamily(command: string): string {
   // First real command: drop leading `cd …&&`, env assignments and wrappers.
@@ -90,17 +106,7 @@ export function shellFamily(command: string): string {
   for (const seg of segments) {
     // Subshells and groups: `(cd web && npm test)`, `{ make; }`.
     const words = seg.trim().split(/\s+/).map((w) => w.replace(/^\(+|\)+$/g, "")).filter((w) => w && w !== "{");
-    let i = 0;
-    let wrapper = "";
-    while (i < words.length) {
-      const w = words[i]!;
-      if (WRAPPERS.has(w)) wrapper = w;
-      else if (w.startsWith("-")) {
-        if (WRAPPER_OPTS[wrapper]?.has(w)) i++; // skip its value
-      } else if (wrapper === "timeout" && DURATION.test(w)) wrapper = "";
-      else if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) break;
-      i++;
-    }
+    const i = programIndex(words);
     const prog = words[i]?.replace(/^.*\//, "");
     if (!prog || prog === "cd" || prog === "echo" || prog === "set" || prog === "export" || prog === "source") continue;
     const rest = words.slice(i + 1).filter((w) => !w.startsWith("-"));

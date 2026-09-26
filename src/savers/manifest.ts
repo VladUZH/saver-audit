@@ -9,6 +9,7 @@
 // goes through code review as code).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { programIndex } from "../accounting/categories.ts";
 import { toolsDir } from "./toolsdir.ts";
 import type { OutputView } from "./types.ts";
 
@@ -129,13 +130,16 @@ export function lastSegment(command: string): string | undefined {
   const joined = command.replace(/[ \t]*\\\r?\n[ \t]*/g, " ").replace(/\|[ \t]*\r?\n/g, "| ");
   const segments = joined.split(/&&|;|\n/).map((s) => s.trim()).filter(Boolean);
   for (let i = segments.length - 1; i >= 0; i--) {
-    let seg = segments[i]!.split("|")[0]!.trim();
-    // Env assignments and wrappers, in any order (`env CI=1 vitest`, `time FOO=1 pytest`).
-    for (let prev = ""; prev !== seg; ) {
-      prev = seg;
-      seg = seg.replace(/^([A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, "").replace(/^(sudo|time|env|timeout \S+)\s+/, "");
-    }
-    if (/^cd\b|^echo\b|^export\b|^source\b/.test(seg)) continue;
+    // Subshells and groups: `(cd web && npm test)`, `{ make; }`.
+    let seg = segments[i]!.split("|")[0]!.trim().replace(/^(\(\s*|\{\s+)+/, "");
+    const count = (c: string) => seg.split(c).length - 1;
+    while (seg.endsWith(")") && count(")") > count("(")) seg = seg.slice(0, -1).trimEnd();
+    // Env assignments, wrappers and their options, in any order (`env CI=1 vitest`, `nice -n 10 make`).
+    const words = [...seg.matchAll(/\S+/g)];
+    const at = words[programIndex(words.map((w) => w[0]))]?.index;
+    if (at === undefined) continue;
+    seg = seg.slice(at);
+    if (/^cd\b|^echo\b|^export\b|^source\b|^\}$/.test(seg)) continue;
     return seg;
   }
   return undefined;
