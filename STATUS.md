@@ -672,3 +672,28 @@ past wrappers, Codex base instructions after compaction, rewind credit).
 - Replay rtk's per-segment rewrites in multi-command lines.
 - Remove stale `$TMPDIR/saver-audit-*` folders at start-up (#80); Windows paths on a real
   Windows machine; Claude 3.x prices; `thinking_dropped`; rewinds on real logs (from part 1).
+
+## 2026-09-26 — 0.7.0 published; outreach sent; 0.7.1
+
+- **0.7.0 published** by the founder (after `npm login`: the first attempt failed with a
+  misleading E404 because the npm session had expired; `npm whoami` returned 401).
+  Founder ran `npx saver-audit@0.7.0` on their machine: short view, card and [s] post OK.
+- **Saver outreach sent** (founder approved the five drafts; posted with `gh` as GitHub
+  Discussions, category General, under VladUZH). Each gives the saver's exact number on
+  2026-08-26 → 2026-09-25T13:00 and asks for a method check:
+  - rtk: https://github.com/rtk-ai/rtk/discussions/4279
+  - caveman: https://github.com/JuliusBrussee/caveman/discussions/1128
+  - headroom: https://github.com/headroomlabs-ai/headroom/discussions/3805
+  - token-saver: https://github.com/ppgranger/token-saver/discussions/73
+  - lean-ctx: https://github.com/yvgude/lean-ctx/discussions/1871
+- **0.7.1:** the card and the X post now mark lower-bound savers (rtk, headroom): card
+  "replayed · lower bound", post "rtk at least −0.5% ($21.49)", short view "exact, lower
+  bound". New optional manifest field `lowerBound` (CONTRIBUTING). Card and GIF
+  regenerated. `npm test` → 286 pass.
+
+**Human steps (GATE):**
+- `npm publish --auth-type=web` for 0.7.1.
+- Watch the five discussions; answer the same day; fix and re-measure if a maintainer
+  shows the method is unfair.
+- r/ClaudeCode post: write it yourself from `docs/launch/reddit-briefs.md` (use the exact
+  README numbers, 26 Aug → 25 Sep), mention the method check sent to the maintainers.
