@@ -35,10 +35,42 @@ interface Timeline {
   pendRaw: Record<BucketKey, number>;
   pendReal: number;
   prev?: CallRecord;
+  /** Thinking in ctxReal / pendReal that the next prompt drops (recorded tokens), and the o200k count of the visible output that stays. */
+  think: number;
+  thinkVis: number;
+  pendThink: number;
+  pendVis: number;
+}
+
+function fresh(): Timeline {
+  return { ctxRaw: {}, ctxReal: 0, pendRaw: {}, pendReal: 0, think: 0, thinkVis: 0, pendThink: 0, pendVis: 0 };
 }
 
 function add(into: Record<string, number>, from: Record<string, number>): void {
   for (const k in from) into[k] = (into[k] ?? 0) + from[k]!;
+}
+
+/**
+ * Claude models before Opus 4.5 and Sonnet 4.6, and Haiku 4.5 and older, drop earlier
+ * turns' thinking from the prompt when a new user prompt arrives; within a tool loop it
+ * stays (tech-notes §4.2). Newer, unknown and non-Claude models keep it.
+ */
+export function dropsThinking(model: string): boolean {
+  if (/claude-[23]-/.test(model)) return true;
+  const m = /claude-(opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?(?:\D|$)/.exec(model);
+  if (!m) return false;
+  const version = Number(m[2]) * 100 + (m[3] ? Number(m[3]) : 0);
+  return version < (m[1] === "opus" ? 405 : 406);
+}
+
+/** o200k count of what a response shows besides thinking: its text and tool calls. */
+function visibleTokens(turn: Turn): number {
+  let n = 0;
+  for (const b of turn.blocks) {
+    if (b.kind === "text") n += countProxy(b.text);
+    else if (b.kind === "tool_use") n += countProxy(`${b.tool} ${JSON.stringify(b.input) ?? ""}`);
+  }
+  return n;
 }
 
 export function blockBucket(block: Block, userKind: UserKind | undefined): BucketKey | undefined {
@@ -72,18 +104,27 @@ export class ContextTracker {
 
   private tl(name: string): Timeline {
     let t = this.timelines.get(name);
-    if (!t) this.timelines.set(name, (t = { ctxRaw: {}, ctxReal: 0, pendRaw: {}, pendReal: 0 }));
+    if (!t) this.timelines.set(name, (t = fresh()));
     return t;
   }
 
   compact(timeline: string): void {
-    this.timelines.set(timeline, { ctxRaw: {}, ctxReal: 0, pendRaw: {}, pendReal: 0 });
+    this.timelines.set(timeline, fresh());
     this.savers?.compact(timeline);
   }
 
   turn(turn: Turn): void {
     const t = this.tl(turn.timeline);
     if (turn.role === "user") {
+      if (turn.userKind === "prompt" && (t.think || t.pendThink)) {
+        // Earlier thinking leaves the context; the visible output stays, counted as o200k.
+        t.ctxReal -= t.think;
+        t.pendReal -= t.pendThink;
+        if (t.thinkVis) t.ctxRaw.assistant = (t.ctxRaw.assistant ?? 0) + t.thinkVis;
+        if (t.pendVis) t.pendRaw.assistant = (t.pendRaw.assistant ?? 0) + t.pendVis;
+        t.think = t.thinkVis = t.pendThink = t.pendVis = 0;
+        t.prev = undefined; // the prompt did not grow by the previous output: no calibration pair
+      }
       for (const b of turn.blocks) {
         const bucket = blockBucket(b, turn.userKind);
         if (!bucket) continue;
@@ -125,9 +166,17 @@ export class ContextTracker {
     this.records.push(rec);
     add(t.ctxRaw, t.pendRaw);
     t.ctxReal += t.pendReal;
+    t.think += t.pendThink;
+    t.thinkVis += t.pendVis;
     t.pendRaw = {};
     // This call's output is in context from the next call on.
     t.pendReal = call.usage.output;
+    t.pendThink = t.pendVis = 0;
+    if (dropsThinking(call.model) && (turn.thinking || call.usage.reasoning > 0)) {
+      // Without a logged thinking count, the whole output gives way to its visible part.
+      t.pendThink = call.usage.reasoning || call.usage.output;
+      t.pendVis = call.usage.reasoning ? 0 : visibleTokens(turn);
+    }
     t.prev = rec;
   }
 }

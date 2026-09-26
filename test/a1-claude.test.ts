@@ -6,6 +6,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { processFile, summarize, type FileResult, type SaverConfig } from "../src/audit.ts";
+import { dropsThinking } from "../src/accounting/buckets.ts";
+import { countProxy } from "../src/accounting/tokens.ts";
 import { attachmentText } from "../src/sources/claude-code.ts";
 import { fixtureOptions } from "./helpers.ts";
 
@@ -99,5 +101,80 @@ test("attached images and PDFs: the base64 payload is not counted as prompt text
     const attached = await run(rows(true));
     assert.deepEqual(view(attached), view(plain));
     assert.deepEqual(buckets(attached), buckets(plain));
+  });
+});
+
+const think = { type: "thinking", thinking: "", signature: "c2lnbmF0dXJl" };
+const answer = (i: number) => `Answer ${i}: ` + Array.from({ length: 40 }, (_, j) => `the build step ${j} passes after the fix`).join(", ");
+
+/** n prompts, each answered by one response with thinking; the prompt grows by the visible text only. */
+function thinkingSession(model: string, n: number, system: number, thinkTokens: number): object[] {
+  const rows: object[] = [];
+  let before = 0;
+  let prevVisible = 0;
+  for (let i = 0; i < n; i++) {
+    const q = `question ${i}: does the build pass now?`;
+    const write = (i === 0 ? system : 0) + countProxy(q) + prevVisible;
+    rows.push(prompt(`p${i}`, `${10 + i}:00`, q, i === 0 ? null : `m${i - 1}`));
+    rows.push(assistant(`m${i}`, `${10 + i}:01`, `msg_${i}`, [think, text(answer(i))], usage(write, before, thinkTokens + countProxy(answer(i))), model, `p${i}`));
+    before += write;
+    prevVisible = countProxy(answer(i));
+  }
+  return rows;
+}
+
+test("older Claude models drop earlier thinking at each new prompt", async () => {
+  for (const m of ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-opus-4-1-20250805", "claude-opus-4-20250514", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-3-7-sonnet-20250219"]) {
+    assert.equal(dropsThinking(m), true, m);
+  }
+  for (const m of ["claude-opus-4-5", "claude-sonnet-4-6", "claude-opus-5-5", "claude-sonnet-5", "claude-fable-5", "claude-mythos-1", "claude-haiku-5", "gpt-5.6-terra", "claude-next"]) {
+    assert.equal(dropsThinking(m), false, m);
+  }
+
+  await withDir(async (run) => {
+    const system = 15_000;
+    const r = await run(thinkingSession("claude-sonnet-4-5-20250929", 10, system, 4000));
+    const vis = Array.from({ length: 10 }, (_, i) => countProxy(answer(i)));
+    const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+    r.records.slice(1).forEach((rec, j) => {
+      const i = j + 1;
+      assert.equal(rec.oldReal + rec.newReal, 0, `call ${i}: no earlier output with thinking left`);
+      assert.equal(rec.newRaw.assistant, vis[i - 1], `call ${i}: the previous answer's visible text is new`);
+      assert.equal(rec.oldRaw.assistant ?? 0, sum(vis.slice(0, i - 1)));
+      assert.equal(rec.prev, undefined, "no calibration pair across dropped thinking");
+    });
+    const rows = buckets(r);
+    const residual = rows.find((b) => b.key === "residual")!;
+    assert.ok(Math.abs(residual.tokens - 10 * (system + 1)) < 1e-6, `residual is the system prompt on every call: ${residual.tokens}`);
+    const reread = rows.find((b) => b.key === "assistant")!;
+    const expected = sum(vis.map((_, i) => sum(vis.slice(0, i))));
+    assert.ok(Math.abs(reread.tokens - expected) < 1e-6, `${reread.tokens} vs ${expected}`);
+
+    const keep = await run(thinkingSession("claude-sonnet-4-6", 10, system, 4000));
+    assert.equal(keep.records[2]!.oldReal, 4000 + vis[0]!, "keep-all models still re-read earlier thinking");
+  });
+});
+
+test("within a tool loop thinking stays; a logged thinking count drops only that part", async () => {
+  await withDir(async (run) => {
+    const model = "claude-sonnet-4-5-20250929";
+    const loop = await run([
+      prompt("p0", "00:00", "fix the build", null),
+      assistant("m0", "00:01", "msg_0", [think, bash("t0", "npm run build")], usage(5000, 0, 3000), model),
+      toolResult("r0", "00:02", "t0", log(20, "b")),
+      assistant("m1", "00:03", "msg_1", [think, bash("t1", "npm test")], usage(400, 5000, 2000), model),
+      toolResult("r1", "00:04", "t1", log(1, "c")),
+      assistant("m2", "00:05", "msg_2", [text("done")], usage(100, 5400, 20), model),
+    ]);
+    assert.deepEqual(loop.records.map((x) => [x.oldReal, x.newReal]), [[0, 0], [0, 3000], [3000, 2000]]);
+
+    const counted = await run([
+      prompt("p0", "00:00", "fix the build", null),
+      assistant("m0", "00:01", "msg_0", [think, text("fixed")], { ...usage(5000, 0, 4200), output_tokens_details: { thinking_tokens: 4000 } }, model),
+      prompt("p1", "00:02", "thanks, commit it"),
+      assistant("m1", "00:03", "msg_1", [text("ok")], usage(300, 5000, 20), model),
+    ]);
+    assert.equal(counted.records[1]!.newReal, 200, "visible part of the earlier output, in recorded tokens");
+    assert.equal(counted.records[1]!.newRaw.assistant, undefined);
   });
 });

@@ -72,6 +72,8 @@ export interface Turn {
   userKind?: UserKind;
   /** Assistant turns only: the API call that produced it. */
   call?: Call;
+  /** Assistant turns only: the response had thinking blocks (their text is not logged). */
+  thinking?: boolean;
 }
 
 export type SourceEvent =

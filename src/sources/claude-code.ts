@@ -105,12 +105,14 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
       const model = typeof msg.model === "string" ? msg.model : "";
       if (model === "<synthetic>" || o.isApiErrorMessage === true) continue;
       const blocks = assistantBlocks(msg.content, tools);
+      const thinking = Array.isArray(msg.content) && msg.content.some((b: any) => b?.type === "thinking" || b?.type === "redacted_thinking");
       if (!msg.usage || typeof msg.id !== "string") continue;
       const key = `${msg.id}|${typeof o.requestId === "string" ? o.requestId : ""}`;
       const usage = claudeUsage(msg.usage);
       const cur = open.get(timeline);
       if (cur?.key === key) {
         cur.turn.blocks.push(...blocks);
+        if (thinking) cur.turn.thinking = true;
         maxUsage(cur.turn.call!.usage, usage);
         continue;
       }
@@ -123,7 +125,9 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
       yield* flush(timeline);
       const call: Call = { key, model, usage, multiplier: claudeMultiplier(msg.usage), billable: true };
       calls.set(key, call);
-      open.set(timeline, { key, turn: { index: index++, role: "assistant", timeline, timestamp, blocks, call }, held: [] });
+      const turn: Turn = { index: index++, role: "assistant", timeline, timestamp, blocks, call };
+      if (thinking) turn.thinking = true;
+      open.set(timeline, { key, turn, held: [] });
       continue;
     }
 
