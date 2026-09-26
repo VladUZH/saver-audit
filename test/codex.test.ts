@@ -1,11 +1,28 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { codexUsage, findCodexFiles, parseCodexFile, shellCommand } from "../src/sources/codex.ts";
+import { codexHome, codexUsage, findCodexFiles, parseCodexFile, shellCommand } from "../src/sources/codex.ts";
+import { shellFamily, toolCategory } from "../src/accounting/categories.ts";
 import { CODEX_HOME, collect } from "./helpers.ts";
 
 const thr1 = join(CODEX_HOME, "sessions", "2026", "09", "20", "rollout-2026-09-20T10-00-00-thr1.jsonl");
 const thr2 = join(CODEX_HOME, "sessions", "2026", "09", "21", "rollout-2026-09-21T08-00-00-thr2.jsonl");
+
+test("CODEX_HOME: empty means unset, relative is made absolute", () => {
+  const saved = process.env.CODEX_HOME;
+  try {
+    for (const v of ["", "  "]) {
+      process.env.CODEX_HOME = v;
+      assert.equal(codexHome(), join(homedir(), ".codex"));
+    }
+    process.env.CODEX_HOME = "rel/codex";
+    assert.equal(codexHome(), join(process.cwd(), "rel", "codex"));
+  } finally {
+    if (saved === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = saved;
+  }
+});
 
 test("finder prefers sessions/ over an archived copy", () => {
   const files = findCodexFiles(CODEX_HOME, 0);
@@ -44,6 +61,24 @@ test("a fork with a single usage event had no burst and is billed", async () => 
   assert.deepEqual(calls.map((c) => c.billable), [true]);
 });
 
+test("a fork replaying a single parent event: that event is not billed, the fork's own call is", async () => {
+  const ev = await collect(parseCodexFile(join(CODEX_HOME, "cases", "rollout-fork-one-replayed.jsonl")));
+  const calls = ev.flatMap((e) => (e.t === "turn" && e.turn.call ? [e.turn.call] : []));
+  assert.deepEqual(calls.map((c) => c.billable), [false, true]);
+  assert.deepEqual(calls.map((c) => c.usage.input), [100000, 1000]);
+  // A search in the replayed history stays on the unbilled replayed call.
+  assert.deepEqual(calls.map((c) => c.webSearchCalls), [1, undefined]);
+});
+
+test("web_search_call items are counted on the next call and not priced as Claude searches", async () => {
+  const ev = await collect(parseCodexFile(join(CODEX_HOME, "cases", "rollout-web-search.jsonl")));
+  const calls = ev.flatMap((e) => (e.t === "turn" && e.turn.call ? [e.turn.call] : []));
+  assert.equal(calls.length, 3, "the re-emitted token_count is skipped");
+  assert.deepEqual(calls.map((c) => c.webSearchCalls), [2, 1, undefined]);
+  assert.deepEqual(calls.map((c) => c.usage.webSearches), [0, 0, 0]);
+  assert.equal(ev.some((e) => e.t === "turn" && JSON.stringify(e.turn).includes("SECRET-QUERY")), false, "queries are not kept");
+});
+
 test("codexUsage and shellCommand edge cases", () => {
   assert.deepEqual(codexUsage(null).input, 0);
   assert.equal(codexUsage({ input_tokens: 10, cached_input_tokens: 50, output_tokens: 1 }).cacheRead, 10, "cached capped at input");
@@ -51,4 +86,20 @@ test("codexUsage and shellCommand edge cases", () => {
   assert.equal(shellCommand("exec", "const x = 1;"), "");
   assert.equal(shellCommand("shell", { command: ["bash", "-lc", "cargo test"] }), "cargo test");
   assert.equal(shellCommand("apply_patch", "*** Begin Patch"), undefined);
+});
+
+test("exec: an unclosed cmd string with many escapes returns quickly", () => {
+  const input = 'await tools.exec_command({cmd: "cat <<EOF\\n' + "line\\n".repeat(22) + "EOF";
+  const t = performance.now();
+  assert.equal(shellCommand("exec", input), "");
+  assert.ok(performance.now() - t < 250, "no catastrophic backtracking");
+  assert.equal(shellCommand("exec", 'tools.exec_command({cmd: "echo \\"hi\\" && ls"})'), 'echo \\"hi\\" && ls');
+  assert.equal(shellCommand("exec", "tools.exec_command({cmd: 'a\\'b'})"), "a\\'b");
+});
+
+test("shell_command (string command) is a shell tool", () => {
+  const cmd = shellCommand("shell_command", { command: "rg -n compute src", workdir: "/x" });
+  assert.equal(cmd, "rg -n compute src");
+  assert.equal(shellFamily(cmd!), "search");
+  assert.equal(toolCategory("shell_command"), "Shell");
 });

@@ -35,3 +35,23 @@ test("calibrate: per model, family fallback, OpenAI fixed at 1", () => {
   assert.equal(tokenizerFamily("claude-opus-4-7"), "claude 4.7+ tokenizer");
   assert.equal(tokenizerFamily("claude-fable-5-1"), "claude 4.7+ tokenizer");
 });
+
+test("legacy Claude 3.x ids use the ≤4.6 family; unknown Claude ids are never pooled", () => {
+  for (const m of ["claude-3-7-sonnet-20250219", "claude-3-5-haiku-20241022", "claude-3-opus-20240229", "claude-3-5-sonnet-latest"]) {
+    assert.equal(tokenizerFamily(m), "claude ≤4.6 tokenizer", m);
+  }
+  assert.equal(tokenizerFamily("claude-2.1"), undefined);
+  assert.equal(tokenizerFamily("claude-newname-9"), undefined);
+  const pairs = [];
+  for (let i = 0; i < 40; i++) pairs.push({ model: "claude-opus-4-7", proxy: 300 + i * 100, appended: 1.35 * (300 + i * 100) });
+  for (let i = 0; i < 12; i++) pairs.push({ model: "claude-sonnet-4-5", proxy: 300 + i * 100, appended: 1.02 * (300 + i * 100) });
+  for (let i = 0; i < 5; i++) pairs.push({ model: "claude-3-7-sonnet-20250219", proxy: 300 + i * 100, appended: 1.02 * (300 + i * 100) });
+  for (let i = 0; i < 12; i++) pairs.push({ model: "claude-newname-9", proxy: 300 + i * 100, appended: 1.35 * (300 + i * 100) });
+  const cal = calibrate(pairs, ["claude-opus-4-8", "claude-3-7-sonnet-20250219", "claude-newname-9"]);
+  const legacy = cal.get("claude-3-7-sonnet-20250219")!;
+  assert.equal(legacy.basis, "family");
+  assert.equal(legacy.fittedOn, "claude ≤4.6 tokenizer");
+  assert.ok(Math.abs(legacy.k - 1.02) < 0.01, `k=${legacy.k}`);
+  assert.equal(cal.get("claude-newname-9")!.basis, "none");
+  assert.equal(cal.get("claude-opus-4-8")!.n, 40, "unknown ids stay out of the 4.7+ family fit");
+});

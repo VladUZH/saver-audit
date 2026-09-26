@@ -2,13 +2,15 @@
 // archived_sessions/. Usage comes from repeated token_count events; cached tokens are
 // a subset of input (tech-notes.md §2, §8.2).
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { listFiles, readLines } from "./files.ts";
 import { emptyUsage, type Block, type Call, type Session, type SourceEvent, type UserKind, type Usage } from "./types.ts";
 import { shellFamily } from "../accounting/categories.ts";
 
 export function codexHome(): string {
-  return process.env.CODEX_HOME ?? join(homedir(), ".codex");
+  // An empty value counts as unset; a relative one is resolved so "Looked in" is unambiguous.
+  const v = process.env.CODEX_HOME?.trim();
+  return v ? resolve(v) : join(homedir(), ".codex");
 }
 
 export function findCodexFiles(home: string, sinceMs: number): string[] {
@@ -30,11 +32,17 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
   // Forked and child threads open with the parent's history re-recorded as a dense
   // burst of token_count events stamped with the fork instant; that usage was billed
   // in the parent. Same rule as ccusage (rust/adapters/codex/src/parser.rs): if the
-  // first two usage events are ≤1 s apart, skip the run of events ≤1 s apart.
+  // first two usage events are ≤1 s apart, skip the run of events ≤1 s apart. A first
+  // event ≤1 s after session_meta is replayed too, even with no second one close by
+  // (a parent with a single call).
   let replay: "none" | "first" | "second" | "burst" = "none";
+  let forkMs = NaN;
   let firstCall: Call | undefined;
   let lastMs = 0;
   let prevTotal = -1;
+  // Hosted web searches since the last usage event; they go on the next call, so
+  // searches in replayed fork history stay on replayed (unbilled) calls.
+  let searches = 0;
   let index = 0;
   let lineNo = 0;
 
@@ -63,7 +71,10 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
           isSubagent: typeof p.parent_thread_id === "string",
           started: timestamp,
         };
-        if (child) replay = "first";
+        if (child) {
+          replay = "first";
+          forkMs = timestamp ? Date.parse(timestamp) : NaN;
+        }
         yield { t: "session", session };
         const base = p.base_instructions?.text;
         if (typeof base === "string" && base) {
@@ -97,13 +108,22 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
           const usage = codexUsage(info.last_token_usage);
           if (usage.input + usage.cacheRead + usage.cacheWrite === 0 && usage.output === 0) break;
           const call: Call = { key: `${file}#${lineNo}`, model: model || "gpt-5", usage, multiplier, billable: true };
+          if (searches) {
+            call.webSearchCalls = searches;
+            searches = 0;
+          }
           const ms = timestamp ? Date.parse(timestamp) : NaN;
           const inBurst = Number.isFinite(ms) && ms - lastMs >= 0 && ms - lastMs <= BURST_GAP_MS;
           if (replay === "first") {
-            call.billable = false;
-            firstCall = call;
-            replay = Number.isFinite(ms) ? "second" : "none";
-            if (replay === "none") call.billable = true;
+            if (!Number.isFinite(ms)) replay = "none";
+            else if (ms - forkMs >= 0 && ms - forkMs <= BURST_GAP_MS) {
+              call.billable = false;
+              replay = "burst";
+            } else {
+              call.billable = false;
+              firstCall = call;
+              replay = "second";
+            }
           } else if (replay === "second" || replay === "burst") {
             if (inBurst) call.billable = false;
             else {
@@ -118,6 +138,7 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
         }
         break;
       case "response_item": {
+        if (p.type === "web_search_call") searches++;
         const ev = responseItem(p, tools);
         if (ev) yield { t: "turn", turn: { index: index++, timeline: "main", timestamp, ...ev } };
         break;
@@ -180,7 +201,8 @@ function parseJson(s: unknown): unknown {
   }
 }
 
-const EXEC_CMD = /exec_command\s*\(\s*\{[\s\S]*?["']?\bcmd["']?\s*:\s*(["'`])((?:\\[\s\S]|(?!\1)[\s\S])*)\1/;
+// A backslash only matches the escape branch; otherwise an unclosed string backtracks exponentially.
+const EXEC_CMD = /exec_command\s*\(\s*\{[\s\S]*?["']?\bcmd["']?\s*:\s*(["'`])((?:\\[\s\S]|(?!\1|\\)[\s\S])*)\1/;
 
 /** The shell command of a shell-type tool call, or undefined for other tools. */
 export function shellCommand(tool: string, input: any): string | undefined {
@@ -189,7 +211,7 @@ export function shellCommand(tool: string, input: any): string | undefined {
     const m = EXEC_CMD.exec(input);
     return m ? m[2]! : "";
   }
-  if (tool === "exec_command" || tool === "shell" || tool === "local_shell_call" || tool === "container.exec") {
+  if (tool === "exec_command" || tool === "shell" || tool === "shell_command" || tool === "local_shell_call" || tool === "container.exec") {
     const c = input?.cmd ?? input?.command;
     if (Array.isArray(c)) return c.map(String).join(" ").replace(/^(bash|zsh|sh) -l?c /, "");
     return typeof c === "string" ? c : "";
