@@ -4,7 +4,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AuditResult } from "../audit.ts";
-import { confidence, fmtTokens, fmtUsd, shortLabel, tooLittleData, unpricedCalls } from "./terminal.ts";
+import { confidence, fmtTokens, fmtUsd, measuredCost, onlyHypothetical, shortLabel, tooLittleData, unpricedCalls } from "./terminal.ts";
 
 const W = 1200;
 const H = 675;
@@ -80,7 +80,8 @@ export function cardSvg(r: AuditResult): string {
   parts.push(`<rect x="${rx - 16}" y="${top}" width="${rightW + 32}" height="${panelH}" rx="14" fill="${C.panel}"/>`);
   parts.push(text(rx + 4, top + 40, "What token savers would cut", 22, C.text, { bold: true }));
   // Measured savers only; the rest are one muted line (they are not measurements).
-  const savers = r.savers.filter((s) => s.status === "ok" && s.method === "replayed" && !tooLittleData(s)).sort((a, b) => b.cost - a.cost).slice(0, 5);
+  // A hook saver's hypothetical Codex part is left out; a saver with nothing else is dropped.
+  const savers = r.savers.filter((s) => s.status === "ok" && s.method === "replayed" && !tooLittleData(s) && !onlyHypothetical(s)).sort((a, b) => measuredCost(b) - measuredCost(a)).slice(0, 5);
   if (!savers.length) {
     parts.push(text(rx + 4, top + 88, "No saver measured yet.", 17, C.muted));
     parts.push(text(rx + 4, top + 114, "npx saver-audit --install-savers", 15, C.muted));
@@ -93,9 +94,10 @@ export function cardSvg(r: AuditResult): string {
   savers.forEach((s, i) => {
     const y = top + 82 + i * ROW;
     const le = s.method === "upper-bound" ? "≤ " : "";
-    const pct = total ? (100 * s.cost) / total : 0;
-    const val = `${s.cost < 0 ? "-" : le}${fmtUsd(Math.abs(s.cost))} · ${pct.toFixed(1)}%`;
-    const color = s.method === "upper-bound" ? C.bound : s.cost < 0 ? C.muted : C.good;
+    const cost = measuredCost(s);
+    const pct = total ? (100 * cost) / total : 0;
+    const val = `${cost < 0 ? "-" : le}${fmtUsd(Math.abs(cost))} · ${pct.toFixed(1)}%`;
+    const color = s.method === "upper-bound" ? C.bound : cost < 0 ? C.muted : C.good;
     parts.push(text(rx + 4, y, s.name.replace(" (proxy engine)", " engine").replace(" (skill)", " skill"), 17, C.text));
     // The card travels without the report's notes, so a sampled number says so here.
     const conf = confidence(s);

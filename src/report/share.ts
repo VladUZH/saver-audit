@@ -5,7 +5,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { AuditResult } from "../audit.ts";
-import { isIndicative, tooLittleData, unpricedCalls } from "./terminal.ts";
+import { isIndicative, measuredCost, onlyHypothetical, tooLittleData, unpricedCalls } from "./terminal.ts";
 
 export const REPO_URL = "https://github.com/VladUZH/saver-audit";
 
@@ -30,9 +30,13 @@ export function shareText(r: AuditResult): string {
   const agents = Object.keys(r.sessions.bySource).map((s) => (s === "claude-code" ? "Claude Code" : "Codex")).join(" + ");
   const pct = (x: number) => `${((100 * x) / total).toFixed(1)}%`;
   const ok = r.savers.filter((s) => s.status === "ok" && total > 0);
-  const measured = ok.filter((s) => s.method === "replayed" && !tooLittleData(s)).sort((a, b) => b.cost - a.cost);
+  // A hook saver's hypothetical Codex part is left out; a saver with nothing else is dropped.
+  const measured = ok.filter((s) => s.method === "replayed" && !tooLittleData(s) && !onlyHypothetical(s)).sort((a, b) => measuredCost(b) - measuredCost(a));
   const ceiling = ok.filter((s) => s.method === "upper-bound").sort((a, b) => b.cost - a.cost)[0];
-  const cut = (s: (typeof ok)[number]) => (s.cost >= 0 ? `−${pct(s.cost)} (${usd(s.cost)})` : `+${pct(-s.cost)} (costs ${usd(-s.cost)})`);
+  const cut = (s: (typeof ok)[number]) => {
+    const c = measuredCost(s);
+    return c >= 0 ? `−${pct(c)} (${usd(c)})` : `+${pct(-c)} (costs ${usd(-c)})`;
+  };
   // Calls on unpriced models are not in the total, so it is a lower bound.
   const spend = `${unpricedCalls(r) ? "at least " : ""}${usd(total)}`;
 
@@ -48,7 +52,7 @@ export function shareText(r: AuditResult): string {
     const lines = measured.map((s) => `${short(s.name)} ${approx(s)}${cut(s)}`);
     const totalLine = `of ${spend} API-equivalent spend.`;
     // Compact form: every measured saver with its % only, before falling back to the top 3.
-    const compact = measured.map((s) => `${short(s.name)} ${approx(s)}${s.cost >= 0 ? "−" : "+"}${pct(Math.abs(s.cost))}`);
+    const compact = measured.map((s) => `${short(s.name)} ${approx(s)}${measuredCost(s) >= 0 ? "−" : "+"}${pct(Math.abs(measuredCost(s)))}`);
     candidates.push(
       [longHead, ...lines, totalLine, best],
       [longHead, ...lines, totalLine],

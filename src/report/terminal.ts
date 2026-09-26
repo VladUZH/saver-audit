@@ -65,17 +65,19 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
   if (r.savers.length) {
     out.push(bold("What token savers would cut") + dim("  (on these sessions)"));
     // Only measured savers get a row: they are the numbers that differ person to person.
-    const measured = r.savers.filter((y) => y.status === "ok" && y.method === "replayed" && !tooLittleData(y)).sort((a, b) => b.cost - a.cost);
+    // A hook saver's hypothetical Codex part is left out here, and named below.
+    const measured = r.savers.filter((y) => y.status === "ok" && y.method === "replayed" && !tooLittleData(y)).sort((a, b) => measuredCost(b) - measuredCost(a));
     for (const x of measured) {
-      const cost = x.cost < 0 ? `-${fmtUsd(-x.cost)}` : fmtUsd(x.cost);
-      const share = total ? `${((100 * x.cost) / total).toFixed(1)}%` : "—";
-      out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad(cost, 9)} ${lpad(share, 7)}  ${dim(confidence(x))}`);
+      const share = total ? `${((100 * measuredCost(x)) / total).toFixed(1)}%` : "—";
+      out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad(signedUsd(measuredCost(x)), 9)} ${lpad(share, 7)}  ${dim(confidence(x))}`);
     }
     const later = r.savers.filter((y) => y.status === "ok" && tooLittleData(y));
     for (const x of later) out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad("—", 9)} ${lpad("", 7)}  ${dim(noNumber(x, "press [e]"))}`);
     if (!measured.length && !later.length) out.push(dim("  None measured yet: no replayable saver is installed."));
     if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failed)) out.push(dim(`  "indicative" = from a quick sample; can be off by half. ${bold("Press [e]")} for exact numbers (once; cached).`));
     if (measured.some((x) => x.replay?.failed)) out.push(dim(`  Some replays failed and count as unchanged, so those numbers are "indicative"; the full report has the counts.`));
+    const hypo = measured.filter(hypotheticalCodex);
+    if (hypo.length) out.push(dim(`  The Codex part is left out above (${hypo.map((x) => `${x.name.replace(" (proxy engine)", " engine")} about ${signedUsd(x.codexCost)}`).join(", ")}): it is hypothetical, since Codex hooks cannot rewrite tool input.`));
     const rest = unmeasuredLine(r);
     if (rest) out.push(dim(`  Not measurable offline: ${rest}.`));
     const missing = r.savers.filter((y) => y.status === "not installed");
@@ -88,6 +90,27 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
   }
   if (o.cardPath) out.push(`Share card: ${bold(o.cardPath)}`);
   return out.join("\n") + "\n";
+}
+
+type Saver = AuditResult["savers"][number];
+
+/** A saver's number without a hypothetical Codex part (Codex hooks cannot rewrite tool input). */
+export function measuredCost(s: Saver): number {
+  return s.codexHypothetical ? s.cost - s.codexCost : s.cost;
+}
+
+/** Whether a saver's number has a hypothetical Codex part worth naming. */
+export function hypotheticalCodex(s: Saver): boolean {
+  return s.codexHypothetical && Math.abs(s.codexCost) >= 0.005;
+}
+
+/** A saver whose whole number is a hypothetical Codex part: nothing of it was measured. */
+export function onlyHypothetical(s: Saver): boolean {
+  return s.codexHypothetical && s.codexCost !== 0 && s.cost === s.codexCost;
+}
+
+function signedUsd(n: number): string {
+  return n < 0 ? `-${fmtUsd(-n)}` : fmtUsd(n);
 }
 
 /** Calls on models without a price: their tokens are counted, their dollars are not in the total. */
@@ -279,8 +302,9 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
     if (s.assumption) notes.push(`${s.name}: ${s.assumption}.`);
     if (s.installed && s.installed !== "version unknown" && !s.version.startsWith(s.installed)) notes.push(`${s.name}: installed ${s.installed}; this adapter was written for ${s.version}.`);
   }
-  const codex = shown.filter((s) => s.codexHypothetical && Math.abs(s.codexCost) >= 0.005);
-  if (codex.length) notes.push(`On Codex, hooks cannot rewrite tool input, so these Codex savings are hypothetical: ${codex.map((s) => `${s.name} ${fmtUsd(Math.abs(s.codexCost))}`).join(", ")}.`);
+  // Signed: a Codex part can be a net cost (caveman skill), never shown as a saving.
+  const codex = shown.filter((s) => !tooLittleData(s) && hypotheticalCodex(s));
+  if (codex.length) notes.push(`On Codex, hooks cannot rewrite tool input, so the Codex part of these numbers is hypothetical: ${codex.map((s) => `${s.name} ${signedUsd(s.codexCost)} of ${signedUsd(s.cost)}`).join(", ")}.`);
   notes.push("fast-jev-compaction is not in this table: it acts only at compaction and its keep/drop decisions need its hosted API, so offline replay has nothing honest to measure.");
   const missing = r.savers.filter((s) => s.status === "not installed");
   if (missing.length) notes.push(`Not installed, so not replayed: ${missing.map((s) => (s.install ? `${s.name} (${s.install})` : s.name)).join(", ")}. saver-audit never bundles saver code.`);
