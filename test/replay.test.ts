@@ -10,7 +10,7 @@ import type { FileResult } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
 import { countProxy } from "../src/accounting/tokens.ts";
 import { detectReplayTools, isOutdated, launcherPython, runOnce, runReplays, type ReplayTool } from "../src/savers/replay.ts";
-import { readReplayCache } from "../src/savers/cache.ts";
+import { quickDrawsPath, readReplayCache } from "../src/savers/cache.ts";
 import { replayKey } from "../src/savers/tracker.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import { cacheFingerprint, planQuick, quickSalt } from "../src/savers/quick.ts";
@@ -597,6 +597,55 @@ test("quick mode's estimate reads each output a bounded number of times, not onc
     assert.deepEqual({ insufficient: st.insufficient, extrapolated: st.extrapolated }, { insufficient: undefined, extrapolated: 1000 });
     // Sorting by size reads each output's size once; one pass per unmeasured output would be ~n².
     assert.ok(reads < 100 * n, `${reads} reads of ${n} outputs' sizes`);
+  } finally {
+    t.done();
+  }
+});
+
+test("a repeat quick run reuses its draw: identical numbers, nothing replayed; a changed window, cache or store draws afresh", async () => {
+  const t = tmp();
+  try {
+    // 300 outputs, token-saver's budget 270: the first run replays 270 and estimates 30.
+    const specs = cycling(300);
+    const saver = tool("token-saver", "fake-saver", { FAKE_MIN_CHARS: "2500" });
+    const run = async (dir: string, s = specs, warn?: (m: string) => void) => {
+      const f = synth("token-saver", s);
+      const st = (await runReplays([f], ["token-saver"], { tools: saver, cacheFile: join(dir, "replay.json"), full: false, concurrency: 4, warn })).get("token-saver")!;
+      return { st, d: deltas(f) };
+    };
+    const a = await run(t.dir);
+    assert.deepEqual({ ran: a.st.ran, extrapolated: a.st.extrapolated }, { ran: 270, extrapolated: 30 });
+    assert.ok(existsSync(quickDrawsPath(join(t.dir, "replay.json"))));
+    // Copies of the cache and the stored draw, for the other cases.
+    const copy = (name: string) => {
+      const dir = join(t.dir, name);
+      mkdirSync(dir);
+      for (const f of ["replay.json", "quick-draws-v1.json"]) writeFileSync(join(dir, f), readFileSync(join(t.dir, f)));
+      return dir;
+    };
+    const [other, corrupt, window, unwritable] = ["other", "corrupt", "window", "unwritable"].map(copy);
+    const b = await run(t.dir);
+    assert.equal(b.st.ran, 0, "nothing replayed");
+    assert.deepEqual(b.d, a.d, "the same numbers");
+    assert.deepEqual([b.st.estimate, b.st.se, b.st.extrapolated], [a.st.estimate, a.st.se, a.st.extrapolated]);
+    assert.deepEqual((await run(t.dir)).d, a.d, "and again");
+    // A cache entry written by something else since: a fresh draw (it replays the 30 left).
+    const cache = JSON.parse(readFileSync(join(other, "replay.json"), "utf8"));
+    cache.entries["from-elsewhere"] = [1, 4, 1];
+    writeFileSync(join(other, "replay.json"), JSON.stringify(cache));
+    assert.equal((await run(other)).st.ran, 30);
+    // Another window (one output fewer): a fresh draw.
+    assert.equal((await run(window, specs.slice(1))).st.ran, 30);
+    // A corrupt store is ignored: a fresh draw, no error.
+    writeFileSync(join(corrupt, "quick-draws-v1.json"), "{not json");
+    assert.equal((await run(corrupt)).st.ran, 30);
+    // A store that cannot be written: one warning, the run is not affected.
+    rmSync(join(unwritable, "quick-draws-v1.json"));
+    mkdirSync(join(unwritable, "quick-draws-v1.json"));
+    const warnings: string[] = [];
+    const u = await run(unwritable, specs, (m) => warnings.push(m));
+    assert.deepEqual({ ran: u.st.ran, insufficient: u.st.insufficient }, { ran: 30, insufficient: undefined });
+    assert.equal(warnings.filter((w) => /quick-mode draws not saved/.test(w)).length, 1, warnings.join("\n"));
   } finally {
     t.done();
   }

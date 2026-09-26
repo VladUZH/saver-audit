@@ -108,6 +108,13 @@ export function cacheFingerprint(keys: Iterable<string>): string {
   return n ? `${n}:${hi.toString(16)}:${lo.toString(16)}` : "";
 }
 
+/** A fingerprint of a saver's population and budget: its outputs, their sizes and preview flags. */
+export function populationFingerprint(pop: QuickOutput[], budget: number): string {
+  const h = createHash("sha1").update(`${budget}\n`);
+  for (const o of pop) h.update(`${o.key}\0${o.x}\0${o.preview ? 1 : 0}\n`);
+  return h.digest("hex");
+}
+
 /** u in (0,1) from the salted hash of the key. */
 export function unitOf(salt: string, key: string): number {
   return (sha1(`${salt}\0${key}`).readUIntBE(0, 6) + 0.5) / 2 ** 48;
