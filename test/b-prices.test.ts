@@ -96,6 +96,13 @@ test("Sonnet 4.5 and Sonnet 4 calls over 200k prompt tokens pay the long-context
   assert.ok(Math.abs(r.billing.total.cost - 3) < 1e-9, String(r.billing.total.cost));
 });
 
+test("fast mode is priced per model: 6x on Opus 4.6, 2x on Opus 5.5, standard where no fast price is published", async () => {
+  const fast = (model: string) => ({ model, usage: { input_tokens: 0, output_tokens: 1_000_000, speed: "fast" } });
+  const r = await auditClaude([fast("claude-opus-4-6"), fast("claude-opus-4-6-20260205"), fast("claude-opus-5-5[1m]"), fast("claude-sonnet-5")]);
+  const cost = Object.fromEntries(r.models.map((m) => [m.model, m.cost]));
+  assert.deepEqual(cost, { "claude-opus-4-6": 150, "claude-opus-4-6-20260205": 150, "claude-opus-5-5[1m]": 40, "claude-sonnet-5": 10 });
+});
+
 test("a table saved by --update-prices overlays the bundled one: dropped models keep their price, aliases come from this version", () => {
   const models: Record<string, unknown> = { ...snapshot.models, "claude-opus-5-5": { ...snapshot.models["claude-opus-5-5"], input: 3 } };
   for (const id of ["gpt-5.4", "gpt-5.1-codex", "claude-sonnet-4-5", "claude-sonnet-4-5-20250929"]) delete models[id];

@@ -34,6 +34,24 @@ export const ALIASES: Record<string, Alias[]> = {
   "codex-auto-review": [{ until: "2026-07-29", model: "gpt-5.4" }, { model: "gpt-5.6-luna" }],
 };
 
+// Fast-mode price multiplier (Claude usage.speed "fast"), from LiteLLM's
+// provider_specific_entry.fast: Opus 4.6 and 4.7 from its 2026-05-29 file (commit
+// bae04591; fast mode on them was retired since), the rest from 2026-09-25, which
+// matches tech-notes §5.1 ($8/$40 on Opus 5.5, $10/$50 on Opus 5 and 4.8).
+export const FAST_MODE: Record<string, number> = {
+  "claude-opus-4-6": 6,
+  "claude-opus-4-7": 6,
+  "claude-opus-4-8": 2,
+  "claude-opus-5": 2,
+  "claude-opus-5-5": 2,
+};
+
+/** Fast-mode multiplier for a logged Claude model, or undefined when none is published. */
+export function fastMultiplier(model: string): number | undefined {
+  const m = model.replace(/\[1m\]$/i, "").replace(/^anthropic\//, "").replace(/-\d{8}$/, "");
+  return Object.hasOwn(FAST_MODE, m) ? FAST_MODE[m] : undefined;
+}
+
 // Models seen in logs that models.dev does not list, priced from LiteLLM: retired Codex
 // and Claude models (the Claude ones only in an archived LiteLLM file, see
 // scripts/snapshot-prices.ts) and the Project Glasswing Mythos models.
