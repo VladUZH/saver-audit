@@ -11,7 +11,10 @@ export async function updatePrices(target: string, log: (s: string) => void): Pr
   log(`--update-prices: fetching ${MODELS_DEV_URL}`);
   const modelsDev = await getJson(MODELS_DEV_URL);
   log(`--update-prices: fetching ${LITELLM_URL} (retired models only)`);
-  const litellm = await getJson(LITELLM_URL).catch(() => ({}));
+  const litellm = await getJson(LITELLM_URL).catch((e: unknown) => {
+    log(`--update-prices: LiteLLM fetch failed (${e instanceof Error ? e.message : String(e)}); models only LiteLLM lists keep their bundled prices`);
+    return {};
+  });
   const table = buildPriceTable(modelsDev, litellm, new Date().toISOString().slice(0, 10));
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, JSON.stringify(table, null, 1) + "\n");

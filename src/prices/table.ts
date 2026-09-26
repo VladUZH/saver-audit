@@ -70,6 +70,7 @@ export function buildPriceTable(modelsDev: any, litellm: any, date: string): Pri
       models[id] = price;
     }
   }
+  let fromLitellm = 0;
   for (const id of RETIRED) {
     const e = litellm?.[id];
     if (models[id] || !e || typeof e.input_cost_per_token !== "number") continue;
@@ -81,10 +82,13 @@ export function buildPriceTable(modelsDev: any, litellm: any, date: string): Pri
       cacheWrite: 0,
       cacheWrite1h: 0,
     };
+    fromLitellm++;
   }
+  const sources = ["https://models.dev/api.json (MIT)"];
+  if (fromLitellm) sources.push("LiteLLM model_prices_and_context_window.json (MIT), retired models only");
   return {
     date,
-    sources: ["https://models.dev/api.json (MIT)", "LiteLLM model_prices_and_context_window.json (MIT), retired models only"],
+    sources,
     models: Object.fromEntries(Object.entries(models).sort(([a], [b]) => a.localeCompare(b))),
     aliases: ALIASES,
   };
