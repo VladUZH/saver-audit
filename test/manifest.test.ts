@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { lastSegment, loadManifests, routeMatches, validateManifest } from "../src/savers/manifest.ts";
 import type { OutputView } from "../src/savers/types.ts";
+import { withEnv } from "./env.ts";
 
 const BIN = fileURLToPath(new URL("./fixtures/bin/", import.meta.url));
 const view = (over: Partial<OutputView>): OutputView => ({ source: "claude-code", tool: "Bash", category: "Shell", family: "tests", text: "x", tokens: 1, ...over });
@@ -102,6 +103,22 @@ test("a user manifest cannot take the id of a saver written as code (headroom)",
     assert.deepEqual(out, { problems: ['headroom.json: id "headroom" is already taken'], headroom: ["code"] });
   } finally {
     rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a binary name with regular-expression characters is found and its version read", async () => {
+  const { manifestAdapter } = await import("../src/savers/registry.ts");
+  const { detectReplayTools } = await import("../src/savers/replay.ts");
+  const dir = mkdtempSync(join(tmpdir(), "sa-bin-"));
+  try {
+    const bin = join(dir, "trim++");
+    writeFileSync(bin, '#!/usr/bin/env node\nconsole.log("trim++ 1.0.0");\n', { mode: 0o755 });
+    const m = { ...COMMUNITY, id: "trimpp", binary: "trim++", binaryEnv: "SAVER_AUDIT_TRIMPP", versionArgs: ["--version"] };
+    assert.deepEqual(validateManifest(m), []);
+    const found = await withEnv({ SAVER_AUDIT_TRIMPP: bin, SAVER_AUDIT_HOME: dir, SAVER_AUDIT_HEADROOM_PYTHON: "" }, () => detectReplayTools([manifestAdapter(m as never)]));
+    assert.deepEqual([...found.values()], [{ saver: "trimpp", command: bin, version: "1.0.0" }]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

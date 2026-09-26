@@ -113,7 +113,8 @@ export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): 
       exists(join(toolsDir(), "bin", m.binary + exe)) ??
       extra.find((p) => existsSync(p));
     if (!command) continue;
-    const version = m.versionArgs ? firstLine(command, m.versionArgs)?.replace(new RegExp(`^${m.binary}\\s+`), "") : undefined;
+    const name = new RegExp(`^${m.binary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+`); // "trim++ 1.0" → "1.0"
+    const version = m.versionArgs ? firstLine(command, m.versionArgs)?.replace(name, "") : undefined;
     found.set(s.id, { saver: s.id, command, version });
   }
   const own = process.env.SAVER_AUDIT_HEADROOM_PYTHON ?? headroomPython();
