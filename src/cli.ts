@@ -136,7 +136,7 @@ async function main(argv: string[]): Promise<number> {
   const audit = async (exact: boolean | string[] = values.exact || values["full-replay"]) => {
     const t0 = performance.now();
     const progress = new Map<string, string>();
-    const spinner = new Spinner(process.stderr, showSpinner);
+    const spinner = new Spinner(process.stderr, showSpinner, color);
     // Warnings (cache not saved, a saver's model missing) wait until the spinner is gone.
     const warnings: string[] = [];
     // The spinner line is cleared before anything else is printed, an error included.
@@ -344,7 +344,7 @@ async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; 
     if (c.id === "headroom") out.write(`  headroom comes from PyPI (headroom-ai ${HEADROOM_VERSION}; pip chooses its dependencies) and its model from Hugging Face. saver-audit does not pin or verify these downloads.\n`);
     const yes = o.assumeYes || (await ask(`  Install ${c.what} (${c.size})? [y/N] `));
     if (!yes) continue;
-    const spinner = new Spinner(process.stderr, process.stderr.isTTY === true);
+    const spinner = new Spinner(process.stderr, process.stderr.isTTY === true, o.color);
     try {
       await install(c.id, (msg) => spinner.set(msg));
       spinner.stop();

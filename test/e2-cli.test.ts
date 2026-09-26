@@ -50,3 +50,9 @@ test("a replay warning is shown in a terminal too, after the spinner, not droppe
   // On a line of its own, once the spinner line is cleared.
   assert.match(out, /\r\x1b\[Kheadroom: its compression model is not cached; skipped \(run headroom once online to download it\)\.\r?\n/);
 });
+
+test("NO_COLOR: the spinner draws no colour either", { skip: noTerminal }, () => {
+  const out = term(["--since", "2026-09-01", "--until", "2026-09-30", "--no-savers", "--no-card", "--full", "--no-animation"], { NO_COLOR: "1" });
+  assert.match(out, /Reading your agent logs/, "the spinner ran");
+  assert.doesNotMatch(out, /\x1b\[3\dm/);
+});

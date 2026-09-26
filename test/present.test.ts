@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { keyMenu } from "../src/report/present.ts";
+import { keyMenu, Spinner } from "../src/report/present.ts";
 
 test("Ctrl+C during a menu action (an exact replay) interrupts the program instead of leaving it running", async () => {
   const stdin = process.stdin as NodeJS.ReadStream;
@@ -30,4 +30,14 @@ test("Ctrl+C during a menu action (an exact replay) interrupts the program inste
     process.kill = saved.kill;
     stdin.pause();
   }
+});
+
+test("a spinner without colour writes no colour codes", () => {
+  const writes: string[] = [];
+  const out = { write: (s: string) => (writes.push(s), true), columns: 80 } as never;
+  const s = new Spinner(out, true, false);
+  s.set("Reading logs…");
+  s.stop();
+  assert.ok(writes.some((w) => w.includes("Reading logs…")));
+  assert.equal(writes.some((w) => /\x1b\[\d+m/.test(w)), false);
 });

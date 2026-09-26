@@ -15,9 +15,11 @@ export class Spinner {
   private i = 0;
   private timer?: NodeJS.Timeout;
   private out: NodeJS.WriteStream;
+  private color: boolean;
 
-  constructor(out: NodeJS.WriteStream, enabled: boolean) {
+  constructor(out: NodeJS.WriteStream, enabled: boolean, color = true) {
     this.out = out;
+    this.color = color;
     if (enabled) {
       this.timer = setInterval(() => this.draw(), 80);
       this.timer.unref();
@@ -32,7 +34,8 @@ export class Spinner {
   private draw(): void {
     const width = Math.max(20, (this.out.columns || 80) - 3);
     const line = this.text.length > width ? this.text.slice(0, width - 1) + "…" : this.text;
-    this.out.write(`\r\x1b[K\x1b[36m${FRAMES[this.i++ % FRAMES.length]}\x1b[0m ${line}`);
+    const frame = FRAMES[this.i++ % FRAMES.length]!;
+    this.out.write(`\r\x1b[K${this.color ? `\x1b[36m${frame}\x1b[0m` : frame} ${line}`);
   }
 
   stop(): void {
