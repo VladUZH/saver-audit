@@ -61,12 +61,17 @@ export interface Calibration {
 export const MIN_PROXY_TOKENS = 200;
 const MIN_PAIRS = 30;
 
-/** Tokenizer family: Claude has two generations (≤4.6 and 4.7+), OpenAI models share o200k. */
-export function tokenizerFamily(model: string): string {
+/**
+ * Tokenizer family: Claude has two generations (≤4.6 and 4.7+), OpenAI models share
+ * o200k. An unrecognised Claude id has no family and is never pooled.
+ */
+export function tokenizerFamily(model: string): string | undefined {
   if (!model.startsWith("claude")) return "openai (o200k)";
   if (/fable|mythos/.test(model)) return "claude 4.7+ tokenizer";
+  // Legacy naming: claude-3-7-sonnet-…, claude-3-5-haiku-…, claude-3-opus-….
+  if (/^claude-3(?:-\d)?-(?:opus|sonnet|haiku)(?:\D|$)/.test(model)) return "claude ≤4.6 tokenizer";
   const m = /claude-(?:opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?(?:\D|$)/.exec(model);
-  if (!m) return "claude 4.7+ tokenizer";
+  if (!m) return undefined;
   const major = Number(m[1]);
   const minor = m[2] ? Number(m[2]) : 0;
   if (/haiku/.test(model) && major === 4) return "claude ≤4.6 tokenizer";
@@ -130,6 +135,7 @@ export function calibrate(pairs: CalibrationPair[], models: string[]): Map<strin
     if (!byModel.has(p.model)) byModel.set(p.model, []);
     byModel.get(p.model)!.push(pt);
     const fam = tokenizerFamily(p.model);
+    if (!fam) continue;
     if (!byFamily.has(fam)) byFamily.set(fam, []);
     byFamily.get(fam)!.push(pt);
   }
@@ -140,9 +146,10 @@ export function calibrate(pairs: CalibrationPair[], models: string[]): Map<strin
       continue;
     }
     const own = byModel.get(model) ?? [];
-    const fam = byFamily.get(tokenizerFamily(model)) ?? [];
+    const famName = tokenizerFamily(model);
+    const fam = (famName && byFamily.get(famName)) || [];
     if (own.length >= MIN_PAIRS) out.set(model, fit(model, own, "model"));
-    else if (fam.length >= 10) out.set(model, { ...fit(tokenizerFamily(model), fam, "family"), model });
+    else if (famName && fam.length >= 10) out.set(model, { ...fit(famName, fam, "family"), model });
     else out.set(model, { model, fittedOn: "none", k: 1, c: 0, n: own.length, p25: 1, p75: 1, basis: "none", quality: "poor" });
   }
   return out;
