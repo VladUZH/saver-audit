@@ -390,6 +390,38 @@ test("when every output is among the largest, a cache holding only the larger on
   }
 });
 
+// 40 outputs, all among the largest: 39 of 3,000-6,900 chars in no size order, and the last
+// in key order (so the last an exact run replays) is the smallest of all, 2,000 chars.
+const lastSmallest = Array.from({ length: 40 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, i === 39 ? 2000 : 3000 + ((i * 37) % 40) * 100) }));
+
+test("when every output is among the largest, one new output since a complete exact run gets the ratio even when it is the smallest", async () => {
+  const t = tmp();
+  try {
+    await exactRun(synth("headroom", lastSmallest.slice(0, 39)), t.cacheFile);
+    const f = synth("headroom", lastSmallest);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.deepEqual({ insufficient: st.insufficient, reason: st.reason, extrapolated: st.extrapolated }, { insufficient: undefined, reason: undefined, extrapolated: 1 });
+    assert.ok(deltas(f).at(-1)! > 0, "the new output gets the measured outputs' ratio");
+  } finally {
+    t.done();
+  }
+});
+
+test("when every output is among the largest, the smallest one failing in an exact run does not cost later quick runs their number", async () => {
+  const t = tmp();
+  try {
+    // The sidecar exits after 39 answers: only the last output, the smallest, fails (and is never cached).
+    const dies = tool("headroom", "fake-headroom", { FAKE_MIN_CHARS: "2500", FAKE_DIE_AFTER: "39" });
+    const ex = (await runReplays([synth("headroom", lastSmallest)], ["headroom"], { tools: dies, cacheFile: t.cacheFile, full: true, concurrency: 1 })).get("headroom")!;
+    assert.deepEqual({ failed: ex.failed, insufficient: ex.insufficient }, { failed: 1, insufficient: undefined });
+    const f = synth("headroom", lastSmallest);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.deepEqual({ insufficient: st.insufficient, reason: st.reason, extrapolated: st.extrapolated }, { insufficient: undefined, reason: undefined, extrapolated: 1 });
+  } finally {
+    t.done();
+  }
+});
+
 test("when every output is among the largest, quick mode replays previews first, then in key order, not by size", async () => {
   const t = tmp();
   try {

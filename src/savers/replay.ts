@@ -748,17 +748,25 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   // by an exact run from an earlier release, or over a longer period, stopped part-way: it
   // went largest first) are not a sample. Only the outputs a ratio comes from count: the
   // quick sample leaves the other smaller outputs unmeasured on purpose, whatever their size.
+  // It takes three or more unmeasured ones: one or two are the smallest by chance too often
+  // (1 in n for one output new since a complete exact run, or one whose replay failed there,
+  // which is never cached) and move the total little; three below each of the 20+ measured
+  // ones a ratio needs happen by chance under 0.1% of the time (1 in C(23, 3)).
   const sizeCut = (saver: string) => {
     const unique = bySaver.get(saver)!;
     let measured = Infinity;
     let rest = -Infinity;
+    let unmeasured = 0;
     for (const k of ratioKeys.get(saver) ?? []) {
       const j = unique.get(k)!;
       if (failed.has(k) || j.persistedHeader !== undefined) continue;
       if (cache.has(k)) measured = Math.min(measured, j.baseline);
-      else rest = Math.max(rest, j.baseline);
+      else {
+        rest = Math.max(rest, j.baseline);
+        unmeasured++;
+      }
     }
-    return measured !== Infinity && rest !== -Infinity && measured > rest;
+    return measured !== Infinity && unmeasured >= 3 && measured > rest;
   };
   // Once per saver: it walks all of the saver's outputs.
   const cut = new Map([...bySaver.keys()].map((saver) => [saver, sizeCut(saver)]));
