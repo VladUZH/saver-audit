@@ -97,6 +97,22 @@ test("--check-saver lists a taken id: never says to install a manifest the audit
   assert.doesNotMatch(r.stdout, /copy the file into/);
 });
 
+test("--check-saver lists a taken id with the manifest's other problems, not only after they are fixed", () => {
+  const s = scratch();
+  const r = check(s, { id: "headroom", repo: undefined, licence: undefined, routes: [{ args: [] }] }, "fake-trim");
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /: 3 problem\(s\)\n/);
+  assert.match(r.stdout, /- repo: required\n/);
+  assert.match(r.stdout, /- licence: required\n/);
+  assert.match(r.stdout, /- id "headroom" is already taken by a built-in saver\n/);
+  // A value that is not an object has no id to look up.
+  const file = join(s.dir, "null.json");
+  writeFileSync(file, "null");
+  const n = spawnSync(process.execPath, [CLI, "--check-saver", file], { env: { PATH: process.env.PATH, HOME: s.dir, SAVER_AUDIT_HOME: join(s.dir, "home"), TMPDIR: s.temp }, cwd: s.dir, encoding: "utf8" });
+  assert.equal(n.status, 1, n.stderr);
+  assert.match(n.stdout, /: 1 problem\(s\)\n {2}- not a JSON object\n/);
+});
+
 test("the installer's own copy that fails its version probe counts as not installed; a user's own is still used", { skip: process.platform === "win32" ? "needs a script as the program" : false }, async () => {
   const s = scratch();
   const bin = join(s.dir, "home", "tools", "bin");

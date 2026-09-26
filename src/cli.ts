@@ -414,8 +414,9 @@ async function checkSaver(file: string): Promise<number> {
   }
   const problems = validateManifest(m);
   // The audit skips a user manifest whose id a built-in saver has; one written as code
-  // (headroom, the caveman skill) cannot be a built-in manifest either.
-  const taken = problems.length ? undefined : SAVERS.find((x) => x.id === m.id);
+  // (headroom, the caveman skill) cannot be a built-in manifest either. Listed with the
+  // manifest's other problems, so the author learns of it in the same run.
+  const taken = typeof m?.id === "string" ? SAVERS.find((x) => x.id === m.id) : undefined;
   if (taken && !taken.manifest) problems.push(`id "${m.id}" is already taken by a built-in saver`);
   if (problems.length) {
     out.write(`${file}: ${problems.length} problem(s)\n${problems.map((p) => `  - ${p}`).join("\n")}\n`);
