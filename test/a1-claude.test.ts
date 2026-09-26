@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { processFile, summarize, type FileResult, type SaverConfig } from "../src/audit.ts";
+import { attachmentText } from "../src/sources/claude-code.ts";
 import { fixtureOptions } from "./helpers.ts";
 
 const env = (uuid: string, ts: string, parentUuid?: string | null) => ({
@@ -31,6 +32,7 @@ const toolResult = (uuid: string, ts: string, id: string, out: string, parentUui
   type: "user",
   message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: out }] },
 });
+const attachment = (uuid: string, ts: string, a: object) => ({ ...env(uuid, ts), type: "attachment", attachment: a });
 const log = (n: number, tag: string) => Array.from({ length: n }, (_, i) => `FAILED tests/test_${tag}.py::case_${i} - AssertionError: value ${i}`).join("\n");
 
 async function withDir(fn: (run: (rows: object[], savers?: SaverConfig) => Promise<FileResult>) => Promise<void>): Promise<void> {
@@ -69,5 +71,33 @@ test("a response split around its tool results keeps its final output count in c
     assert.deepEqual(view(split), view(adjacent));
     assert.deepEqual(split.savers!.timelines.main!.blocks, adjacent.savers!.timelines.main!.blocks, "caveman-skill's re-read block uses the final output");
     assert.deepEqual(buckets(split), buckets(adjacent));
+  });
+});
+
+test("attached images and PDFs: the base64 payload is not counted as prompt text", async () => {
+  const b64 = "iVBORw0KGgo" + "A".repeat(200_000);
+  const image = { type: "file", filename: "shot.png", content: { type: "image", file: { base64: b64, type: "image/png", originalSize: 150_000, dimensions: { originalWidth: 800, originalHeight: 600 } } } };
+  const pdf = { type: "file", filename: "spec.pdf", content: { type: "pdf", file: { filePath: "/x/spec.pdf", base64: b64, originalSize: 150_000 } } };
+  const block = { type: "hook_additional_context", content: [{ type: "text", text: "see image" }, { type: "image", source: { type: "base64", media_type: "image/png", data: b64 } }] };
+  assert.equal(attachmentText(image), "");
+  assert.equal(attachmentText(pdf), "");
+  assert.equal(attachmentText(block), "see image");
+  const textFile = { type: "file", filename: "a.ts", content: { type: "text", file: { filePath: "/x/a.ts", content: "export const a = 1;", numLines: 1 } } };
+  assert.equal(attachmentText(textFile), "export const a = 1;", "text files still count");
+
+  await withDir(async (run) => {
+    const rows = (withImage: boolean) => [
+      prompt("p1", "00:00", "what is in this screenshot", null),
+      ...(withImage ? [attachment("at1", "00:00", image)] : []),
+      ...Array.from({ length: 5 }, (_, i) => [
+        assistant(`m${i}`, `0${i}:01`, `msg_${i}`, [bash(`t${i}`, "pytest -q")], usage(2000, 1000 * i, 50)),
+        toolResult(`r${i}`, `0${i}:02`, `t${i}`, log(30, `r${i}`)),
+      ]).flat(),
+      assistant("m9", "09:01", "msg_9", [text("done")], usage(100, 9000, 20)),
+    ];
+    const plain = await run(rows(false));
+    const attached = await run(rows(true));
+    assert.deepEqual(view(attached), view(plain));
+    assert.deepEqual(buckets(attached), buckets(plain));
   });
 });

@@ -186,12 +186,15 @@ export function resultText(content: unknown): string {
 // subagent's structured output (already counted as its tool result).
 const NOT_IN_PROMPT = new Set(["prompt_snapshot", "hook_success", "structured_output"]);
 
-const ATTACHMENT_META = /^(type|uuid|id|.*Id|.*Ids|.*Hash(es)?|hash|filename|displayPath|filePath|path|timestamp|durationMs|commit|hookEvent|hookName|exitCode)$/;
+// Metadata keys, and the base64 payload of attached images and PDFs: those reach the
+// model as media blocks, not text, so they are left to the residual like tool-result images.
+const ATTACHMENT_META = /^(type|uuid|id|.*Id|.*Ids|.*Hash(es)?|hash|filename|displayPath|filePath|path|timestamp|durationMs|commit|hookEvent|hookName|exitCode|base64|media_type|mediaType)$/;
 
-/** Concatenated string values of an attachment object, skipping metadata keys. */
+/** Concatenated string values of an attachment object, skipping metadata and media payloads. */
 export function attachmentText(a: unknown, depth = 0): string {
   if (typeof a === "string") return a;
   if (!a || typeof a !== "object" || depth > 5) return "";
+  if ((a as { type?: unknown }).type === "base64") return ""; // { type: "base64", media_type, data }
   const parts: string[] = [];
   if (Array.isArray(a)) {
     for (const x of a) {
