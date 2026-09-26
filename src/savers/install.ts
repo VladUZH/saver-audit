@@ -12,9 +12,9 @@
 //   (caveman's engine is BSL-1.1).
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { toolPaths, toolsDir } from "./toolsdir.ts";
 
 export const RTK_TAG = "v0.50.0";
@@ -94,6 +94,52 @@ async function download(url: string): Promise<Buffer> {
 
 export type Say = (s: string) => void;
 
+/** Runs tar; on failure the error carries tar's own message. */
+function untar(what: string, args: string[]): void {
+  const r = spawnSync("tar", args, { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" });
+  if (r.error) throw new Error(`${what}: could not run \`tar\` (${r.error.message})`);
+  const why = (r.stderr ?? "").split("\n").find((l) => l.trim())?.trim();
+  if (r.status !== 0) throw new Error(`${what}: could not unpack the archive (tar: ${why ?? `exit ${r.status ?? r.signal}`})`);
+}
+
+/** `--version` succeeds: the program is not for another CPU, truncated or corrupt. */
+function runsHere(file: string): boolean {
+  const r = spawnSync(file, ["--version"], { input: "", stdio: ["pipe", "ignore", "ignore"], timeout: 30_000 });
+  if (r.error) return (r.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
+  return r.status === 0;
+}
+
+/**
+ * Puts a program into the tools folder in one step: written next to its target,
+ * checked, then renamed. A failed install leaves nothing that detection would find.
+ */
+function place(what: string, data: Buffer, target: string, check: boolean): void {
+  mkdirSync(dirname(target), { recursive: true });
+  const part = join(dirname(target), `.partial-${process.pid}-${basename(target)}`);
+  try {
+    writeFileSync(part, data, { mode: 0o755 });
+    chmodSync(part, 0o755);
+    if (check && !runsHere(part)) throw new Error(`${what}: the downloaded program does not run on this machine (${process.platform}/${process.arch}), not installed`);
+    renameSync(part, target);
+  } finally {
+    rmSync(part, { force: true });
+  }
+}
+
+/** Extracts one program from a downloaded archive, then places it (above). */
+function unpack(what: string, archive: Buffer, name: string, member: string, target: string): void {
+  const tmp = mkdtempSync(join(tmpdir(), "saver-audit-dl-"));
+  try {
+    const file = join(tmp, name);
+    writeFileSync(file, archive);
+    untar(what, ["-xf", file, "-C", tmp, member]);
+    if (!existsSync(join(tmp, member))) throw new Error(`${what}: ${member} is missing from ${name}`);
+    place(what, readFileSync(join(tmp, member)), target, true);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 export async function installRtk(say: Say): Promise<string> {
   const asset = rtkAsset();
   if (!asset) throw new Error(`rtk ${RTK_TAG} has no release build for ${process.platform}/${process.arch}`);
@@ -102,17 +148,7 @@ export async function installRtk(say: Say): Promise<string> {
   const [archive, sums] = await Promise.all([download(`${base}/${asset}`), download(`${base}/checksums.txt`)]);
   const want = checksumFor(sums.toString("utf8"), asset);
   if (!want || want !== sha256(archive)) throw new Error("rtk: checksum mismatch, not installed");
-  const tmp = mkdtempSync(join(tmpdir(), "saver-audit-rtk-"));
-  try {
-    const file = join(tmp, asset);
-    writeFileSync(file, archive);
-    mkdirSync(join(toolsDir(), "bin"), { recursive: true });
-    const r = spawnSync("tar", ["-xf", file, "-C", join(toolsDir(), "bin"), `rtk${EXE}`], { stdio: "ignore" });
-    if (r.status !== 0 || !existsSync(paths.rtk())) throw new Error("rtk: could not unpack the archive (needs `tar`)");
-    chmodSync(paths.rtk(), 0o755);
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
-  }
+  unpack("rtk", archive, asset, `rtk${EXE}`, paths.rtk());
   return paths.rtk();
 }
 
@@ -126,25 +162,8 @@ export async function installCaveman(say: Say): Promise<string> {
   if (!cavemanSignatureValid(sums, sig.toString("utf8"))) throw new Error("caveman engine: checksum signature invalid, not installed");
   const want = checksumFor(sums.toString("utf8"), asset) ?? checksumFor(sums.toString("utf8"), name);
   if (!want || want !== sha256(bin)) throw new Error("caveman engine: checksum mismatch, not installed");
-  mkdirSync(join(toolsDir(), "bin"), { recursive: true });
-  writeFileSync(paths.caveman(), bin, { mode: 0o755 });
+  place("caveman engine", bin, paths.caveman(), false); // no --version to check it with
   return paths.caveman();
-}
-
-/** Extracts one file from a downloaded archive into the tools bin folder. */
-function unpack(archive: Buffer, name: string, member: string, target: string): void {
-  const tmp = mkdtempSync(join(tmpdir(), "saver-audit-dl-"));
-  try {
-    const file = join(tmp, name);
-    writeFileSync(file, archive);
-    const r = spawnSync("tar", ["-xf", file, "-C", tmp, member], { stdio: "ignore" });
-    if (r.status !== 0 || !existsSync(join(tmp, member))) throw new Error(`could not unpack ${name} (needs \`tar\`)`);
-    mkdirSync(join(toolsDir(), "bin"), { recursive: true });
-    writeFileSync(target, readFileSync(join(tmp, member)), { mode: 0o755 });
-    chmodSync(target, 0o755);
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
-  }
 }
 
 export async function installLeanCtx(say: Say): Promise<string> {
@@ -156,7 +175,7 @@ export async function installLeanCtx(say: Say): Promise<string> {
   const want = checksumFor(sums.toString("utf8"), asset);
   if (!want || want !== sha256(archive)) throw new Error("lean-ctx: checksum mismatch, not installed");
   const target = join(toolsDir(), "bin", `lean-ctx${EXE}`);
-  unpack(archive, asset, `lean-ctx${EXE}`, target);
+  unpack("lean-ctx", archive, asset, `lean-ctx${EXE}`, target);
   return target;
 }
 
@@ -168,20 +187,23 @@ export async function installTokenSaver(say: Say): Promise<string> {
   const archive = await download(`https://github.com/ppgranger/token-saver/archive/refs/tags/${TOKEN_SAVER_TAG}.tar.gz`);
   if (sha256(archive) !== TOKEN_SAVER_SHA256) throw new Error("token-saver: archive hash differs from the pinned one, not installed");
   const dir = join(toolsDir(), "token-saver");
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(dir, { recursive: true });
+  // Unpacked next to its final folder, then renamed, so a failed unpack leaves no half copy.
+  const part = `${dir}.partial-${process.pid}`;
   const tmp = mkdtempSync(join(tmpdir(), "saver-audit-ts-"));
   try {
     const file = join(tmp, "token-saver.tar.gz");
     writeFileSync(file, archive);
-    const r = spawnSync("tar", ["-xzf", file, "-C", dir, "--strip-components", "1"], { stdio: "ignore" });
-    if (r.status !== 0 || !existsSync(join(dir, "bin", "token-saver"))) throw new Error("token-saver: could not unpack the archive");
+    mkdirSync(part, { recursive: true });
+    untar("token-saver", ["-xzf", file, "-C", part, "--strip-components", "1"]);
+    if (!existsSync(join(part, "bin", "token-saver"))) throw new Error("token-saver: bin/token-saver is missing from the archive");
+    rmSync(dir, { recursive: true, force: true });
+    renameSync(part, dir);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
+    rmSync(part, { recursive: true, force: true });
   }
-  mkdirSync(join(toolsDir(), "bin"), { recursive: true });
   const wrapper = join(toolsDir(), "bin", "token-saver");
-  writeFileSync(wrapper, `#!/bin/sh\nexec python3 ${JSON.stringify(join(dir, "bin", "token-saver"))} "$@"\n`, { mode: 0o755 });
+  place("token-saver", Buffer.from(`#!/bin/sh\nexec python3 ${JSON.stringify(join(dir, "bin", "token-saver"))} "$@"\n`), wrapper, false);
   return wrapper;
 }
 
