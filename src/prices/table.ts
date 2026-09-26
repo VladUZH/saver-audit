@@ -93,14 +93,15 @@ export function buildPriceTable(modelsDev: any, litellm: any, date: string): Pri
 /** Resolves a logged model name to a priced model id, or undefined. */
 export function resolveModel(table: PriceTable, model: string, timestamp?: string): string | undefined {
   let m = model.replace(/\[1m\]$/i, "").replace(/^(openai|anthropic)\//, "");
-  const alias = table.aliases[m];
-  if (alias) {
+  // Own keys only: a logged name like "constructor" must not hit Object.prototype.
+  const alias = Object.hasOwn(table.aliases, m) ? table.aliases[m] : undefined;
+  if (Array.isArray(alias) && alias.length) {
     const day = (timestamp ?? "").slice(0, 10);
     m = (alias.find((a) => !a.until || (day && day < a.until)) ?? alias[alias.length - 1]!).model;
   }
-  if (table.models[m]) return m;
+  if (Object.hasOwn(table.models, m)) return m;
   const undated = m.replace(/-\d{8}$/, "");
-  if (table.models[undated]) return undated;
+  if (Object.hasOwn(table.models, undated)) return undated;
   return undefined;
 }
 
