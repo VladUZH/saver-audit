@@ -2,14 +2,19 @@
 // Holds hashes and numbers only, never text, so it reveals nothing about the logs.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import type { ReplayLookup, ReplayResult } from "./tracker.ts";
 
 const FORMAT = 1;
 
+/** $XDG_CACHE_HOME, or ~/.cache when it is unset, empty or relative (as the XDG spec says). */
+export function cacheHome(): string {
+  const x = process.env.XDG_CACHE_HOME;
+  return x && isAbsolute(x) ? x : join(homedir(), ".cache");
+}
+
 export function defaultReplayCachePath(): string {
-  const cache = process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache");
-  return join(cache, "saver-audit", "replay-v1.json");
+  return join(cacheHome(), "saver-audit", "replay-v1.json");
 }
 
 const loaded = new Map<string, Map<string, ReplayResult>>();
