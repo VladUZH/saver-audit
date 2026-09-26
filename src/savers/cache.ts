@@ -1,6 +1,6 @@
 // Persistent replay cache: content hash → token counts of a saver's output.
 // Holds hashes and numbers only, never text, so it reveals nothing about the logs.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import type { ReplayLookup, ReplayResult } from "./tracker.ts";
@@ -43,11 +43,22 @@ export function loadReplayCache(file: string | undefined): ReplayLookup {
   return (key) => map.get(key);
 }
 
-export function saveReplayCache(file: string, entries: Map<string, ReplayResult>): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const out: Record<string, [number, number, number]> = {};
-  for (const [k, v] of entries) out[k] = [v.t, v.c, v.p];
+/** Best effort (the cache only saves time): returns an error code instead of throwing. */
+export function saveReplayCache(file: string, entries: Map<string, ReplayResult>): string | undefined {
   const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify({ format: FORMAT, entries: out }));
-  renameSync(tmp, file);
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    const out: Record<string, [number, number, number]> = {};
+    for (const [k, v] of entries) out[k] = [v.t, v.c, v.p];
+    writeFileSync(tmp, JSON.stringify({ format: FORMAT, entries: out }));
+    renameSync(tmp, file);
+    return undefined;
+  } catch (err) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // nothing more to do
+    }
+    return (err as NodeJS.ErrnoException).code ?? "unknown error";
+  }
 }

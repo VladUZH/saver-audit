@@ -171,12 +171,23 @@ function runOnce(cmd: string, args: string[], input: string, env: NodeJS.Process
   });
 }
 
-/** Runs fn over items with n workers; stops starting new items once `until()` is false. */
+/**
+ * Runs fn over items with n workers; stops starting new items once `until()` is false.
+ * After an error no worker starts a new item, and it throws once all have finished.
+ */
 async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<void>, until: () => boolean = () => true): Promise<number> {
   let i = 0;
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (i < items.length && until()) await fn(items[i++]!);
+  let stop = false;
+  const runs = await Promise.allSettled(Array.from({ length: Math.min(n, items.length) }, async () => {
+    try {
+      while (!stop && i < items.length && until()) await fn(items[i++]!);
+    } catch (err) {
+      stop = true;
+      throw err;
+    }
   }));
+  const bad = runs.find((r) => r.status === "rejected");
+  if (bad) throw bad.reason;
   return i;
 }
 
@@ -317,8 +328,26 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const failed = new Set<string>();
   /** Why a saver's replays failed, when one cause failed them all (e.g. headroom's model). */
   const failReason = new Map<string, string>();
-  const state = mkdtempSync(join(tmpdir(), "saver-audit-"));
-  const env = saverEnv(state);
+  // The savers' state folder, made when a replay first needs it.
+  let state: string | undefined;
+  let noState = false;
+  const stateDir = (): string | undefined => {
+    if (state || noState) return state;
+    try {
+      state = mkdtempSync(join(tmpdir(), "saver-audit-"));
+    } catch (err) {
+      noState = true;
+      o.log?.(`cannot create a temporary folder (${(err as NodeJS.ErrnoException).code ?? "error"}); saver replays skipped.`);
+    }
+    return state;
+  };
+  // Cache writes are best effort: warn once, keep going.
+  let saveError: string | undefined;
+  const save = () => {
+    if (!o.cacheFile || saveError) return;
+    saveError = saveReplayCache(o.cacheFile, cache);
+    if (saveError) o.log?.(`replay cache not saved (${saveError}); these outputs will be replayed again next run.`);
+  };
   let dirty = false;
   // Savers run at the same time; each has its own time budget in quick mode.
   const one = async (saver: string, unique: Map<string, ReplayJob>): Promise<void> => {
@@ -360,7 +389,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         o.progress?.(saver, st.ran, todo.length);
         // Long replays save as they go, so an interrupted run resumes where it stopped.
         if (st.ran % CHECKPOINT === 0) {
-          if (o.cacheFile) saveReplayCache(o.cacheFile, cache);
+          save();
           o.log?.(`  ${saver}: ${st.ran.toLocaleString("en-US")} of ${todo.length.toLocaleString("en-US")} replayed`);
         }
       };
@@ -370,30 +399,39 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         if (sample.length - todo.length < MIN_QUICK_SAMPLE) Object.assign(st, { insufficient: true, reason: QUICK_REASON });
         return;
       }
+      // Every output left counts as failed when one cause stops them all.
+      const failAll = (reason: string) => {
+        for (const k of todo) failed.add(k);
+        st.failed += todo.length;
+        st.pending = Math.max(0, st.pending - todo.length);
+        failReason.set(saver, reason);
+      };
+      const dir = stateDir();
+      if (!dir) return failAll("no temporary folder");
+      const env = saverEnv(dir);
       if (saver === "headroom") {
-        const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(state, "headroom") });
-        if (!(await side.ready)) {
+        const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(dir, "headroom") });
+        try {
+          if (!(await side.ready)) {
+            failAll("compression model not cached");
+            o.log?.("headroom: its compression model is not cached; skipped (run headroom once online to download it).");
+            return;
+          }
+          for (const key of todo) {
+            if (!inTime()) break;
+            const j = unique.get(key)!;
+            const out = await side.compress(j.tool, j.input, exact ? Infinity : Math.max(1000, deadline - Date.now()));
+            if (out === "timeout") break; // not cached: it was not measured
+            attempted++;
+            store(key, out);
+          }
+        } finally {
           side.close();
-          for (const k of todo) failed.add(k);
-          st.failed += todo.length;
-          st.pending = Math.max(0, st.pending - todo.length);
-          failReason.set(saver, "compression model not cached");
-          o.log?.("headroom: its compression model is not cached; skipped (run headroom once online to download it).");
-          return;
         }
-        for (const key of todo) {
-          if (!inTime()) break;
-          const j = unique.get(key)!;
-          const out = await side.compress(j.tool, j.input, exact ? Infinity : Math.max(1000, deadline - Date.now()));
-          if (out === "timeout") break; // not cached: it was not measured
-          attempted++;
-          store(key, out);
-        }
-        side.close();
       } else {
         const m = adapters.get(saver)?.manifest;
         // The manifest's environment; "{state}" is this run's temporary state folder.
-        const menv = Object.fromEntries(Object.entries(m?.env ?? {}).map(([k, v]) => [k, v.replaceAll("{state}", state)]));
+        const menv = Object.fromEntries(Object.entries(m?.env ?? {}).map(([k, v]) => [k, v.replaceAll("{state}", dir)]));
         const runEnv = { ...env, ...menv, ...tool.env };
         const ratio = m?.jsonRatio;
         attempted = await pool(todo, WAIT_BOUND.has(saver) ? o.concurrency * 3 : o.concurrency, async (key) => {
@@ -415,7 +453,11 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     const order = [...bySaver].sort(([a], [b]) => (RATE[b] ?? DEFAULT_RATE) - (RATE[a] ?? DEFAULT_RATE));
     for (const [saver, unique] of order) await one(saver, unique);
   } finally {
-    rmSync(state, { recursive: true, force: true });
+    try {
+      if (state) rmSync(state, { recursive: true, force: true });
+    } catch {
+      o.log?.(`could not remove the savers' temporary folder ${state}`);
+    }
   }
   // More failed than measured: a number would be mostly failures counted as unchanged.
   for (const [saver, st] of stats) {
@@ -423,7 +465,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     const measured = [...sampled.get(saver)!].filter((k) => cache.has(k)).length;
     if (st.failed > measured) Object.assign(st, { insufficient: true, reason: failReason.get(saver) ?? (measured ? "most replays failed" : "every replay failed") });
   }
-  if (dirty && o.cacheFile) saveReplayCache(o.cacheFile, cache);
+  if (dirty) save();
 
   // Sampled outputs get their replayed result; the rest are extrapolated per class.
   const idx = new Map(saverIds.map((id, i) => [id, i]));

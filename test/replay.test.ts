@@ -1,16 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FileResult } from "../src/audit.ts";
+import { runAudit } from "../src/pool.ts";
 import { countProxy } from "../src/accounting/tokens.ts";
 import { runReplays, type ReplayTool } from "../src/savers/replay.ts";
 import { replayKey } from "../src/savers/tracker.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import type { ReplayJob } from "../src/savers/types.ts";
+import { FAKE_TOOLS, fixtureOptions } from "./helpers.ts";
 
 const BIN = fileURLToPath(new URL("./fixtures/bin/", import.meta.url));
 
@@ -84,6 +86,112 @@ test("a sidecar that exits mid-run fails the rest instead of hanging", async () 
     assert.equal(st.insufficient, true, "more failed than measured");
     assert.equal(st.reason, "most replays failed");
   } finally {
+    t.done();
+  }
+});
+
+/** A folder this process cannot write to (undefined when running as root, where chmod does not stop writes). */
+function readOnlyDir(parent: string): string | undefined {
+  const ro = join(parent, "ro");
+  mkdirSync(ro);
+  chmodSync(ro, 0o555);
+  try {
+    writeFileSync(join(ro, "probe"), "");
+    return undefined;
+  } catch {
+    return ro;
+  }
+}
+
+test("an unwritable replay cache warns once and the replay still finishes", async (c) => {
+  const t = tmp();
+  try {
+    const ro = readOnlyDir(t.dir);
+    if (!ro) return c.skip("running as root");
+    const logs: string[] = [];
+    // headroom's sidecar is fast enough to pass the 250-output checkpoint.
+    const f = synth("headroom", Array.from({ length: 260 }, (_, i) => ({ key: `h${i}`, input: text(i, 400) })));
+    const st = (await runReplays([f], ["headroom"], { tools: tool("headroom", "fake-headroom"), cacheFile: join(ro, "sa", "replay.json"), full: true, concurrency: 1, log: (s) => logs.push(s) })).get("headroom")!;
+    assert.equal(st.ran, 260);
+    assert.ok(deltas(f).every((d) => d > 0), "results still used in this run");
+    assert.equal(logs.filter((l) => l.startsWith("replay cache not saved (EACCES)")).length, 1, logs.join("\n"));
+  } finally {
+    chmodSync(join(t.dir, "ro"), 0o755);
+    t.done();
+  }
+});
+
+test("an unwritable cache folder or temp folder never aborts the audit", async (c) => {
+  const t = tmp();
+  const oldTmp = process.env.TMPDIR;
+  try {
+    const ro = readOnlyDir(t.dir);
+    if (!ro) return c.skip("running as root");
+    const r = await runAudit(fixtureOptions(), undefined, 1, { ids: ["rtk", "codegraph"], tools: FAKE_TOOLS, cacheFile: join(ro, "sa", "replay.json"), full: true });
+    assert.ok(r.savers.find((s) => s.id === "rtk")!.cost > 0);
+    process.env.TMPDIR = join(t.dir, "missing");
+    const none = await runAudit(fixtureOptions(), undefined, 1, { ids: ["rtk", "codegraph"], tools: new Map() });
+    assert.equal(none.savers.find((s) => s.id === "codegraph")!.status, "ok", "no replayed saver installed: no temp folder needed");
+    const some = await runAudit(fixtureOptions(), undefined, 1, { ids: ["rtk"], tools: FAKE_TOOLS, cacheFile: join(t.dir, "c.json"), full: true });
+    const rtk = some.savers.find((s) => s.id === "rtk")!.replay!;
+    assert.deepEqual({ insufficient: rtk.insufficient, reason: rtk.reason }, { insufficient: true, reason: "no temporary folder" });
+  } finally {
+    if (oldTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = oldTmp;
+    chmodSync(join(t.dir, "ro"), 0o755);
+    t.done();
+  }
+});
+
+async function gone(pid: number): Promise<boolean> {
+  for (let n = 0; n < 40; n++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
+}
+
+test("an error during replay closes the headroom sidecar", async () => {
+  const t = tmp();
+  try {
+    const pidFile = join(t.dir, "pid");
+    const f = synth("headroom", [0, 1, 2].map((i) => ({ key: `h${i}`, input: text(i) })));
+    const boom = () => {
+      throw new Error("stop");
+    };
+    await assert.rejects(runReplays([f], ["headroom"], { tools: tool("headroom", "fake-headroom", { FAKE_PIDFILE: pidFile }), cacheFile: t.cacheFile, full: true, concurrency: 1, progress: boom }), /stop/);
+    assert.ok(await gone(Number(readFileSync(pidFile, "utf8"))), "sidecar still running");
+  } finally {
+    t.done();
+  }
+});
+
+test("an error during replay stops the other workers and leaves no saver state behind", async () => {
+  const t = tmp();
+  const oldTmp = process.env.TMPDIR;
+  try {
+    const temp = join(t.dir, "tmp");
+    mkdirSync(temp);
+    process.env.TMPDIR = temp;
+    const runs = join(t.dir, "runs");
+    // The first output is quick and its progress report fails; the others are slow.
+    const specs = Array.from({ length: 20 }, (_, i) => ({ key: `k${String(i).padStart(2, "0")}`, input: `${i === 0 ? "" : "SLOW "}${text(i, 1000 + 100 * (20 - i))}` }));
+    const f = synth("caveman-engine", specs);
+    const boom = () => {
+      throw new Error("stop");
+    };
+    const env = { FAKE_SLEEP_MS: "300", FAKE_STATE: "1", FAKE_LOG: runs };
+    await assert.rejects(runReplays([f], ["caveman-engine"], { tools: tool("caveman-engine", "fake-saver", env), cacheFile: t.cacheFile, full: true, concurrency: 4, progress: boom }), /stop/);
+    await new Promise((r) => setTimeout(r, 700));
+    assert.equal(readFileSync(runs, "utf8").split("\n").filter(Boolean).length, 4, "only the outputs already started");
+    assert.deepEqual(readdirSync(temp), [], "state folder removed after the last saver process ended");
+  } finally {
+    if (oldTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = oldTmp;
     t.done();
   }
 });

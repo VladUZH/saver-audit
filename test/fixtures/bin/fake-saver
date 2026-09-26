@@ -2,17 +2,19 @@
 // Configurable fake saver for replay tests. Behaviour from environment variables:
 //   FAKE_FAIL=1          exit 1 without output (a broken or too old install)
 //   FAKE_MIN_CHARS=<n>   keep the first quarter of inputs of at least n chars (default 0)
-//   FAKE_STATE=1         first append the input to $CAVEMAN_HOME/ccr.db (a recovery store)
-//   FAKE_SLEEP_MS=<n>    wait this long before answering
+//   FAKE_SLEEP_MS=<n>    wait this long first, for inputs that contain "SLOW"
+//   FAKE_STATE=1         then append the input to $CAVEMAN_HOME/ccr.db (a recovery store)
+//   FAKE_LOG=<file>      append one line per run to this file
 let s = "";
 process.stdin.on("data", (d) => (s += d)).on("end", async () => {
   const env = process.env;
+  const { appendFileSync, mkdirSync } = await import("node:fs");
+  if (env.FAKE_LOG) appendFileSync(env.FAKE_LOG, "run\n");
+  if (s.includes("SLOW")) await new Promise((r) => setTimeout(r, Number(env.FAKE_SLEEP_MS ?? 0)));
   if (env.FAKE_STATE === "1") {
-    const { appendFileSync, mkdirSync } = await import("node:fs");
     mkdirSync(env.CAVEMAN_HOME, { recursive: true });
     appendFileSync(`${env.CAVEMAN_HOME}/ccr.db`, s);
   }
-  await new Promise((r) => setTimeout(r, Number(env.FAKE_SLEEP_MS ?? 0)));
   if (env.FAKE_FAIL === "1") process.exit(1);
   process.stdout.write(s.length >= Number(env.FAKE_MIN_CHARS ?? 0) ? s.slice(0, Math.floor(s.length / 4)) : s);
 });
