@@ -857,3 +857,11 @@ This changes §8.13 in two places.
   | 09-23 17:00 | +7.3% (15.8% from cache) | −0.4% (9.6%) |
   | 09-23 13:00 | — (over 25%) | −1.0% (17.8%) |
   | 09-21 13:00 | — | — |
+
+**Repeat runs.** The salt comes from the cache fingerprint, and a quick run's own replays change the cache, so every repeat run drew a new sample: four default quick runs of the month from an empty cache gave token-saver $70.41 → $71.96 → $67.50 → $76.12 and lean-ctx $156.16 → $135.14 → $138.81 → $112.66, 14–17 s each.
+- Each run now stores its draw per saver next to the replay cache (`quick-draws-v1.json`: hashes and numbers only): a fingerprint of the saver's population (its outputs, their sizes and preview flags, and the budget), the salt, the cache fingerprint once every saver in the run has written, and the drawn outputs.
+- The next run reuses that salt when both fingerprints are unchanged. The drawn outputs count as its sample again, not as cached outputs dropped from the draw, so the plan, the numbers and the error bar are identical and nothing is replayed. Anything else (new logs, another window, an exact run or another run that wrote the cache) draws afresh as before. `SAVER_AUDIT_STRICT_SAMPLE=1` never uses the store.
+- The store is best effort like the cache: a corrupt one is ignored, one that cannot be written gives one warning, and it is not written when the cache was not saved.
+- **Real check** (empty cache, `--since 2026-08-26 --until 2026-09-25T13:00 --json`, default savers, four runs in a row): token-saver $70.41 and lean-ctx $156.16 every time (±21% and ±16%). Run 1 replayed 270 outputs per saver in 23.8 s; runs 2–4 replayed none, in 12.0, 11.7 and 10.6 s. The machine was under load (load average about 19), so the times are high for all runs.
+- **Limit:** with the default period (ending now), repeat runs still draw afresh whenever the population changes: new activity in a session, or a call leaving the 30 days as the start moves. Three default runs a few minutes apart, with a session active, gave token-saver $95.07 → $96.86 → $101.68 and lean-ctx $191.52 → $172.75 → $184.98.
+
