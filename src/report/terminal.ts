@@ -235,6 +235,7 @@ export function replayedShare(s: AuditResult["savers"][number]): string {
   const r = s.replay;
   if (!r || !s.replayTotal) return "100%";
   const x = 1 - r.extrapolated / s.replayTotal;
+  if (x <= 0) return "0%";
   return `${x < 0.1 ? Math.max(Math.floor(x * 1000) / 10, 0.1).toFixed(1) : Math.floor(x * 100)}%`;
 }
 
@@ -258,7 +259,8 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
   }
   const notes: string[] = [];
   for (const s of shown) {
-    if (s.replay && (s.replay.extrapolated || s.replay.failed)) {
+    // A saver without a number already says why on its row.
+    if (s.replay && !tooLittleData(s) && (s.replay.extrapolated || s.replay.failed)) {
       const parts = [];
       if (s.replay.extrapolated) parts.push(`indicative: ${replayedShare(s)} of its outputs replayed (quick mode), the other ${s.replay.extrapolated.toLocaleString("en-US")} extrapolated; --exact replays all`);
       if (s.replay.failed) parts.push(`${s.replay.failed.toLocaleString("en-US")} ${s.replay.failed === 1 ? "replay" : "replays"} failed and count as unchanged (tried again next run)`);

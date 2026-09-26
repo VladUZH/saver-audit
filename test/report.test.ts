@@ -9,7 +9,7 @@ import { runAudit } from "../src/pool.ts";
 import { cardSvg } from "../src/report/card.ts";
 import { renderJson } from "../src/report/json.ts";
 import { shareText } from "../src/report/share.ts";
-import { confidence, isIndicative, renderShort, renderTerminal, tooLittleData } from "../src/report/terminal.ts";
+import { confidence, isIndicative, renderShort, renderTerminal, replayedShare, tooLittleData } from "../src/report/terminal.ts";
 import type { ReplayTool } from "../src/savers/replay.ts";
 import { FAKE_TOOLS, fixtureOptions } from "./helpers.ts";
 
@@ -60,4 +60,15 @@ test("some failed replays: the number is indicative everywhere, and the full rep
   assert.match(short, /Some replays failed and count as unchanged/);
   assert.match(shareText(r), /rtk ≈/);
   assert.match(cardSvg(r), /replayed · indicative/);
+});
+
+test("a saver with no number gets no 'indicative … replayed … extrapolated' note", async () => {
+  const r = await audit(new Map([["caveman-engine", FAKE_TOOLS.get("caveman-engine")!]]), false);
+  const c = r.savers.find((s) => s.id === "caveman-engine")!;
+  assert.equal(tooLittleData(c), true, "cache-only in quick mode, nothing cached");
+  const full = renderTerminal(r, OPTS);
+  assert.match(full, /caveman \(proxy engine\)\s+replayed[^\n]*exact run needed: --exact/);
+  assert.doesNotMatch(full, /caveman \(proxy engine\): indicative/);
+  assert.equal(replayedShare({ ...c, replay: { total: 3000, pending: 3000, ran: 0, extrapolated: 3000, failed: 0 }, replayTotal: 3000 }), "0%", "none replayed is 0%, not 0.1%");
+  assert.equal(replayedShare({ ...c, replay: { total: 3000, pending: 2999, ran: 1, extrapolated: 2999, failed: 0 }, replayTotal: 3000 }), "0.1%");
 });
