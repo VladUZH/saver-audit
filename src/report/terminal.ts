@@ -96,7 +96,10 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
     // Nothing measured: every replayed saver here is missing, or --savers picked none.
     if (!measured.length && !later.length) out.push(dim(r.savers.some((y) => y.method === "replayed") ? "  None measured yet: none of the replayed savers in this run is installed." : "  None measured: none of the selected savers is replayed (--savers)."));
     const exact = keys.exact ? `${bold("Press [e]")} for exact numbers (once; cached).` : "For exact numbers (once; cached): npx saver-audit --exact";
-    if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failedOut)) out.push(dim(`  "indicative" = from a quick sample; can be off by half. ${exact}`));
+    // Each quick estimate's own error bar (2 s.e., in tokens), not one fixed caveat.
+    const ranges = measured.filter((x) => quickRange(x) !== undefined).map((x) => `${x.name.replace(" (proxy engine)", " engine")} ${fmtRange(quickRange(x)!)}`);
+    const within = ranges.length ? `, likely within ${ranges.join(", ")} (in tokens)` : "";
+    if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failedOut)) out.push(dim(`  "indicative" = from a quick sample${within}. ${exact}`));
     if (measured.some((x) => x.replay?.failed)) out.push(dim(`  Some replays failed and count as unchanged, so those numbers are "indicative"; the full report has the counts.`));
     const hypo = measured.filter(hypotheticalCodex);
     if (hypo.length) out.push(dim(`  The Codex part is left out above (${hypo.map((x) => `${x.name.replace(" (proxy engine)", " engine")} about ${signedUsd(x.codexCost)}`).join(", ")}): it is hypothetical, since Codex hooks cannot rewrite tool input.`));
@@ -343,13 +346,19 @@ function noNumber(s: AuditResult["savers"][number], exact: string): string {
   return s.replay?.failedOut ? `not measured: ${s.replay.reason ?? "replays failed"}` : `exact run needed: ${exact}`;
 }
 
-/** The share of outputs replayed, rounded down so a nearly complete replay never reads 100%. */
-export function replayedShare(s: AuditResult["savers"][number]): string {
+/**
+ * A quick estimate's likely range: 2 standard errors as a share of its estimated total saving,
+ * in tokens (Infinity when that total is 0). Undefined when nothing was estimated.
+ */
+export function quickRange(s: AuditResult["savers"][number]): number | undefined {
   const r = s.replay;
-  if (!r || !s.replayTotal) return "100%";
-  const x = 1 - r.extrapolated / s.replayTotal;
-  if (x <= 0) return "0%";
-  return `${x < 0.1 ? Math.max(Math.floor(x * 1000) / 10, 0.1).toFixed(1) : Math.floor(x * 100)}%`;
+  if (s.method !== "replayed" || tooLittleData(s) || !r?.extrapolated || r.seTokens === undefined || r.savedTokens === undefined) return undefined;
+  return r.savedTokens ? (2 * r.seTokens) / Math.abs(r.savedTokens) : r.seTokens ? Infinity : 0;
+}
+
+/** "±12%"; "±>999%" when the range dwarfs the estimate (or the estimate is 0). */
+export function fmtRange(x: number): string {
+  return x >= 9.995 ? "±>999%" : `±${Math.max(1, Math.round(100 * x))}%`;
 }
 
 function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => string, dim: (s: string) => string): string[] {
@@ -371,11 +380,20 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
     out.push(`  ${pad(s.name, 24)} ${pad(METHOD[s.method]!, 12)} ${lpad(cov, 7)} ${lpad(tokens, 9)} ${lpad(cost, 10)} ${lpad(share, 8)}  ${confidence(s)}`);
   }
   const notes: string[] = [];
+  const exact = menuKeys(r, o).exact ? "press [e]" : "--exact";
   for (const s of shown) {
     // A saver without a number already says why on its row.
     if (s.replay && !tooLittleData(s) && (s.replay.extrapolated || s.replay.failed)) {
       const parts = [];
-      if (s.replay.extrapolated) parts.push(`indicative: ${replayedShare(s)} of its outputs replayed (quick mode), the other ${s.replay.extrapolated.toLocaleString("en-US")} extrapolated; --exact replays all`);
+      if (s.replay.extrapolated) {
+        const all = s.replayTotal ?? s.replay.total;
+        const range = quickRange(s);
+        parts.push(
+          `indicative: estimated from ${(all - s.replay.extrapolated).toLocaleString("en-US")} of ${all.toLocaleString("en-US")} outputs` +
+            (range !== undefined ? `; likely within ${fmtRange(range)} (2 s.e., in tokens)` : "") +
+            `; dollars weight outputs differently and can be off by more; ${exact} for exact numbers`,
+        );
+      }
       if (s.replay.failed) parts.push(`${s.replay.failed.toLocaleString("en-US")} ${s.replay.failed === 1 ? "replay" : "replays"} failed and count as unchanged (tried again next run)`);
       notes.push(`${s.name}: ${parts.join("; ")}.`);
     }

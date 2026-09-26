@@ -9,7 +9,7 @@ import { runAudit } from "../src/pool.ts";
 import { cardSvg } from "../src/report/card.ts";
 import { renderJson } from "../src/report/json.ts";
 import { shareText } from "../src/report/share.ts";
-import { confidence, isIndicative, renderShort, renderTerminal, replayedShare, tooLittleData } from "../src/report/terminal.ts";
+import { confidence, fmtRange, isIndicative, quickRange, renderShort, renderTerminal, tooLittleData } from "../src/report/terminal.ts";
 import type { ReplayTool } from "../src/savers/replay.ts";
 import { FAKE_TOOLS, fixtureOptions } from "./helpers.ts";
 
@@ -69,6 +69,25 @@ test("a saver with no number gets no 'indicative … replayed … extrapolated' 
   const full = renderTerminal(r, OPTS);
   assert.match(full, /caveman \(proxy engine\)\s+replayed[^\n]*exact run needed: --exact/);
   assert.doesNotMatch(full, /caveman \(proxy engine\): indicative/);
-  assert.equal(replayedShare({ ...c, replay: { total: 3000, pending: 3000, ran: 0, extrapolated: 3000, failed: 0 }, replayTotal: 3000 }), "0%", "none replayed is 0%, not 0.1%");
-  assert.equal(replayedShare({ ...c, replay: { total: 3000, pending: 2999, ran: 1, extrapolated: 2999, failed: 0 }, replayTotal: 3000 }), "0.1%");
+  assert.equal(quickRange(c), undefined);
+});
+
+test("a quick estimate states its own likely range: per saver in the report, compact in the short view, the se in JSON, ≈ only on the card and post", async () => {
+  const r = await audit(new Map([["rtk", FAKE_TOOLS.get("rtk")!]]));
+  const rtk = r.savers.find((s) => s.id === "rtk")!;
+  rtk.replay = { total: 3000, pending: 2730, ran: 270, extrapolated: 2730, failed: 0, seTokens: 600, savedTokens: 10_000 };
+  rtk.replayTotal = 3000;
+  assert.equal(quickRange(rtk), 0.12);
+  const full = renderTerminal(r, OPTS);
+  assert.match(full, /rtk: indicative: estimated from 270 of 3,000 outputs; likely within ±12% \(2 s\.e\., in tokens\); dollars weight outputs differently and can be off by more; --exact for exact numbers\./);
+  assert.match(renderTerminal(r, { ...OPTS, menu: true }), /; press \[e\] for exact numbers\./);
+  const short = renderShort(r, OPTS);
+  assert.match(short, /"indicative" = from a quick sample, likely within rtk ±12% \(in tokens\)\./);
+  assert.doesNotMatch(short + full, /off by half/);
+  const json = JSON.parse(renderJson(r, { showProjects: false, version: "test" }));
+  assert.deepEqual([json.savers.find((s: { id: string }) => s.id === "rtk").replay.seTokens, json.savers.find((s: { id: string }) => s.id === "rtk").replay.savedTokens], [600, 10_000]);
+  assert.match(shareText(r), /rtk ≈/);
+  assert.doesNotMatch(shareText(r) + cardSvg(r), /±/);
+  assert.equal(fmtRange(0.004), "±1%");
+  assert.equal(fmtRange(Infinity), "±>999%");
 });
