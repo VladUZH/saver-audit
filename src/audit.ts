@@ -97,6 +97,8 @@ export interface SaverRow {
   /** Part of `cost` from Codex sessions (hypothetical when codexHypothetical). */
   codexCost: number;
   codexHypothetical: boolean;
+  /** The replayed number is a floor (see SaverInfo.lowerBound). */
+  lowerBound?: boolean;
   replay?: ReplayStats;
   /** Unique outputs the replayed saver applies to (sampled + extrapolated). */
   replayTotal?: number;
@@ -510,6 +512,7 @@ function saverRows(savers: SaverAdapter[], saved: Array<{ tokens: number; cost: 
       cost: notInstalled ? 0 : saved[i]!.cost,
       codexCost: notInstalled ? 0 : saved[i]!.codexCost,
       codexHypothetical: sv.codexHypothetical,
+      ...(sv.lowerBound ? { lowerBound: true } : {}),
       replay: run?.stats.get(sv.id),
       replayTotal: run?.stats.get(sv.id)?.total,
       install: sv.manifest?.install,

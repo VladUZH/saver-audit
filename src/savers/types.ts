@@ -21,6 +21,8 @@ export interface SaverInfo {
   assumption?: string;
   /** Savers that act through Claude Code hooks cannot rewrite inputs on Codex. */
   codexHypothetical: boolean;
+  /** The replayed number misses savings offline replay cannot see, so it is a floor. */
+  lowerBound?: boolean;
 }
 
 /** A tool output as the adapters see it. Text never leaves the process. */

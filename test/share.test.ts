@@ -26,7 +26,7 @@ test("the pre-filled post holds numbers only and fits a post", async () => {
   // The fixture sessions span 2026-09-20..22 in a 29-day window.
   assert.match(text, new RegExp(`^I replayed ${loggedDays(r)} days of my Claude Code \\+ Codex sessions through popular token savers:`));
   assert.ok(loggedDays(r) <= 4);
-  assert.match(text, /\nheadroom −[\d.]+% \(\$0\.\d\d\)/, "measured savers lead, with % and $");
+  assert.match(text, /\nheadroom at least −[\d.]+% \(\$0\.\d\d\)/, "measured savers lead, with % and $");
   assert.match(text, /of \$0\.04 API-equivalent spend\./);
   assert.match(text, /npx saver-audit$/);
   // X counts every link as 23 characters, and "−" or "≈" as 2.

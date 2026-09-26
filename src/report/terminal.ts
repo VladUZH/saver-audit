@@ -88,7 +88,7 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
     const measured = r.savers.filter((y) => y.status === "ok" && y.method === "replayed" && !tooLittleData(y)).sort((a, b) => measuredCost(b) - measuredCost(a));
     for (const x of measured) {
       const share = total ? `${((100 * measuredCost(x)) / total).toFixed(1)}%` : "—";
-      out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad(signedUsd(measuredCost(x)), 9)} ${lpad(share, 7)}  ${dim(confidence(x))}`);
+      out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad(signedUsd(measuredCost(x)), 9)} ${lpad(share, 7)}  ${dim(confidence(x) + (x.lowerBound ? ", lower bound" : ""))}`);
     }
     const keys = menuKeys(r, o);
     const later = r.savers.filter((y) => y.status === "ok" && tooLittleData(y));

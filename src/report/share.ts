@@ -78,7 +78,8 @@ export function shareText(r: AuditResult): string {
     const longHead = `I replayed ${days} of my ${agents} sessions through popular token savers:`;
     const shortHead = `Token savers on my ${agents} sessions:`;
     // "≈" marks numbers not fully measured (a quick sample, or failed replays).
-    const approx = (s: (typeof ok)[number]) => (isIndicative(s) ? "≈" : "");
+    // "at least" marks a floor (the saver also cuts what offline replay cannot see).
+    const approx = (s: (typeof ok)[number]) => (s.lowerBound ? "at least " : "") + (isIndicative(s) ? "≈" : "");
     const lines = measured.map((s) => `${short(s.name)} ${approx(s)}${cut(s)}`);
     const totalLine = `of ${spend} API-equivalent spend.`;
     // Compact form: every measured saver with its % only, before falling back to the top 3.

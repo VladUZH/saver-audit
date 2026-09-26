@@ -58,7 +58,7 @@ test("some failed replays: the number is indicative everywhere, and the full rep
   const short = renderShort(r, OPTS);
   assert.match(short, /rtk\s+\$[\d.]+\s+[\d.]+%\s+indicative/);
   assert.match(short, /Some replays failed and count as unchanged/);
-  assert.match(shareText(r), /rtk ≈/);
+  assert.match(shareText(r), /rtk at least ≈/);
   assert.match(cardSvg(r), /replayed · indicative/);
 });
 
@@ -86,7 +86,7 @@ test("a quick estimate states its own likely range: per saver in the report, com
   assert.doesNotMatch(short + full, /off by half/);
   const json = JSON.parse(renderJson(r, { showProjects: false, version: "test" })).savers.find((s: { id: string }) => s.id === "rtk").replay;
   assert.deepEqual([json.se, json.estimate, json.unit, json.measured], [0.6, 10, "usd", 390]);
-  assert.match(shareText(r), /rtk ≈/);
+  assert.match(shareText(r), /rtk at least ≈/);
   assert.doesNotMatch(shareText(r) + cardSvg(r), /±/);
   // Nothing priced: the range is in tokens, and dollars are said to be off by more.
   rtk.replay = { ...rtk.replay, unit: "tokens" };

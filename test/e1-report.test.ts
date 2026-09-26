@@ -73,7 +73,7 @@ test("calls on unpriced models are named next to the total in the short view, on
   const priced = await editedClaude((t) => t);
   assert.doesNotMatch(renderShort(priced, OPTS), /unpriced/);
   assert.doesNotMatch(cardSvg(priced), /unpriced/);
-  assert.doesNotMatch(shareText(priced), /at least/);
+  assert.doesNotMatch(shareText(priced), /at least \$/);
 });
 
 test("Codex web searches left out of the total are named next to it in the short view, on the card and in the post", async () => {
@@ -237,4 +237,27 @@ test("a quick sample too small, with a few failed replays, asks for an exact run
   assert.match(renderShort(bad, OPTS), /token-saver\s+—\s+not measured: most replays failed/);
   assert.doesNotMatch(renderShort(bad, OPTS), /--exact/);
   assert.match(cardSvg(bad), /No saver measured: replays failed\./);
+});
+
+test("a lower-bound saver says so in the short view, on the card and in the post", () => {
+  const r = result({ savers: [saver("rtk", "rtk", 3.1, { lowerBound: true }), saver("lean-ctx", "lean-ctx", 9.4)] });
+  assert.match(renderShort(r, OPTS), /rtk\s+\$3\.10\s+1\.0%\s+exact, lower bound/);
+  assert.doesNotMatch(renderShort(r, OPTS), /lean-ctx[^\n]*lower bound/);
+  const svg = cardSvg(r);
+  assert.match(svg, /replayed · lower bound/);
+  assert.equal((svg.match(/lower bound/g) ?? []).length, 1, "only the lower-bound saver is marked");
+  const post = shareText(r);
+  assert.match(post, /rtk at least −1\.0% \(\$3\.10\)/);
+  assert.match(post, /lean-ctx −3\.0%/);
+  assert.ok(xLength(post) <= 280);
+});
+
+test("rtk and headroom are marked lower bounds; manifests validate the flag", async () => {
+  const { SAVERS } = await import("../src/savers/registry.ts");
+  const { validateManifest } = await import("../src/savers/manifest.ts");
+  const byId = new Map(SAVERS.map((s) => [s.id, s]));
+  assert.equal(byId.get("rtk")!.lowerBound, true);
+  assert.equal(byId.get("headroom")!.lowerBound, true);
+  assert.ok(!byId.get("lean-ctx")!.lowerBound);
+  assert.ok(validateManifest({ ...JSON.parse(readFileSync("src/savers/builtin/rtk.json", "utf8")), lowerBound: "yes" }).some((p) => p.startsWith("lowerBound")));
 });

@@ -7,6 +7,7 @@
   "method": "replayed",
   "covers": "shell output of commands rtk has a pipe filter for (tests, builds, grep/find, git diff, linters)",
   "assumption": "only commands with an offline pipe filter are replayed; rtk's hook also rewrites others (curl, ls, wc and some git commands, among others) whose savings offline replay cannot measure, so this is a lower bound",
+  "lowerBound": true,
   "stage": "tool",
   "binary": "rtk",
   "binaryEnv": "SAVER_AUDIT_RTK",

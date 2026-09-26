@@ -138,7 +138,8 @@ export function cardSvg(r: AuditResult): string {
     parts.push(text(rx + 4, y, s.name.replace(" (proxy engine)", " engine").replace(" (skill)", " skill"), 17, C.text));
     // The card travels without the report's notes, so a sampled number says so here.
     const conf = confidence(s);
-    parts.push(text(rx + 4, y + 20, conf === "indicative" ? `${METHOD[s.method]} · indicative` : METHOD[s.method]!, 13, C.muted));
+    const label = [METHOD[s.method]!, ...(conf === "indicative" ? ["indicative"] : []), ...(s.lowerBound ? ["lower bound"] : [])].join(" · ");
+    parts.push(text(rx + 4, y + 20, label, 13, C.muted));
     parts.push(text(rx + rightW - 4, y, val, 17, color, { anchor: "end", bold: true }));
   });
 

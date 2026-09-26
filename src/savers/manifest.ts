@@ -64,6 +64,7 @@ export interface SaverManifest {
   minTokens?: number;
   /** Savers acting through Claude Code hooks cannot rewrite tool input on Codex. */
   codexHypothetical?: boolean;
+  lowerBound?: boolean;
   /** How to install it, shown when it is missing. */
   install?: string;
   /**
@@ -98,6 +99,7 @@ export function validateManifest(m: any): string[] {
   for (const k of ["paths", "versionArgs"]) if (bad(m[k], isStrings)) p.push(`${k}: a list of strings`);
   if (bad(m.minTokens, isNum)) p.push("minTokens: a number");
   if (bad(m.codexHypothetical, (v) => typeof v === "boolean")) p.push("codexHypothetical: true or false");
+  if (bad(m.lowerBound, (v) => typeof v === "boolean")) p.push("lowerBound: true or false");
   if (!Array.isArray(m.routes) || !m.routes.length) p.push("routes: at least one route");
   else
     m.routes.forEach((r: any, i: number) => {
