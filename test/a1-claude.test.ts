@@ -311,6 +311,45 @@ test("after a rewind, savers keep crediting the kept conversation as without the
   });
 });
 
+test("editing the first prompt after a compaction keeps the compaction summary in context", async () => {
+  await withDir(async (run) => {
+    const summary = "This session is being continued from a previous conversation. " + answer(0);
+    const head = [
+      prompt("p0", "00:00", "build it", null),
+      assistant("m0", "00:01", "msg_0", [bash("t0", "npm run build")], usage(5000, 0, 50), undefined, "p0"),
+      toolResult("r0", "00:02", "t0", log(200, "build"), "m0"),
+      assistant("m1", "00:03", "msg_1", [text("fixed it")], usage(3000, 5000, 20), undefined, "r0"),
+      { ...env("b0", "00:04", null), type: "system", subtype: "compact_boundary", logicalParentUuid: "m1" },
+      { ...prompt("s0", "00:05", summary, "b0"), isCompactSummary: true },
+      attachment("at0", "00:05", { type: "todo_reminder", content: "remember the changelog" }),
+    ];
+    const abandoned = [
+      prompt("q1", "00:06", "now run the tests", "at0"),
+      assistant("m2", "00:07", "msg_2", [bash("t2", "npm test")], usage(900, 5000, 40), undefined, "q1"),
+      toolResult("r2", "00:08", "t2", log(200, "tests"), "m2"),
+      assistant("m3", "00:09", "msg_3", [text("tests fail")], usage(3000, 5900, 20), undefined, "r2"),
+    ];
+    // q1 is edited: q1b takes q1's parent, the last line before the first prompt after /compact.
+    const tail = [
+      prompt("q1b", "00:10", "instead, run the linter", "at0"),
+      assistant("m4", "00:11", "msg_4", [bash("t4", "npm run lint")], usage(900, 5000, 30), undefined, "q1b"),
+      toolResult("r4", "00:12", "t4", log(200, "lint"), "m4"),
+      assistant("m5", "00:13", "msg_5", [text("lint passes")], usage(3000, 5900, 10), undefined, "r4"),
+      prompt("q2", "00:14", "thanks", "m5"),
+      assistant("m6", "00:15", "msg_6", [text("ok")], usage(20, 8900, 5), undefined, "q2"),
+    ];
+    const branched = await run([...head, ...abandoned, ...tail], contextMode);
+    const linear = await run([...head, ...tail], contextMode);
+    assert.deepEqual(context(branched).slice(4), context(linear).slice(2));
+    assert.equal(linear.records[2]!.newRaw.compaction, countProxy(summary));
+    assert.equal(branched.records[4]!.newRaw.compaction, countProxy(summary), "the summary is still new at the first kept call");
+    assert.ok(branched.records[4]!.newRaw.injected! > 0, "and so is the reminder logged after it");
+    assert.equal(branched.records[5]!.oldRaw.compaction, countProxy(summary));
+    assert.deepEqual(credit(branched).slice(4), credit(linear).slice(2));
+    assert.ok(credit(linear)[4]![0]![0]! > 0, "the kept lint log is credited on every later call");
+  });
+});
+
 test("an ordinary parentUuid chain, with parallel tool results, is not a rewind", async () => {
   await withDir(async (run) => {
     const rows = (withParents: boolean) => {

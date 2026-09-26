@@ -5,7 +5,7 @@
 import { toolCategory } from "./categories.ts";
 import { countProxy } from "./tokens.ts";
 import type { Block, Call, Source, Turn, UserKind } from "../sources/types.ts";
-import type { CallRange, SaverTracker } from "../savers/tracker.ts";
+import type { CallRange, SaverMark, SaverTracker } from "../savers/tracker.ts";
 
 /** Bucket keys: fixed labels, or `tool:<Category>|<shell family>`. */
 export type BucketKey = string;
@@ -42,10 +42,19 @@ interface Timeline {
   pendVis: number;
   /** o200k counts of content sent with every request, which a compaction keeps. */
   resent: Record<BucketKey, number>;
+  /**
+   * The context at its start (the file's, or the last compaction's, with its summary)
+   * right before its first prompt or call, and the savers' context then.
+   */
+  start?: { t: Timeline; savers?: SaverMark };
 }
 
 function fresh(): Timeline {
   return { ctxRaw: {}, ctxReal: 0, pendRaw: {}, pendReal: 0, think: 0, thinkVis: 0, pendThink: 0, pendVis: 0, resent: {} };
+}
+
+function copy(t: Timeline): Timeline {
+  return { ...t, ctxRaw: { ...t.ctxRaw }, pendRaw: { ...t.pendRaw }, resent: { ...t.resent }, prev: undefined, start: undefined };
 }
 
 function add(into: Record<string, number>, from: Record<string, number>): void {
@@ -123,12 +132,14 @@ export class ContextTracker {
   }
 
   /**
-   * The context goes back to what it was right after call `key` (null: the start).
-   * User-side content logged between that call and the prompt is not restored, for the
-   * savers either.
+   * The context goes back to what it was right after call `key`. User-side content logged
+   * between that call and the prompt is not restored, for the savers either. With null,
+   * it goes back to the start of the context: after a compaction, its summary stays.
    */
   private rewind(timeline: string, key: string | null): void {
-    const t = fresh();
+    const start = this.timelines.get(timeline)?.start;
+    let t = fresh();
+    let savers: SaverMark | undefined;
     const rec = key === null ? undefined : this.records.findLast((r) => r.key === key);
     if (rec) {
       t.ctxRaw = { ...rec.oldRaw };
@@ -137,14 +148,21 @@ export class ContextTracker {
       t.pendReal = rec.call.usage.output;
       const th = this.thinkAfter.get(rec.key);
       if (th) [t.think, t.thinkVis, t.pendThink, t.pendVis] = th;
+      const r = rec.range;
+      if (r) savers = { tl: r.tl, ctxStart: r.ctxStart, pendStart: r.newEnd, end: r.newEnd };
+    } else if (key === null && start) {
+      t = copy(start.t);
+      savers = start.savers;
     }
+    t.start = start;
     this.timelines.set(timeline, t);
-    this.savers?.rewind(timeline, rec?.range);
+    this.savers?.rewind(timeline, savers);
   }
 
   turn(turn: Turn): void {
     if (turn.rewind !== undefined) this.rewind(turn.timeline, turn.rewind);
     const t = this.tl(turn.timeline);
+    if (!t.start && (turn.userKind === "prompt" || turn.call)) t.start = { t: copy(t), savers: this.savers?.mark(turn.timeline) };
     if (turn.role === "user") {
       if (turn.userKind === "prompt" && (t.think || t.pendThink)) {
         // Earlier thinking leaves the context; the visible output stays, counted as o200k.

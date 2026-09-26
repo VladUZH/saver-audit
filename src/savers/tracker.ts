@@ -25,6 +25,14 @@ export interface CallRange {
   first: boolean;
 }
 
+/** A point in a timeline's saver context: blocks ctxStart..pendStart were sent, pendStart..end go with the next call. */
+export interface SaverMark {
+  tl: string;
+  ctxStart: number;
+  pendStart: number;
+  end: number;
+}
+
 /** A cached replay result: tokens of the saver's output, its length, and tokens of its first 2,000 chars. */
 export interface ReplayResult {
   t: number;
@@ -119,18 +127,23 @@ export class SaverTracker {
     t.pendStart = t.blocks.length;
   }
 
+  /** Where this timeline's context is now, for a later rewind() to it. */
+  mark(timeline: string): SaverMark {
+    const t = this.tl(timeline);
+    return { tl: timeline, ctxStart: t.ctxStart, pendStart: t.pendStart, end: t.blocks.length };
+  }
+
   /**
-   * The context goes back to what it was right after the call with this range (none:
-   * the start). Its blocks are appended again, as the same objects, so replay results
-   * written to the originals count here too.
+   * The context goes back to a mark (none: empty). Its blocks are appended again, as the
+   * same objects, so replay results written to the originals count here too.
    */
-  rewind(timeline: string, range: CallRange | undefined): void {
-    if (!range || range.tl !== timeline) return this.compact(timeline);
+  rewind(timeline: string, to: SaverMark | undefined): void {
+    if (!to || to.tl !== timeline) return this.compact(timeline);
     const t = this.tl(timeline);
     const start = t.blocks.length;
-    t.blocks.push(...t.blocks.slice(range.ctxStart, range.newEnd));
+    t.blocks.push(...t.blocks.slice(to.ctxStart, to.end));
     t.ctxStart = start;
-    t.pendStart = t.blocks.length;
+    t.pendStart = start + to.pendStart - to.ctxStart;
   }
 
   output(timeline: string, timestamp: string | undefined, o: OutputView): void {
