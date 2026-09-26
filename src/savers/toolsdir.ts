@@ -140,7 +140,7 @@ export function installPlan(platform: string = process.platform, arch: string = 
 
 /** What [i] and --install-savers can do for the missing savers. */
 export interface InstallOffer {
-  /** Missing savers the installer can install here (or will try: one that needs Python, when Python was not looked for). */
+  /** Missing savers the installer can install here (or will try: one that needs Python, along with others that do not). */
   ids: string[];
   /** Why each other missing built-in saver cannot be installed here. */
   why: Map<string, string>;
@@ -148,28 +148,22 @@ export interface InstallOffer {
 
 /**
  * What the installer can do for the missing savers; the [i] key is offered when `ids`
- * is not empty. headroom is left out (1.6 GB: --with-headroom only). Python is only
- * looked for when nothing without it can be installed: on a Mac without developer
- * tools, running python3 opens a dialog offering to install them.
+ * is not empty. headroom is left out (1.6 GB: --with-headroom only). Python is never
+ * looked for: the report builds this on every run, and on a Mac without developer
+ * tools running python3 opens a dialog offering to install them. A saver that needs
+ * Python is tried along with ones that do not ([i] looks for Python and says why if it
+ * cannot); alone, it is left to --install-savers.
  */
-export function installOffer(
-  savers: Array<{ id: string; status: string }>,
-  plan: (python: boolean) => InstallChoice[] = (python) => installPlan(process.platform, process.arch, python ? findPython() : null),
-): InstallOffer {
+export function installOffer(savers: Array<{ id: string; status: string }>, plan: InstallChoice[] = installPlan(process.platform, process.arch, null)): InstallOffer {
   const missing = savers.filter((s) => s.status === "not installed" && s.id !== "headroom").map((s) => s.id);
-  if (!missing.length) return { ids: [], why: new Map() };
-  let p = plan(false);
-  let looked = false;
-  const can = (id: string) => p.some((c) => c.id === id && c.available);
-  const python = (id: string) => p.some((c) => c.id === id && c.python);
-  if (!missing.some(can) && missing.some(python)) {
-    p = plan(true);
-    looked = true;
-  }
-  const ids = missing.filter((id) => can(id) || (!looked && python(id)));
+  const can = (id: string) => plan.some((c) => c.id === id && c.available);
+  const python = (id: string) => plan.some((c) => c.id === id && c.python);
+  const others = missing.some(can);
+  const ids = missing.filter((id) => can(id) || (others && python(id)));
   const why = new Map(missing.flatMap((id): Array<[string, string]> => {
-    const c = p.find((x) => x.id === id);
-    return !ids.includes(id) && c?.why ? [[id, c.why]] : [];
+    const c = plan.find((x) => x.id === id);
+    if (ids.includes(id) || !c?.why) return [];
+    return [[id, c.python ? `${c.why}; to install: npx saver-audit --install-savers` : c.why]]; // Python not looked for
   }));
   return { ids, why };
 }

@@ -12,11 +12,10 @@ import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { renderJson } from "./report/json.ts";
 import type { Source } from "./sources/types.ts";
-import type { AuditResult } from "./audit.ts";
 import { periodOf } from "./period.ts";
 import { normalizeCardArg, parseJobs } from "./args.ts";
 import { exactSeconds } from "./savers/replay.ts";
-import { HEADROOM_VERSION, installOffer, installPlan, toolPaths, toolsDir, type InstallChoice, type InstallOffer } from "./savers/toolsdir.ts";
+import { HEADROOM_VERSION, installOffer, installPlan, toolPaths, toolsDir } from "./savers/toolsdir.ts";
 import { VERSION } from "./version.ts";
 
 
@@ -187,11 +186,8 @@ async function main(argv: string[]): Promise<number> {
     return code;
   }
   const animate = canAnimate(process.stdout, values["no-animation"]);
-  // What [i] could install, looked at once per result (it may run Python).
-  let withPython: InstallChoice[] | undefined;
-  const plan = (python: boolean) => (python ? (withPython ??= installPlan()) : installPlan(process.platform, process.arch, null));
-  const offers = new WeakMap<AuditResult, InstallOffer>();
-  const install = () => offers.get(result) ?? offers.set(result, installOffer(result.savers, plan)).get(result)!;
+  // What [i] could install (never runs Python: installOffer).
+  const install = () => installOffer(result.savers);
   // The short view names a key only when the menu that follows offers it (menuKeys).
   const shortView = (menu: boolean) => renderShort(result, { ...opts, menu, install: install() });
   if (values.short) {
