@@ -1,5 +1,8 @@
 # Third-party notices
 
+Besides saver-audit's own code, `dist/cli.js` bundles code from two npm packages:
+gpt-tokenizer (MIT) and @resvg/resvg-wasm (MPL-2.0). Both are described below.
+
 `dist/cli.js` bundles the o200k_base encoder from gpt-tokenizer 4.0.0
 (https://github.com/niieani/gpt-tokenizer), used under the MIT License:
 
@@ -28,12 +31,16 @@ SOFTWARE.
 ```
 
 `data/prices.json` is derived from models.dev (https://github.com/anomalyco/models.dev, MIT)
-and, for retired models only, LiteLLM's model price list (https://github.com/BerriAI/litellm, MIT).
+and, for models models.dev lacks and for Claude's >200k-token rates, LiteLLM's model price
+list (https://github.com/BerriAI/litellm, MIT). The fast-mode multipliers in `dist/cli.js`
+come from the same LiteLLM list.
 
-`dist/resvg.wasm` (used only by `--card`) is the unmodified WebAssembly build of
-@resvg/resvg-wasm 2.6.2 (https://github.com/thx/resvg-js), licensed under the Mozilla
-Public License 2.0 (https://mozilla.org/MPL/2.0/). Its source code is available at that
-repository.
+`dist/resvg.wasm` and the JavaScript bindings bundled into `dist/cli.js` (from
+`@resvg/resvg-wasm/index.mjs`) come from @resvg/resvg-wasm 2.6.2
+(https://github.com/thx/resvg-js). Both are used only by `--card`. They are licensed
+under the Mozilla Public License 2.0 (https://mozilla.org/MPL/2.0/). The WebAssembly
+file is unmodified; esbuild merges the bindings into `dist/cli.js` at build time. Their
+source code is available at that repository.
 
 `dist/fonts/JetBrainsMono-Regular.ttf` and `dist/fonts/JetBrainsMono-Bold.ttf` are
 JetBrains Mono 2.304 (https://github.com/JetBrains/JetBrainsMono), licensed under the SIL
