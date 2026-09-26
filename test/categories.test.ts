@@ -38,6 +38,26 @@ test("shell families: wrapper arguments and subshells are skipped", () => {
   for (const [cmd, fam] of cases) assert.equal(shellFamily(cmd), fam, cmd);
 });
 
+test("shell families: programs started through a package runner", () => {
+  const cases: Array<[string, string]> = [
+    ["npx eslint src", "build & lint"],
+    ["npx prettier --check .", "build & lint"],
+    ["pnpm exec prettier --check .", "build & lint"],
+    ["npx vite build", "build & lint"],
+    ["yarn webpack", "build & lint"],
+    ["npm run eslint", "build & lint"],
+    ["bunx eslint .", "build & lint"],
+    ["uv run ruff check .", "build & lint"],
+    ["bundle exec rspec", "tests"],
+    ["npx ./node_modules/.bin/eslint src", "build & lint"],
+    ["npm run dev", "scripts"],
+    ["npx some-private-tool", "scripts"],
+    ["cargo run -- ls", "scripts"],
+    ["npm ls", "scripts"],
+  ];
+  for (const [cmd, fam] of cases) assert.equal(shellFamily(cmd), fam, cmd);
+});
+
 test("tool categories never echo unknown names", () => {
   assert.equal(toolCategory("Bash"), "Shell");
   assert.equal(toolCategory("mcp__private_server__tool"), "MCP tools");

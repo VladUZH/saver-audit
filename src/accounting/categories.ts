@@ -61,7 +61,7 @@ const PROGRAMS: Record<string, string> = {
   ps: "system", kill: "system", lsof: "system", top: "system", sleep: "system", open: "system",
   sqlite3: "databases", psql: "databases", mysql: "databases", redis: "databases",
 };
-const PKG_MANAGERS = new Set(["npm", "npx", "pnpm", "yarn", "uv", "cargo", "go", "poetry", "bundle", "composer"]);
+const PKG_MANAGERS = new Set(["npm", "npx", "bunx", "pnpx", "pnpm", "yarn", "uv", "cargo", "go", "poetry", "bundle", "composer"]);
 const PKG_BUILD = new Set(["build", "tsc", "lint", "check", "vet", "fmt", "typecheck", "clippy"]);
 const PKG_INSTALL = new Set(["install", "i", "add", "ci", "sync", "update", "get", "fetch"]);
 const WRAPPERS = new Set(["sudo", "time", "env", "nice", "timeout", "exec", "command", "xargs", "nohup"]);
@@ -74,6 +74,14 @@ const WRAPPER_OPTS: Record<string, Set<string>> = {
   xargs: new Set(["-n", "-I", "-L", "-P", "-s", "-d", "-E", "-a", "-J", "-R", "-S"]),
 };
 const DURATION = /^\d+(\.\d+)?[smhd]?$/;
+
+/** The program a package runner starts: `npx eslint`, `pnpm exec prettier`, `uv run ruff`, `yarn webpack`. */
+function runTarget(prog: string, rest: string[]): string | undefined {
+  if (prog === "npx" || prog === "bunx" || prog === "pnpx") return rest[0];
+  if (prog === "cargo" || prog === "go") return undefined; // they run the project's own code
+  if (rest[0] === "exec" || rest[0] === "dlx" || rest[0] === "x" || rest[0] === "run") return rest[1];
+  return prog === "yarn" || prog === "pnpm" ? rest[0] : undefined;
+}
 
 /** Classifies a shell command into a fixed family label. */
 export function shellFamily(command: string): string {
@@ -104,8 +112,8 @@ export function shellFamily(command: string): string {
       if (sub && /^test(:|$)/.test(sub)) return "tests";
       if (sub && PKG_INSTALL.has(sub)) return "installs";
       if (sub && (PKG_BUILD.has(sub) || /^(build|lint|typecheck|check)(:|$)/.test(sub))) return "build & lint";
-      if (prog === "npx" || prog === "uv") return "scripts";
-      return "scripts";
+      const bin = runTarget(prog, rest)?.replace(/^.*\//, "");
+      return (bin && PROGRAMS[bin]) || "scripts";
     }
     return PROGRAMS[prog] ?? "other";
   }
