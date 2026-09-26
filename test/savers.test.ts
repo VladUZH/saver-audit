@@ -58,6 +58,14 @@ test("coverage rules", () => {
   assert.throws(() => saverIndex(["nope"]));
 });
 
+test("saver notes state method caveats only: no sampling claim, no retired flag", () => {
+  // Quick mode never samples headroom (cache only) and --exact replays every output.
+  const headroom = SAVERS.find((s) => s.id === "headroom")!;
+  assert.doesNotMatch(headroom.assumption!, /sample/);
+  assert.match(headroom.assumption!, /replayed as the newest message/);
+  for (const s of SAVERS) assert.doesNotMatch(s.assumption ?? "", /--full-replay/, s.id);
+});
+
 function record(key: string, ts: string, usage: Partial<ReturnType<typeof emptyUsage>>, over: Partial<CallRecord>): CallRecord {
   const u = { ...emptyUsage(), ...usage };
   return { key, model: "claude-opus-5-5", timestamp: ts, call: { key, model: "claude-opus-5-5", usage: u, multiplier: 1, billable: true }, file: 0, oldRaw: {}, newRaw: {}, oldReal: 0, newReal: 0, proxyAppended: 0, ...over };

@@ -99,7 +99,7 @@ const CODE_SAVERS: SaverAdapter[] = [
     licence: "Apache-2.0",
     method: "replayed",
     covers: "tool outputs its router compresses (by default it leaves Read, Grep, Glob, Edit, Write and web tools alone)",
-    assumption: "an estimate from a sample of 300 outputs (the largest half always included); on the author's logs that was within 3% over a month but 20–37% off on single weeks, so use --full-replay for exact numbers. Each output is replayed as the newest message; headroom also compresses older Read/Grep/Glob/Edit/Write outputs as they age, which is not replayed",
+    assumption: "each output is replayed as the newest message; headroom also compresses older Read/Grep/Glob/Edit/Write outputs as they age, which is not replayed",
     codexHypothetical: false,
     minTokens: 200,
     appliesTo: (o) => o.text.length > 0 && !HEADROOM_EXCLUDED.has(o.tool),
