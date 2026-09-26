@@ -10,13 +10,15 @@ import { shellFamily } from "../accounting/categories.ts";
 
 export function claudeRoots(): string[] {
   const base = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-  return [join(base, "projects"), join(homedir(), ".config", "claude", "projects")];
+  return [...new Set([join(base, "projects"), join(homedir(), ".config", "claude", "projects")])];
 }
 
 export function findClaudeFiles(roots: string[], sinceMs: number): string[] {
   const out: string[] = [];
+  // Shared across roots: ~/.config/claude linked to ~/.claude is read once.
+  const seen = new Set<string>();
   for (const root of roots) {
-    for (const f of listFiles(root, sinceMs)) {
+    for (const f of listFiles(root, sinceMs, [], seen)) {
       // Set-aside copies of a transcript (.orphaned-…) would double count.
       if (f.endsWith(".jsonl") && !basename(f).includes(".orphaned-")) out.push(f);
     }
