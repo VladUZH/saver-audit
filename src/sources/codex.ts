@@ -40,6 +40,9 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
   let firstCall: Call | undefined;
   let lastMs = 0;
   let prevTotal = -1;
+  // Hosted web searches since the last usage event; they go on the next call, so
+  // searches in replayed fork history stay on replayed (unbilled) calls.
+  let searches = 0;
   let index = 0;
   let lineNo = 0;
 
@@ -105,6 +108,10 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
           const usage = codexUsage(info.last_token_usage);
           if (usage.input + usage.cacheRead + usage.cacheWrite === 0 && usage.output === 0) break;
           const call: Call = { key: `${file}#${lineNo}`, model: model || "gpt-5", usage, multiplier, billable: true };
+          if (searches) {
+            call.webSearchCalls = searches;
+            searches = 0;
+          }
           const ms = timestamp ? Date.parse(timestamp) : NaN;
           const inBurst = Number.isFinite(ms) && ms - lastMs >= 0 && ms - lastMs <= BURST_GAP_MS;
           if (replay === "first") {
@@ -131,6 +138,7 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
         }
         break;
       case "response_item": {
+        if (p.type === "web_search_call") searches++;
         const ev = responseItem(p, tools);
         if (ev) yield { t: "turn", turn: { index: index++, timeline: "main", timestamp, ...ev } };
         break;

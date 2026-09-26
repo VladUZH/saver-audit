@@ -57,6 +57,11 @@ export interface Call {
   multiplier: number;
   /** False for history replayed into a forked Codex thread. */
   billable: boolean;
+  /**
+   * Codex hosted web searches (web_search_call items) logged before this call's usage.
+   * Counted, not priced: the price list has no OpenAI per-search fee.
+   */
+  webSearchCalls?: number;
 }
 
 /** What a user-side turn contains, for bucketing. */

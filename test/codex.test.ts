@@ -66,6 +66,17 @@ test("a fork replaying a single parent event: that event is not billed, the fork
   const calls = ev.flatMap((e) => (e.t === "turn" && e.turn.call ? [e.turn.call] : []));
   assert.deepEqual(calls.map((c) => c.billable), [false, true]);
   assert.deepEqual(calls.map((c) => c.usage.input), [100000, 1000]);
+  // A search in the replayed history stays on the unbilled replayed call.
+  assert.deepEqual(calls.map((c) => c.webSearchCalls), [1, undefined]);
+});
+
+test("web_search_call items are counted on the next call and not priced as Claude searches", async () => {
+  const ev = await collect(parseCodexFile(join(CODEX_HOME, "cases", "rollout-web-search.jsonl")));
+  const calls = ev.flatMap((e) => (e.t === "turn" && e.turn.call ? [e.turn.call] : []));
+  assert.equal(calls.length, 3, "the re-emitted token_count is skipped");
+  assert.deepEqual(calls.map((c) => c.webSearchCalls), [2, 1, undefined]);
+  assert.deepEqual(calls.map((c) => c.usage.webSearches), [0, 0, 0]);
+  assert.equal(ev.some((e) => e.t === "turn" && JSON.stringify(e.turn).includes("SECRET-QUERY")), false, "queries are not kept");
 });
 
 test("codexUsage and shellCommand edge cases", () => {
