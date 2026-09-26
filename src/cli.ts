@@ -38,9 +38,12 @@ Usage: saver-audit [options]
   --show-projects        include project names (hidden by default)
   --savers <a,b>         savers to audit (default: all; see list below)
   --no-savers            skip the saver section
-  --exact                exact saver numbers: replay every output (can take minutes on a
-                         busy month; cached, so later runs are exact too). Default: a
-                         quick run whose sampled numbers are marked "indicative"
+  --exact                exact saver numbers: replay every output of every saver,
+                         headroom included, without asking. headroom alone can take
+                         hours on a busy month: [e] in the short view shows the time
+                         first and asks about headroom, and --savers can leave it out.
+                         Cached, so later runs are exact too. Default: a quick run
+                         whose sampled numbers are marked "indicative"
   --install-savers       download rtk, the caveman engine, token-saver and lean-ctx
                          from their official GitHub releases into ~/.saver-audit/tools
                          (pinned and verified; asks before each unless -y)

@@ -19,3 +19,11 @@ test("--help names every download of --install-savers, and does not call headroo
   const headroom = flag.slice(flag.indexOf("--with-headroom"));
   assert.match(headroom, /not verified/);
 });
+
+test("--help says --exact replays headroom too without asking, and that headroom alone can take hours", () => {
+  const flag = help.slice(help.indexOf("--exact"), help.indexOf("--install-savers")).replace(/\s+/g, " ");
+  assert.match(flag, /headroom included, without asking/);
+  assert.match(flag, /headroom alone can take hours/);
+  assert.match(flag, /\[e\]/);
+  assert.doesNotMatch(flag, /can take minutes/);
+});
