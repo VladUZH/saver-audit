@@ -145,11 +145,20 @@ export function openExternal(target: string, reveal = false): Promise<boolean> {
   });
 }
 
+/**
+ * Windows: PowerShell (by full path) puts the PNG on the clipboard. The path reaches it
+ * in the environment, never in the script, where "$(…)" in a folder name would run.
+ */
+export function windowsClipboard(path: string, env: NodeJS.ProcessEnv = process.env): { cmd: string; args: string[]; env: NodeJS.ProcessEnv } {
+  const ps = "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile($env:SAVER_AUDIT_CARD))";
+  return { cmd: system32(env, "WindowsPowerShell", "v1.0", "powershell.exe"), args: ["-NoProfile", "-STA", "-Command", ps], env: { ...env, SAVER_AUDIT_CARD: path } };
+}
+
 /** Copies a PNG to the clipboard as an image. Best effort; returns false if unsupported. */
 export function copyImage(path: string): boolean {
-  const run = (cmd: string, args: string[], input?: Buffer) => {
+  const run = (cmd: string, args: string[], input?: Buffer, env?: NodeJS.ProcessEnv) => {
     try {
-      const r = spawnSync(cmd, args, { input, stdio: [input ? "pipe" : "ignore", "ignore", "ignore"], timeout: 10_000 });
+      const r = spawnSync(cmd, args, { input, env, stdio: [input ? "pipe" : "ignore", "ignore", "ignore"], timeout: 10_000 });
       return r.status === 0;
     } catch {
       return false;
@@ -159,8 +168,8 @@ export function copyImage(path: string): boolean {
     return run("osascript", ["-e", `set the clipboard to (read (POSIX file ${JSON.stringify(path)}) as «class PNGf»)`]);
   }
   if (process.platform === "win32") {
-    const ps = `Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile(${JSON.stringify(path)}))`;
-    return run("powershell", ["-NoProfile", "-STA", "-Command", ps]);
+    const w = windowsClipboard(path);
+    return run(w.cmd, w.args, undefined, w.env);
   }
   const data = readFileSync(path);
   return run("wl-copy", ["--type", "image/png"], data) || run("xclip", ["-selection", "clipboard", "-t", "image/png", "-i"], data);

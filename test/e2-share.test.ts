@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { intentUrl, openCommand, openExternal } from "../src/report/share.ts";
+import { intentUrl, openCommand, openExternal, windowsClipboard } from "../src/report/share.ts";
 import { withEnv } from "./env.ts";
 
 const unix = process.platform === "win32" ? "needs sh" : false;
@@ -38,4 +38,14 @@ test("an opener that exits with an error (xdg-open without a display) is a failu
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("Windows clipboard: the card's path never becomes PowerShell code", () => {
+  const path = "C:\\work\\$(Start-Process calc)\\$tmp\\`n\\saver-audit.png";
+  const w = windowsClipboard(path, { SystemRoot: "C:\\Windows" });
+  assert.equal(w.cmd, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  const script = w.args.at(-1)!;
+  assert.equal(script.includes("Start-Process") || script.includes("$tmp") || script.includes("work"), false);
+  assert.match(script, /FromFile\(\$env:SAVER_AUDIT_CARD\)/);
+  assert.equal(w.env.SAVER_AUDIT_CARD, path);
 });
