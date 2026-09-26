@@ -91,6 +91,8 @@ test("{command} in a route's args passes the recorded command and keys the cache
   assert.deepEqual(r1.args, ["compress", "pytest -q"]);
   assert.notEqual(r1.arg, r2.arg, "different commands, different cache keys");
   assert.equal(a.replayInput!(view({ command: undefined })), undefined, "no command, no replay");
+  const odd = "echo $$ && IFS=$'\\n' x \"$&\" $` $'";
+  assert.deepEqual(a.replayInput!(view({ command: odd }))!.args, ["compress", odd], "passed literally ($$, $&, $` and $' are not patterns)");
   const plain = manifestAdapter(COMMUNITY as never).replayInput!(view({ command: "pytest" }))!;
   assert.equal(plain.arg, "tests", "savers without {command} keep their cache keys");
 });

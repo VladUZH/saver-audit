@@ -79,7 +79,7 @@ export function manifestAdapter(m: SaverManifest): SaverAdapter {
       if (!route) return undefined;
       // "{command}" passes the recorded shell command (some filters pick their rules by
       // it); it then becomes part of the cache key.
-      const args = (route.args ?? []).map((a) => a.replaceAll("{command}", o.command ?? ""));
+      const args = (route.args ?? []).map((a) => a.split("{command}").join(o.command ?? "")); // literal: no "$&" patterns
       const arg = usesCommand(route) ? `${route.name ?? ""}\0${o.command}` : route.name;
       return { input: inputFor(m.stage, o), arg, args };
     },
