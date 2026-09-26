@@ -91,7 +91,6 @@ test("the last segment is the program rtk's hook would rewrite: past what it loo
     ["command rg foo", "rg foo"],
     ["exec pytest -q", "pytest -q"],
     ["(cd web && npm test)", "npm test"],
-    ["cat $(ls)", "cat $(ls)"],
     // rtk leaves these as they are, so no route anchored on the program matches them.
     ["sudo -u www git pull", "sudo -u www git pull"],
     ["sudo git diff", "sudo git diff"],
@@ -116,6 +115,9 @@ test("the last segment is the program rtk's hook would rewrite: past what it loo
     ["pytest -q | tail --follow=name", undefined],
     ["pytest -q | | tail", undefined],
     ["git diff | head; (cd x && pytest)", undefined],
+    ["cat $(ls)", undefined],
+    ["pytest -q \"$(cat args)\"", undefined],
+    ["grep \"\\$(x)\" src", "grep \"\\$(x)\" src"],
   ];
   for (const [command, seg] of cases) assert.equal(lastSegment(command), seg, command);
   // So a route anchored on the program matches only what rtk rewrites.

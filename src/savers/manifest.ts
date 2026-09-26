@@ -172,7 +172,7 @@ function programAt(text: string): number | undefined {
   return words[hookProgramIndex(words.map((w) => w[0]))]?.index;
 }
 
-/** The command with quoted and backslash-escaped characters blanked out, at the same positions, so its operators can be found. */
+/** The command with quoted and backslash-escaped characters blanked out, at the same positions, so its operators (and `$(`) can be found. */
 function blankQuoted(command: string): string {
   let out = "";
   let quote = "";
@@ -181,6 +181,10 @@ function blankQuoted(command: string): string {
     if (c === "\\" && quote !== "'" && i + 1 < command.length) {
       out += "__";
       i++;
+    } else if (quote === '"' && (c === "`" || command.startsWith("$(", i))) {
+      // A command substitution runs inside double quotes too.
+      out += c === "`" ? c : "$(";
+      if (c === "$") i++;
     } else if (quote) {
       if (c === quote) quote = "";
       out += "_";
@@ -228,7 +232,9 @@ export function lastSegment(command: string): string | undefined {
   // A line ending in "\" or "|" continues on the next line.
   const joined = command.replace(/[ \t]*\\\r?\n[ \t]*/g, " ").replace(/\|[ \t]*\r?\n/g, "| ");
   const plain = blankQuoted(joined);
-  // rtk's hook leaves a command with a pipe alone when it also has a subshell or a `{ }` group.
+  // rtk's hook leaves a command alone when it has a command substitution or a heredoc,
+  // or a pipe and also a subshell or a `{ }` group.
+  if (/\$\(|`|<</.test(plain)) return undefined;
   if (/(?<!\|)\|(?!\|)/.test(plain) && /[(){}]/.test(plain)) return undefined;
   const ends = [...plain.matchAll(/&&|\|\||;|\n/g)];
   const starts = [0, ...ends.map((m) => m.index! + m[0].length)];
