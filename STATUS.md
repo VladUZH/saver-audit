@@ -605,3 +605,70 @@ past wrappers, Codex base instructions after compaction, rewind credit).
   `--install-savers`, not through `[i]`.
 - Pin headroom's dependencies and model revision once versions and hashes have a source
   (#116, #121, #124).
+
+## 2026-09-26 — Bug hunt, part 2: reviews, re-measurement, quick mode rebuilt (0.7.0)
+
+**Done:**
+- **Review round 1** of the 115 bug-hunt commits: 8 area reviewers, 3 skeptics per issue.
+  27 issues confirmed (1 high: `CAVEMAN_CCR_DB` pointed into a folder nobody created, so
+  every caveman-engine replay failed), all fixed with tests (4cde412..a3f7b0d range).
+- **Review round 2** of those 27 fixes: 8 confirmed (pipelines credited to the wrong rtk
+  stage, rtk credited for commands its hook leaves, Windows Ctrl+C cleanup, `--check-saver`
+  taken ids); code ones fixed. The two STATUS items it raised are closed here: the
+  `--help` wording for `--exact` (#74) was done in 735b52c, so it is removed from Later.
+- **rtk routing checked against rtk itself.** Every unique shell command in the window
+  (20,726) was run through `rtk rewrite` (rtk 0.50.0; it exits 3 when it rewrites).
+  Before round 2 the routes credited rtk for 14.5 MB of output its hook leaves alone
+  (more than the 8.8 MB it rewrites); now 0.3 MB, against 8.1 MB credited and rewritten.
+  rtk also rewrites commands with no offline pipe filter (cat/head/tail → `rtk read`,
+  which changes nothing at its default level; curl, ls, wc, git status/log), so the rtk row
+  is now labelled a lower bound (37af043). Remaining misses (~1.3 MB, grep in
+  multi-command lines) are inherent to replaying whole outputs.
+- **Size floors re-measured** (exact runs, month): token-saver at 1,000 tokens was 20%
+  low ($57.34 vs $72.02 at 200), lean-ctx 6% ($119.12 vs $126.83); the tool-stage floor
+  is now checked on the full output behind a preview, and those previews net slightly
+  negative. Floors lowered to 500 (f9b4d96): 8.6% and 1.0% low ($65.83, $125.57).
+  caveman at 500 is 5.4% low ($13.32 vs $14.08 with no floor).
+- **Quick mode rebuilt** (c2e9224..ac9fcec, tech-notes §8.13–8.14). An offline simulator
+  scored sampling designs against exact results for every output (23 windows × 50 seeds;
+  3 independent designs, a judge re-ran them on fresh seeds). Chosen: PPS sampling by
+  each output's dollar weight, per-size-band ratios, a standard error per saver.
+  Real runs, quick vs exact, month + 4 weeks, token-saver and lean-ctx: mean dollar error
+  28.4% (old) → 7.5%, median 19.6% → 4.6%. Each estimate shows ±2 s.e.; repeat runs
+  reuse the draw while the cache is unchanged and the logs overlap ≥ 90%, so numbers
+  don't jump (3 default runs: identical, 0 replays after the first). Cache-only savers
+  catch up (caveman, ≤ 1,500 new outputs) or use the measured ratio when ≤ 25% of their
+  value is new. An independent code review found 2 major + 3 minor issues (thin ratio
+  sample near the budget, unpriced-only outputs, the ± on the Codex-excluded figure,
+  se = 0, note counts); all fixed with tests.
+- **Launch numbers re-measured** (exact, same window, README, fact sheet, X thread,
+  Reddit briefs, card, GIF): total $4,209 unchanged; headroom $151 (3.6%), lean-ctx $126
+  (3.0%), token-saver $66 (1.6%), rtk $21 (0.5%, lower bound; was $47), caveman engine
+  $13 (0.3%); codegraph ≤ $578, context-mode ≤ $704. Codex alone: headroom 10.4%, rtk ≥ 2.1%.
+- Orphaned Python process from a bug-hunt agent (100% CPU for 8 h) found and stopped.
+
+**Verified:**
+- `npm run typecheck` clean; `npm test` → 284 pass, 0 fail (≈14 s); `npm run build` ok.
+- ccusage 20.0.24, 2026-08-26..2026-09-25: Claude input 138,148 / cache write
+  188,685,566 / cache read 6,782,995,326 / output 21,454,691 and Codex input 3,723,126 /
+  cached 84,654,464 / output 251,785, identical to saver-audit (0.000%).
+- Timings (month, busy machine): first run 21 s, repeat 11 s.
+
+**Decisions:**
+- token-saver and lean-ctx floors 500 (exact runs about 2 min longer on a heavy month).
+- Quick sampling in dollars; ±X% is two standard errors in dollars (tokens when more than
+  5% of a saver's token weight is unpriced).
+- headroom and the caveman engine stay cache-only in quick mode (first run stays ~20 s).
+- The launch numbers stay exact runs; the quick mode is for users' first look.
+
+**Human steps (GATE):**
+- Publish 0.7.0 from your terminal: `npm publish` (Touch ID).
+- The launch copy changed: rtk is now $21 (0.5%, lower bound), not $47. Re-read the
+  fact sheet and your drafts before posting; the saver-outreach message to rtk should
+  lead with the method check (template A) and the lower-bound note.
+
+**Later:**
+- Opt-in quick headroom (100 replays would be accurate, ~31 s).
+- Replay rtk's per-segment rewrites in multi-command lines.
+- Remove stale `$TMPDIR/saver-audit-*` folders at start-up (#80); Windows paths on a real
+  Windows machine; Claude 3.x prices; `thinking_dropped`; rewinds on real logs (from part 1).
