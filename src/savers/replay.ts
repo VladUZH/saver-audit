@@ -400,6 +400,7 @@ class HeadroomSidecar {
   /** False when the sidecar reported that headroom's tokenizer vocabulary is not cached. */
   tokenizer?: boolean;
 
+  /** Throws when the program cannot be started at all (see runOnce). */
   constructor(python: string, env: NodeJS.ProcessEnv, cwd: string) {
     const child = spawn(python, ["-u", "-c", HEADROOM_SIDECAR], { env, cwd, stdio: ["pipe", "pipe", "ignore"] });
     this.child = child;
@@ -620,7 +621,15 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       o.log?.(`replaying ${todo.length.toLocaleString("en-US")} new outputs through ${saver} (results are cached for next time)…`);
       const env = saverEnv(dir);
       if (saver === "headroom") {
-        const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(dir, "headroom") }, join(dir, "empty"));
+        let side: HeadroomSidecar;
+        try {
+          side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(dir, "headroom") }, join(dir, "empty"));
+        } catch (err) {
+          // Refused before starting: ENOEXEC, or EBADMACHO for a program built for another CPU.
+          failAll("its Python could not start");
+          warn?.(`headroom: its Python could not start (${(err as NodeJS.ErrnoException).code ?? "error"}); skipped.`);
+          return;
+        }
         live.add(side.child);
         try {
           // The installer's own headroom is finished by the installer; another runs once online.

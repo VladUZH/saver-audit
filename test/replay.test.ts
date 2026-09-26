@@ -78,6 +78,24 @@ test("headroom without its cached model: every output failed, no number, the rea
   }
 });
 
+test("a headroom Python that cannot start at all (ENOEXEC) fails its outputs with the reason; the audit goes on", { skip: process.platform === "win32" ? "ENOEXEC is a POSIX error" : false }, async () => {
+  const t = tmp();
+  try {
+    const bad = join(t.dir, "python");
+    writeFileSync(bad, Buffer.from([0, 1, 2, 3]), { mode: 0o755 }); // no shebang, no binary format
+    const f = synth("headroom", [0, 1].map((i) => ({ key: `h${i}`, input: text(i) })));
+    const warnings: string[] = [];
+    const stats = await runReplays([f], ["headroom"], { tools: new Map([["headroom", { saver: "headroom", command: bad }]]), cacheFile: t.cacheFile, full: true, concurrency: 1, warn: (s) => warnings.push(s) });
+    const st = stats.get("headroom")!;
+    assert.deepEqual({ failed: st.failed, insufficient: st.insufficient, reason: st.reason }, { failed: 2, insufficient: true, reason: "its Python could not start" });
+    assert.deepEqual(deltas(f), [0, 0]);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /^headroom: its Python could not start \(E[A-Z0-9]+\); skipped\.$/);
+  } finally {
+    t.done();
+  }
+});
+
 test("a sidecar that exits mid-run fails the rest instead of hanging", async () => {
   const t = tmp();
   try {
