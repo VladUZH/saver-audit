@@ -2,11 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { attribute, callCost, RESIDUAL } from "../src/accounting/cost.ts";
 import type { CallRecord } from "../src/accounting/buckets.ts";
-import { loadPrices } from "../src/prices/load.ts";
+import { BUNDLED } from "../src/prices/load.ts";
 import { ratesFor, resolveModel } from "../src/prices/table.ts";
 import { emptyUsage } from "../src/sources/types.ts";
 
-const prices = loadPrices();
+// data/prices.json itself, not a table --update-prices saved on this machine.
+const prices = BUNDLED;
 
 test("model resolution: [1m] suffix, dated ids, codex-auto-review by date", () => {
   assert.equal(resolveModel(prices, "claude-opus-5[1m]"), "claude-opus-5");

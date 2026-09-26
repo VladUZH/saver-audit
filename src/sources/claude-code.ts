@@ -7,6 +7,7 @@ import { basename, join, sep } from "node:path";
 import { listFiles, readLines } from "./files.ts";
 import { emptyUsage, maxUsage, type Block, type Call, type Session, type SourceEvent, type Turn, type Usage } from "./types.ts";
 import { shellFamily } from "../accounting/categories.ts";
+import { fastMultiplier } from "../prices/table.ts";
 
 export function claudeRoots(): string[] {
   const base = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
@@ -166,7 +167,7 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
         continue;
       }
       yield* flush(timeline);
-      const call: Call = { key, model, usage, multiplier: claudeMultiplier(msg.usage), billable: true };
+      const call: Call = { key, model, usage, multiplier: claudeMultiplier(msg.usage, model), billable: true };
       calls.set(key, call);
       chain.keys.push(key);
       const turn: Turn = { index: index++, role: "assistant", timeline, timestamp, blocks, call };
@@ -288,9 +289,10 @@ export function claudeUsage(u: any): Usage {
   return usage;
 }
 
-function claudeMultiplier(u: any): number {
+function claudeMultiplier(u: any, model: string): number {
   let m = 1;
-  if (u.speed === "fast") m *= 2; // fast mode lists at 2x (tech-notes §5.1)
+  // Fast mode's premium differs per model; with no published one the call keeps standard rates.
+  if (u.speed === "fast") m *= fastMultiplier(model) ?? 1;
   if (u.inference_geo === "us") m *= 1.1;
   return m;
 }

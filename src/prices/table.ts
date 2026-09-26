@@ -1,5 +1,5 @@
 // Price table: USD per 1M tokens. Built from models.dev (MIT), with LiteLLM (MIT)
-// filling in retired models only. Pure functions; no I/O here.
+// filling in models models.dev lacks. Pure functions; no I/O here.
 
 export interface Rates {
   input: number;
@@ -34,12 +34,55 @@ export const ALIASES: Record<string, Alias[]> = {
   "codex-auto-review": [{ until: "2026-07-29", model: "gpt-5.4" }, { model: "gpt-5.6-luna" }],
 };
 
-// Retired models seen in real Codex logs that models.dev no longer lists.
-const RETIRED = ["gpt-5-codex", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1-codex-max", "gpt-5.2-codex"];
+// Fast-mode price multiplier (Claude usage.speed "fast"), from LiteLLM's
+// provider_specific_entry.fast: Opus 4.6 and 4.7 from its 2026-05-29 file (commit
+// bae04591; fast mode on them was retired since), the rest from 2026-09-25, which
+// matches tech-notes §5.1 ($8/$40 on Opus 5.5, $10/$50 on Opus 5 and 4.8).
+export const FAST_MODE: Record<string, number> = {
+  "claude-opus-4-6": 6,
+  "claude-opus-4-7": 6,
+  "claude-opus-4-8": 2,
+  "claude-opus-5": 2,
+  "claude-opus-5-5": 2,
+};
+
+/** Fast-mode multiplier for a logged Claude model, or undefined when none is published. */
+export function fastMultiplier(model: string): number | undefined {
+  const m = model.replace(/\[1m\]$/i, "").replace(/^anthropic\//, "").replace(/-\d{8}$/, "");
+  return Object.hasOwn(FAST_MODE, m) ? FAST_MODE[m] : undefined;
+}
+
+// Models seen in logs that models.dev does not list, priced from LiteLLM: retired Codex
+// and Claude models (the Claude ones only in an archived LiteLLM file, see
+// scripts/snapshot-prices.ts) and the Project Glasswing Mythos models.
+const FROM_LITELLM = [
+  "gpt-5-codex", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1-codex-max", "gpt-5.2-codex",
+  "claude-opus-4-20250514", "claude-opus-4-1", "claude-opus-4-1-20250805", "claude-sonnet-4-20250514",
+  "claude-mythos-5", "claude-mythos-5-1",
+];
 
 function round(n: number): number {
   return Math.round(n * 1e6) / 1e6;
 }
+
+/**
+ * LiteLLM per-token costs as per-1M rates, for the fields ending in `suffix` (a context
+ * tier such as "_above_200k_tokens"); missing Claude cache writes derived as in rates().
+ */
+function litellmRates(e: any, claude: boolean, suffix = ""): Rates {
+  const perM = (field: string) => (typeof e[field + suffix] === "number" ? round(e[field + suffix] * 1e6) : undefined);
+  const input = perM("input_cost_per_token") ?? 0;
+  const cacheWrite = perM("cache_creation_input_token_cost") ?? (claude ? round(input * 1.25) : 0);
+  return {
+    input,
+    output: perM("output_cost_per_token") ?? 0,
+    cacheRead: perM("cache_read_input_token_cost") ?? 0,
+    cacheWrite,
+    cacheWrite1h: perM("cache_creation_input_token_cost_above_1hr") ?? (claude ? round(input * 2) : cacheWrite),
+  };
+}
+
+const ABOVE_200K = "_above_200k_tokens";
 
 function rates(c: any, claude: boolean): Rates {
   const input = Number(c.input ?? 0);
@@ -70,21 +113,27 @@ export function buildPriceTable(modelsDev: any, litellm: any, date: string): Pri
       models[id] = price;
     }
   }
-  for (const id of RETIRED) {
+  let fromLitellm = 0;
+  for (const id of FROM_LITELLM) {
     const e = litellm?.[id];
     if (models[id] || !e || typeof e.input_cost_per_token !== "number") continue;
-    const perM = (v: unknown) => (typeof v === "number" ? round(v * 1e6) : 0);
-    models[id] = {
-      input: perM(e.input_cost_per_token),
-      output: perM(e.output_cost_per_token),
-      cacheRead: perM(e.cache_read_input_token_cost),
-      cacheWrite: 0,
-      cacheWrite1h: 0,
-    };
+    models[id] = litellmRates(e, id.startsWith("claude-"));
+    fromLitellm++;
   }
+  // models.dev lists no long-context tier for Claude. LiteLLM keeps the >200k premium
+  // for the models that still have one (Sonnet 4.5, Sonnet 4).
+  for (const [id, price] of Object.entries(models)) {
+    const e = litellm?.[id];
+    if (!id.startsWith("claude-") || price.tiers || !e) continue;
+    if (["input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost"].some((f) => typeof e[f + ABOVE_200K] !== "number")) continue;
+    price.tiers = [{ above: 200_000, ...litellmRates(e, true, ABOVE_200K) }];
+    fromLitellm++;
+  }
+  const sources = ["https://models.dev/api.json (MIT)"];
+  if (fromLitellm) sources.push("LiteLLM model_prices_and_context_window.json (MIT), for models models.dev lacks and Claude >200k-token rates");
   return {
     date,
-    sources: ["https://models.dev/api.json (MIT)", "LiteLLM model_prices_and_context_window.json (MIT), retired models only"],
+    sources,
     models: Object.fromEntries(Object.entries(models).sort(([a], [b]) => a.localeCompare(b))),
     aliases: ALIASES,
   };
@@ -93,14 +142,16 @@ export function buildPriceTable(modelsDev: any, litellm: any, date: string): Pri
 /** Resolves a logged model name to a priced model id, or undefined. */
 export function resolveModel(table: PriceTable, model: string, timestamp?: string): string | undefined {
   let m = model.replace(/\[1m\]$/i, "").replace(/^(openai|anthropic)\//, "");
-  const alias = table.aliases[m];
-  if (alias) {
+  // Own keys only: a logged name like "constructor" must not hit Object.prototype.
+  const alias = Object.hasOwn(table.aliases, m) ? table.aliases[m] : undefined;
+  if (Array.isArray(alias) && alias.length) {
     const day = (timestamp ?? "").slice(0, 10);
     m = (alias.find((a) => !a.until || (day && day < a.until)) ?? alias[alias.length - 1]!).model;
   }
-  if (table.models[m]) return m;
-  const undated = m.replace(/-\d{8}$/, "");
-  if (table.models[undated]) return undated;
+  if (Object.hasOwn(table.models, m)) return m;
+  // Dated snapshot of a priced model: Anthropic -YYYYMMDD, OpenAI -YYYY-MM-DD.
+  const undated = m.replace(/-(\d{8}|\d{4}-\d{2}-\d{2})$/, "");
+  if (Object.hasOwn(table.models, undated)) return undated;
   return undefined;
 }
 

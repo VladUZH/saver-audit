@@ -213,7 +213,7 @@
     "date": "2026-09-25",
     "sources": [
       "https://models.dev/api.json (MIT)",
-      "LiteLLM model_prices_and_context_window.json (MIT), retired models only"
+      "LiteLLM model_prices_and_context_window.json (MIT), for models models.dev lacks and Claude >200k-token rates"
     ]
   },
   "skipped": {

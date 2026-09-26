@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AuditOptions } from "../src/audit.ts";
-import { loadPrices } from "../src/prices/load.ts";
+import { BUNDLED } from "../src/prices/load.ts";
 import type { SourceEvent } from "../src/sources/types.ts";
 import type { ReplayTool } from "../src/savers/replay.ts";
 
@@ -16,7 +16,8 @@ export function fixtureOptions(over: Partial<AuditOptions> = {}): AuditOptions {
     sources: ["claude-code", "codex"],
     claudeRoots: [CLAUDE_ROOT],
     codexHome: CODEX_HOME,
-    prices: loadPrices(),
+    // The shipped snapshot, never a table --update-prices saved on this machine.
+    prices: BUNDLED,
     ...over,
   };
 }
