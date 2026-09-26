@@ -34,6 +34,34 @@ test("manifest validation explains what is wrong", () => {
   assert.ok(validateManifest({ ...COMMUNITY, routes: [{ match: { command: "(" }, args: [] }] }).some((p) => p.includes("regular expression")));
 });
 
+test("manifest validation checks the type of every field used later", async () => {
+  const { SAVERS } = await import("../src/savers/registry.ts");
+  for (const s of SAVERS) if (s.manifest) assert.deepEqual(validateManifest(s.manifest), [], s.id);
+  const route = COMMUNITY.routes[0]!;
+  const cases: Array<[string, object]> = [
+    ["routes[0].args: a list of strings", { routes: [{ ...route, args: ["--level", 2] }] }],
+    ["paths: a list of strings", { paths: "~/x/bin" }],
+    ["versionArgs: a list of strings", { versionArgs: "--version" }],
+    ["routes[0].match.families: a list of strings", { routes: [{ ...route, match: { families: "tests" } }] }],
+    ["routes[0].match.minBytes: a number", { routes: [{ ...route, match: { minBytes: "5000" } }] }],
+    ["routes[0].match: an object", { routes: [{ ...route, match: ["tests"] }] }],
+    ["routes[0]: an object", { routes: [null] }],
+    ["binaryEnv: a string", { binaryEnv: 1 }],
+    ["minTokens: a number", { minTokens: "1000" }],
+    ["codexHypothetical: true or false", { codexHypothetical: "no" }],
+  ];
+  const dir = mkdtempSync(join(tmpdir(), "sa-manifests-"));
+  try {
+    for (const [problem, over] of cases) {
+      assert.deepEqual(validateManifest({ ...COMMUNITY, ...over }), [problem]);
+      writeFileSync(join(dir, "x.json"), JSON.stringify({ ...COMMUNITY, ...over }));
+      assert.deepEqual(loadManifests([], dir).manifests, [], `skipped: ${problem}`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("routes match on tool, category, family, command and size", () => {
   assert.equal(lastSegment("cd /x && FOO=1 pytest -q | tail -5"), "pytest -q");
   assert.equal(routeMatches({ command: "^pytest\\b" }, view({ command: "cd a && pytest" })), true);

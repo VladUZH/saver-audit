@@ -76,31 +76,50 @@ export interface SaverManifest {
 
 const ID = /^[a-z0-9][a-z0-9-]{1,40}$/;
 
+const isStr = (v: unknown) => typeof v === "string";
+const isStrings = (v: unknown) => Array.isArray(v) && v.every(isStr);
+const isNum = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+const isObj = (v: unknown) => !!v && typeof v === "object" && !Array.isArray(v);
+/** Present but of the wrong type. */
+const bad = (v: unknown, ok: (v: unknown) => boolean) => v !== undefined && !ok(v);
+
 /** Returns a list of problems; empty means the manifest is valid. */
 export function validateManifest(m: any): string[] {
   const p: string[] = [];
   const str = (k: string) => typeof m?.[k] === "string" && m[k].trim() !== "";
-  if (!m || typeof m !== "object") return ["not a JSON object"];
+  if (!isObj(m)) return ["not a JSON object"];
   if (!str("id") || !ID.test(m.id)) p.push("id: lowercase letters, digits and dashes");
   for (const k of ["name", "repo", "version", "licence", "covers"]) if (!str(k)) p.push(`${k}: required`);
   if (m.method !== "replayed" && m.method !== "upper-bound") p.push('method: "replayed" or "upper-bound" (modeled savers need a cited source, so they are added as code)');
   if (m.method === "upper-bound" && !str("assumption")) p.push("assumption: required for an upper bound (say what the ceiling assumes)");
   if (m.method === "replayed" && !str("binary")) p.push("binary: required for a replayed saver");
   if (m.stage !== undefined && m.stage !== "tool" && m.stage !== "request") p.push('stage: "tool" or "request"');
+  for (const k of ["assumption", "binary", "binaryEnv", "install"]) if (bad(m[k], isStr)) p.push(`${k}: a string`);
+  for (const k of ["paths", "versionArgs"]) if (bad(m[k], isStrings)) p.push(`${k}: a list of strings`);
+  if (bad(m.minTokens, isNum)) p.push("minTokens: a number");
+  if (bad(m.codexHypothetical, (v) => typeof v === "boolean")) p.push("codexHypothetical: true or false");
   if (!Array.isArray(m.routes) || !m.routes.length) p.push("routes: at least one route");
   else
     m.routes.forEach((r: any, i: number) => {
-      if (m.method === "replayed" && !Array.isArray(r?.args)) p.push(`routes[${i}].args: required for a replayed saver`);
-      if (r?.match?.command !== undefined) {
+      const at = `routes[${i}]`;
+      if (!isObj(r)) return void p.push(`${at}: an object`);
+      if (m.method === "replayed" && !Array.isArray(r.args)) p.push(`${at}.args: required for a replayed saver`);
+      else if (bad(r.args, isStrings)) p.push(`${at}.args: a list of strings`);
+      if (bad(r.name, isStr)) p.push(`${at}.name: a string`);
+      if (bad(r.match, isObj)) return void p.push(`${at}.match: an object`);
+      for (const k of ["tools", "categories", "families", "excludeTools"]) if (bad(r.match?.[k], isStrings)) p.push(`${at}.match.${k}: a list of strings`);
+      if (bad(r.match?.minBytes, isNum)) p.push(`${at}.match.minBytes: a number`);
+      if (bad(r.match?.command, isStr)) p.push(`${at}.match.command: a string`);
+      else if (r.match?.command !== undefined) {
         try {
           new RegExp(r.match.command);
         } catch {
-          p.push(`routes[${i}].match.command: not a valid regular expression`);
+          p.push(`${at}.match.command: not a valid regular expression`);
         }
       }
     });
-  if (m.env && (typeof m.env !== "object" || Object.values(m.env).some((v) => typeof v !== "string"))) p.push("env: an object of strings");
-  if (m.jsonRatio !== undefined && (typeof m.jsonRatio?.before !== "string" || typeof m.jsonRatio?.after !== "string")) p.push("jsonRatio: needs `before` and `after` field names");
+  if (bad(m.env, (v) => isObj(v) && Object.values(v as object).every(isStr))) p.push("env: an object of strings");
+  if (m.jsonRatio !== undefined && (!isStr(m.jsonRatio?.before) || !isStr(m.jsonRatio?.after) || bad(m.jsonRatio?.afterBytes, isStr))) p.push("jsonRatio: needs `before` and `after` field names (and `afterBytes`, if given, as a name)");
   return p;
 }
 
