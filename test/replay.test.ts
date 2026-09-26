@@ -250,3 +250,64 @@ test("quick mode announces replays only for savers it replays (not the cache-onl
     t.done();
   }
 });
+
+// headroom is cache-only in quick mode (quick budget 100: the 50 largest outputs, then a
+// hash-order stratum of 50 smaller ones) and its fake sidecar is fast, so it stands in for
+// any saver whose quick run extrapolates from what an exact run cached.
+const HEADROOM = tool("headroom", "fake-headroom", { FAKE_MIN_CHARS: "2500" });
+const exactRun = (f: FileResult, cacheFile: string, progress?: () => void) => runReplays([f], ["headroom"], { tools: HEADROOM, cacheFile, full: true, concurrency: 1, progress });
+const quickRun = (f: FileResult, cacheFile: string) => runReplays([f], ["headroom"], { tools: HEADROOM, cacheFile, full: false, concurrency: 1 });
+const total = (f: FileResult) => deltas(f).reduce((a, b) => a + b, 0);
+
+test("quick mode: no measured small output means no number, not zeros for the rest", async () => {
+  const t = tmp();
+  try {
+    const specs = Array.from({ length: 200 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, i < 50 ? 5000 : 3000) }));
+    await exactRun(synth("headroom", specs.slice(0, 50)), t.cacheFile); // only the 50 largest were ever replayed
+    const f = synth("headroom", specs);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.deepEqual({ insufficient: st.insufficient, reason: st.reason, extrapolated: st.extrapolated }, { insufficient: true, reason: "too few outputs replayed in quick mode", extrapolated: 0 });
+  } finally {
+    t.done();
+  }
+});
+
+test("quick mode: when every output is among the largest, the unmeasured ones get the measured ones' ratio, never 0", async () => {
+  const t = tmp();
+  try {
+    const specs = Array.from({ length: 40 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, 3000) }));
+    await exactRun(synth("headroom", specs.slice(0, 25)), t.cacheFile); // 15 new outputs since the exact run
+    const f = synth("headroom", specs);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.equal(st.insufficient, undefined);
+    assert.equal(st.extrapolated, 15, "the note counts what was written");
+    assert.ok(deltas(f).every((d) => d > 0), "no output silently left at 0");
+  } finally {
+    t.done();
+  }
+});
+
+test("an interrupted exact run leaves a sample quick mode can extrapolate from without size bias", async () => {
+  const t = tmp();
+  try {
+    // Sizes cycle with the key, so size and hash order are independent; the saver only
+    // shrinks outputs of 2,500+ chars, so savings are skewed to the larger outputs.
+    const size = [5000, 3000, 2000, 1000];
+    const specs = Array.from({ length: 200 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, size[i % 4]!) }));
+    const truth = synth("headroom", specs);
+    await exactRun(truth, join(t.dir, "full.json"));
+    let n = 0;
+    const interrupt = () => {
+      if (++n === 100) throw new Error("Ctrl+C");
+    };
+    await assert.rejects(exactRun(synth("headroom", specs), t.cacheFile, interrupt), /Ctrl\+C/);
+    const f = synth("headroom", specs);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.equal(st.insufficient, undefined);
+    assert.equal(st.extrapolated, 100);
+    const off = total(f) / total(truth) - 1;
+    assert.ok(Math.abs(off) < 0.05, `quick is ${(100 * off).toFixed(1)}% off the exact total`);
+  } finally {
+    t.done();
+  }
+});
