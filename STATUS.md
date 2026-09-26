@@ -566,6 +566,10 @@ past wrappers, Codex base instructions after compaction, rewind credit).
 - To repeat the same window, pass both ends: `--last` now counts back from `--until`. For
   example `node dist/cli.js --since 2026-08-26 --until 2026-09-25 --exact`, then
   `node scripts/crosscheck-usage.mjs 30` for the M1 check.
+- Savers review fixes can move the saver table: rtk is no longer credited for commands its
+  hook leaves alone (`sudo …`, `xargs …`, `env -u …`, `command -v …`, `(cmd)`, `{ cmd; }`;
+  70cf9cc), and every caveman-engine replay failed from 362bb03 until db50321, so a run in
+  between has no caveman-engine number. Re-run with `--exact` before quoting either.
 
 **Human steps (GATE):**
 - Discard the uncommitted changes in the worktree `.claude/worktrees/wf_0ba0b3d4-ab4-5`
