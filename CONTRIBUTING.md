@@ -20,7 +20,7 @@ It runs with `DO_NOT_TRACK=1`, a 60-second timeout per output, and a throwaway s
 
 ## The manifest
 
-Put it in `src/savers/builtin/<id>.json` for a pull request, or in `~/.saver-audit/savers/<id>.json` to try it on your own logs. Working examples:
+Put it in `src/savers/builtin/<id>.json` for a pull request, and register it in `src/savers/registry.ts` (see the checklist). To try it on your own logs, put it in `~/.saver-audit/savers/<id>.json` instead. Working examples:
 - [`rtk.json`](src/savers/builtin/rtk.json): a hook-stage filter with one route per command type.
 - [`caveman-engine.json`](src/savers/builtin/caveman-engine.json): a proxy-stage compressor with one route for everything.
 - [`token-saver.json`](src/savers/builtin/token-saver.json): passes the recorded command with `{command}`.
@@ -79,7 +79,8 @@ npx saver-audit --savers my-saver --full-replay
 
 ## Pull request checklist
 
-- [ ] The manifest is in `src/savers/builtin/`, and `npx saver-audit --check-saver` passes.
+- [ ] The manifest is in `src/savers/builtin/<id>.json`, and `npx saver-audit --check-saver` passes.
+- [ ] It is registered: `src/savers/registry.ts` imports it and adds it to `BUILTIN` (and to `ORDER` if it should rank with the launch set). A file in `builtin/` is not loaded otherwise, and `npm test` fails.
 - [ ] Your program is published, with an install command in `install`.
 - [ ] A small test fixture: an input and the expected output of your program, in `test/fixtures/savers/<id>/`.
 - [ ] The licence allows people to run it. saver-audit never bundles or downloads community savers; users install them themselves.
