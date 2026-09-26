@@ -100,7 +100,8 @@ export function resolveModel(table: PriceTable, model: string, timestamp?: strin
     m = (alias.find((a) => !a.until || (day && day < a.until)) ?? alias[alias.length - 1]!).model;
   }
   if (Object.hasOwn(table.models, m)) return m;
-  const undated = m.replace(/-\d{8}$/, "");
+  // Dated snapshot of a priced model: Anthropic -YYYYMMDD, OpenAI -YYYY-MM-DD.
+  const undated = m.replace(/-(\d{8}|\d{4}-\d{2}-\d{2})$/, "");
   if (Object.hasOwn(table.models, undated)) return undated;
   return undefined;
 }

@@ -59,3 +59,13 @@ test("model names that are Object.prototype keys are unpriced, not a crash", asy
   const r = await auditClaude([{ model: "constructor", usage: { input_tokens: 10, output_tokens: 5 } }]);
   assert.deepEqual(r.models.map((m) => [m.model, m.pricedAs, m.cost]), [["constructor", undefined, 0]]);
 });
+
+test("OpenAI dated snapshot ids price as their base model; listed snapshots keep their own price", () => {
+  assert.equal(resolveModel(BUNDLED, "gpt-5-2025-08-07"), "gpt-5");
+  assert.equal(resolveModel(BUNDLED, "gpt-5.1-2025-11-13"), "gpt-5.1");
+  assert.equal(resolveModel(BUNDLED, "gpt-4.1-2025-04-14"), "gpt-4.1");
+  assert.equal(resolveModel(BUNDLED, "o3-2025-04-16"), "o3");
+  assert.equal(resolveModel(BUNDLED, "openai/gpt-5-2025-08-07"), "gpt-5");
+  assert.equal(resolveModel(BUNDLED, "gpt-4o-2024-05-13"), "gpt-4o-2024-05-13");
+  assert.equal(resolveModel(BUNDLED, "gpt-5-2025-08"), undefined, "not a full date");
+});
