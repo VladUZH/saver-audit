@@ -112,9 +112,12 @@ export async function keyMenu(out: NodeJS.WriteStream, items: () => MenuItem[], 
       if (k === "\u0003") {
         if (!busy) return done();
         // Raw mode turns Ctrl+C into a key. During an action (an exact replay) stop as a
-        // real Ctrl+C would, so the replay stops its savers and removes their state.
+        // real Ctrl+C would: the SIGINT handlers run (the replay's stops its savers and
+        // removes their state), else the process ends. The handlers are called here, not
+        // reached by a signal to ourselves: on Windows that ends the process before they run.
         stdin.setRawMode(false);
-        process.kill(process.pid, "SIGINT");
+        if (process.listenerCount("SIGINT")) process.emit("SIGINT", "SIGINT");
+        else process.kill(process.pid, "SIGINT");
         return;
       }
       if (answer) return answer(k);
