@@ -563,8 +563,10 @@ past wrappers, Codex base instructions after compaction, rewind credit).
 - assets/readme-card.png, assets/demo.gif and assets/demo.cast.
 - docs/launch/show-hn-fact-sheet.md, docs/launch/x-thread.md and docs/launch/reddit-briefs.md
   (the last already carries an older run).
-- To repeat the same window, pass both ends: `--last` now counts back from `--until`. For
-  example `node dist/cli.js --since 2026-08-26 --until 2026-09-25 --exact`, then
+- To repeat the same window, pass both ends: `--last` now counts back from `--until`. The
+  launch numbers end at 13:00 on 25 September (the fact sheet's command), and a date alone
+  runs to the end of that day, so give the time:
+  `node dist/cli.js --since 2026-08-26 --until 2026-09-25T13:00:00 --exact`, then
   `node scripts/crosscheck-usage.mjs 30` for the M1 check.
 - Savers review fixes can move the saver table: rtk is no longer credited for commands its
   hook leaves alone (`sudo …`, `xargs …`, `env -u …`, `command -v …`, `(cmd)`, `{ cmd; }`;
