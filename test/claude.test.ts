@@ -1,10 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { findClaudeFiles, parseClaudeFile } from "../src/sources/claude-code.ts";
+import { claudeRoots, findClaudeFiles, parseClaudeFile } from "../src/sources/claude-code.ts";
+import { withEnv } from "./env.ts";
 import { CLAUDE_ROOT, collect } from "./helpers.ts";
 
 const main = join(CLAUDE_ROOT, "-home-dev-SECRET-project-alpha", "sess-1.jsonl");
+
+test("CLAUDE_CONFIG_DIR: empty means unset, relative is made absolute", async () => {
+  for (const v of ["", "  "]) {
+    await withEnv({ CLAUDE_CONFIG_DIR: v }, () => assert.equal(claudeRoots()[0], join(homedir(), ".claude", "projects")));
+  }
+  await withEnv({ CLAUDE_CONFIG_DIR: "rel/claude" }, () => assert.equal(claudeRoots()[0], join(process.cwd(), "rel", "claude", "projects")));
+});
 
 test("finder skips .orphaned- copies and includes subagent transcripts", () => {
   const files = findClaudeFiles([CLAUDE_ROOT, join(CLAUDE_ROOT, "missing")], 0).map((f) => f.slice(CLAUDE_ROOT.length));

@@ -3,14 +3,16 @@
 // versions (tech-notes.md §1, §8.1): unknown record types are ignored, malformed
 // lines are skipped and counted.
 import { homedir } from "node:os";
-import { basename, join, sep } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { listFiles, readLines } from "./files.ts";
 import { emptyUsage, maxUsage, type Block, type Call, type Session, type SourceEvent, type Turn, type Usage } from "./types.ts";
 import { shellFamily } from "../accounting/categories.ts";
 import { fastMultiplier } from "../prices/table.ts";
 
 export function claudeRoots(): string[] {
-  const base = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+  // An empty value counts as unset; a relative one is resolved so "Looked in" is unambiguous.
+  const v = process.env.CLAUDE_CONFIG_DIR?.trim();
+  const base = v ? resolve(v) : join(homedir(), ".claude");
   return [...new Set([join(base, "projects"), join(homedir(), ".config", "claude", "projects")])];
 }
 
