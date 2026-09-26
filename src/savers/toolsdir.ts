@@ -12,7 +12,8 @@ export const TOKEN_SAVER_TAG = "v3.0.0";
 export const LEAN_CTX_TAG = "v3.10.3";
 
 export function toolsDir(): string {
-  return join(process.env.SAVER_AUDIT_HOME ?? join(homedir(), ".saver-audit"), "tools");
+  // An empty SAVER_AUDIT_HOME counts as unset: "" would put the tools in the current folder.
+  return join(process.env.SAVER_AUDIT_HOME || join(homedir(), ".saver-audit"), "tools");
 }
 
 const EXE = process.platform === "win32" ? ".exe" : "";

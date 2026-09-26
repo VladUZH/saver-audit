@@ -2,9 +2,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { onPathOnly } from "../src/savers/toolsdir.ts";
+import { userSaversDir } from "../src/savers/manifest.ts";
+import { onPathOnly, toolsDir } from "../src/savers/toolsdir.ts";
 import { withEnv } from "./env.ts";
 
 test("programs are found in PATH's absolute folders only, never in the current folder", async () => {
@@ -26,4 +27,11 @@ test("programs are found in PATH's absolute folders only, never in the current f
     process.chdir(cwd);
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("an empty SAVER_AUDIT_HOME counts as unset: tools and manifests stay in ~/.saver-audit", async () => {
+  await withEnv({ SAVER_AUDIT_HOME: "" }, () => {
+    assert.equal(toolsDir(), join(homedir(), ".saver-audit", "tools"));
+    assert.equal(userSaversDir(), join(homedir(), ".saver-audit", "savers"));
+  });
 });
