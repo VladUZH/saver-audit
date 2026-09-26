@@ -474,3 +474,126 @@ Reddit posts and X thread from `docs/launch/` (plan: Show HN Sunday 2026-10-04 1
 - zstd-compressed Codex rollouts (`.jsonl.zst`, feature-flagged, none seen yet).
 - Verify the three excluded Claude attachment types against Claude Code behaviour.
 - Share token counts across workers (35% of tokenized text repeats across files).
+
+## 2026-09-26 — Bug hunt: fixes
+
+A multi-agent bug hunt on 0.6.0 found 128 confirmed findings (ids 1–128), split into
+clusters A1, A2, B, C, D1, D2, E1, E2, F and G. Cluster H then finished the parts other
+clusters had deferred (39 follow-up items). Code fixes come with regression tests on
+synthetic fixtures. No real logs were read, and nothing was pushed or published.
+
+**Counts (findings 1–128):** confirmed 128 · fixed 126 · skipped 2 (#8 and #55, already
+fixed by D1) · not-a-bug 0 · deferred 0. Small leftovers are under "Later" below.
+
+**Commits** (on `main`; A1, A2, B and C merged as branches):
+- D1, replay cache, confidence and quick mode (21 findings): f7d7e40 4a96125 e9379b4
+  42a7a26 b04d819 a69c2ef d76cc94 30f6929 21fc591 4c982e3 faffeda 3ac45b4 37f7e0b 5f35605.
+- D2, replay isolation, routes and manifests (21): 52a59b6 6e1e108 1937712 17e1549 3939211
+  e07620c 83adff0 a600974 0feb29f 362bb03 3ce438e 192e4bc 5a21fe9 ab8505d d31be68 fc2af38
+  ed609e3 2019d50.
+- A1, Claude parsing and context (8), merge 71d95c9: c69e686 6bd2d29 2adb9d5 7e0f6a4
+  4459753 c516a15 12f9977.
+- A2, Codex parsing and shell families (9), merge 8ba4064: 2103a77 a68750f 1a955fc 0b74298
+  f16ce3e 1448e90 499ba89 162d40f.
+- B, prices (9), merge 7672461: 20c2a64 b1024aa 0be4c48 79128fe 58efe38 8b80473 0b50022
+  14f28e9; follow-up 2ce3bed (one shared cacheHome()).
+- C, installer (21), merge ca3859f: f014f79 0ab92fc f5ce707 9734a47 3901dd1; its
+  uncommitted rest landed through E2 (6e0d351 9598d6e 863e12a 87f161a).
+- E1, report, card and post (12): 41c5add 7bd1e35 825dcae 0f7ceae 437aebf d649378 28eec2b
+  0dbceeb ed831cd e5067e0 790d038.
+- E2, CLI, menu, sharing and install follow-ups (15): 6e0d351 9598d6e 863e12a 87f161a
+  acde535 5580fe1 8d3f768 439139d a3632b5 83b234d 51057a1 6e607ab 9aae392 94e1a09 81dffe0
+  e99d202 b5cb6b5 6ae64c6 871992c 28d6a91.
+- F, period, --jobs and --check-saver (6): 797d26c 45d4112 bc36db3 71be591 e730f7b.
+- H, deferred parts (39 items): de3d717 8a0b9c7 e499d11 7848680 baf1f45 cd0ede0 0f439e3
+  772c4c1 ba214c6.
+- G, docs and scripts (6), plus the docs pass: 7535da4 (#128 cross-check), 88c32e4 (#75
+  notices), 7ab58ee (#120 CONTRIBUTING + registry test), f184dbc (README, CONTRIBUTING,
+  tech-notes §8.12; #74, #76, #121), and this STATUS entry.
+
+**Verified** (main after f184dbc):
+- `npm run typecheck` → `tsc -p tsconfig.json`, no errors (exit 0).
+- `npm test` → `ℹ tests 222 ℹ pass 222 ℹ fail 0 ℹ skipped 0` (baseline before the bug hunt:
+  105 tests).
+- `npm run build` → `dist/cli.js  4.3mb ⚠️` / `⚡ Done in 56ms`.
+- G's regression tests failed before their fixes: the cross-check printed
+  `cache write reference 0 saver-audit 50000 diff 0.000%` and `PASS: within 1%`; the
+  notices test said `@resvg/resvg-wasm is bundled into dist/cli.js, but no notice says so`;
+  the registry test, with a stray `src/savers/builtin/my-saver.json`, said it `is not
+  loaded: import it in src/savers/registry.ts and add it to BUILTIN`.
+
+**Decisions** (docs silent):
+- #74: `--exact` stays a flag that asks nothing. The README now says only `[e]` estimates
+  the time and asks about headroom, and `--exact` replays headroom too (`--savers` leaves it
+  out). The `--help` wording needs `src/cli.ts` (Later).
+- #76: rtk's quick cap (about 12,000 outputs = 800/s × 15 s) is documented rather than
+  lifted; lifting it is a replay.ts change and would unbound quick mode.
+- #120: CONTRIBUTING names the `registry.ts` step, and a test catches an unregistered
+  `builtin/*.json`. Auto-loading the folder would need a build-time index.
+- #121: the docs were made true (headroom from PyPI, Hugging Face and tiktoken, not pinned
+  or verified). Pinning onnxruntime, the model revision or hashes would need versions and
+  hashes no source in the repo gives.
+- #128: a zero reference matches only a zero, printed as `diff n/a (reference 0)`.
+- `--full-replay` is no longer listed in the README Options or CONTRIBUTING; it still works
+  as an alias of `--exact` (it was already missing from `--help`).
+- The docs add no measured number. New figures are code constants (12,000 outputs, 20
+  outputs, 1 s, 200,000 tokens, fast-mode 6× and 2× from B's LiteLLM sources, headroom-ai
+  0.38.0) and "the author's month had 5,513" from the existing README table.
+- tech-notes §8.6–8.11 stay as dated history, with short qualifiers where a sentence is no
+  longer true; the method changes are listed in a new §8.12.
+- THIRD_PARTY_NOTICES names the resvg bindings inside `dist/cli.js` instead of changing the
+  build to keep them in a separate file.
+
+**Needs re-run** (founder's logs; these numbers were left as they are). Fixes that can move
+them: A1 (split responses, attachments, Haiku 4.5 thinking, rewinds, symlinked logs), A2
+(Codex forks, `shell_command`, shell families), B (newly priced models, fast mode, >200k
+rates), D1 (a one-time re-replay: new cache keys; failures not cached), D2 (token-saver and
+lean-ctx now replay persisted outputs and cover less; context-mode's ceiling; rtk
+multi-line routes), E1 (unpriced calls in the context split; Codex-hypothetical parts left
+out of the short view, card and post; version strings re-measured once) and H (rtk routes
+past wrappers, Codex base instructions after compaction, rewind credit).
+- README.md "Results on the author's own logs": session, subagent and call counts, the
+  total, both cost tables, the saver table, the "a quarter" and "16%" lines, and the
+  Codex-alone line.
+- README.md "What the labels mean": "about 20 s", "the author's month had 5,513", "off by
+  up to half", and the floor errors (caveman about 5%, token-saver about 10%, lean-ctx about
+  4%).
+- README.md "How the dollars are computed": "Both match ccusage to the token" (the new fork
+  rule differs from ccusage on purpose) and "about 1.5× o200k".
+- assets/readme-card.png, assets/demo.gif and assets/demo.cast.
+- docs/launch/show-hn-fact-sheet.md, docs/launch/x-thread.md and docs/launch/reddit-briefs.md
+  (the last already carries an older run).
+- To repeat the same window, pass both ends: `--last` now counts back from `--until`. For
+  example `node dist/cli.js --since 2026-08-26 --until 2026-09-25 --exact`, then
+  `node scripts/crosscheck-usage.mjs 30` for the M1 check.
+
+**Human steps (GATE):**
+- Discard the uncommitted changes in the worktree `.claude/worktrees/wf_0ba0b3d4-ab4-5`
+  (branch `fix/C` at 3901dd1). Their content is already on main (6e0d351, 9598d6e,
+  863e12a, 87f161a); do not commit or merge them again. The other worktrees (fix/A1,
+  fix/A2, fix/B) are merged and can be removed.
+
+**Later** (one line each):
+- `src/cli.ts` `--help`: `--exact` "can take minutes" should say headroom alone can take
+  hours and that only `[e]` estimates and asks (#74).
+- `src/savers/replay.ts` comments: "rtk is cheap enough to always finish", "--full-replay
+  lifts it" and "Savers run at the same time" (they run one at a time) are stale (#76).
+- `scripts/crosscheck-usage.mjs`: follow A2's fork rule (a lone first event ≤1 s after
+  `session_meta`) and treat an empty `CLAUDE_CONFIG_DIR`/`CODEX_HOME` as unset.
+- `SAVER_AUDIT_HEADROOM_PYTHON=""` is not treated as unset, unlike the other override
+  variables (seen in the docs pass; not a confirmed finding).
+- At start-up, remove stale `$TMPDIR/saver-audit-*` folders left by a hard kill (#80).
+- Run the Windows paths on a real Windows machine: cmd.exe `start`, the PowerShell
+  clipboard, py.exe lookup, the headroom.exe launcher, the sidecar encoding, tar.exe.
+- A Windows headroom launcher with neither a shebang nor a python.exe next to it (uv's,
+  possibly) needs `SAVER_AUDIT_HEADROOM_PYTHON` (#107).
+- A lean-ctx the user installed on Windows can still reach the real profile folder; only
+  documented (#127).
+- Claude 3.x ids stay unpriced until a sourced price is added; the report says so (#7).
+- Honour `message.input_transformations` `thinking_dropped` once its meaning is confirmed
+  (#28).
+- Check on real logs that Claude Code rewinds append to the same transcript (#37).
+- `[i]` appears only when a saver is missing; a saver that is only outdated is offered by
+  `--install-savers`, not through `[i]`.
+- Pin headroom's dependencies and model revision once versions and hashes have a source
+  (#116, #121, #124).
