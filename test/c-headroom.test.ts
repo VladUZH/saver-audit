@@ -3,7 +3,7 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,6 +39,17 @@ test("a venv whose base Python was removed is rebuilt, not reused", { skip: unix
   setup();
   mkdirSync(join(toolsDir(), "headroom-venv", "bin"), { recursive: true });
   symlinkSync("/nonexistent/python3.12", toolPaths.headroomPython());
+  assert.equal(await installHeadroom(quiet), toolPaths.headroomPython());
+  assert.deepEqual(calls(), ["venv", "pip", "prefetch"]);
+  assert.equal(headroomIncomplete(), false);
+});
+
+test("a venv whose Python runs but has no pip (interrupted while it was made) is rebuilt", { skip: unix }, async () => {
+  setup();
+  mkdirSync(dirname(toolPaths.headroomPython()), { recursive: true });
+  copyFileSync(FAKE, toolPaths.headroomPython());
+  chmodSync(toolPaths.headroomPython(), 0o755);
+  writeFileSync(join(toolsDir(), "headroom-venv", "no-pip"), "");
   assert.equal(await installHeadroom(quiet), toolPaths.headroomPython());
   assert.deepEqual(calls(), ["venv", "pip", "prefetch"]);
   assert.equal(headroomIncomplete(), false);

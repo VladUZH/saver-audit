@@ -299,9 +299,9 @@ export async function installHeadroom(say: Say): Promise<string> {
   const venv = join(toolsDir(), "headroom-venv");
   const env = headroomEnv();
   mkdirSync(toolsDir(), { recursive: true });
-  // A venv whose Python no longer runs (its base Python was removed) is rebuilt:
-  // `python -m venv` over it would keep the dangling link.
-  if (spawnSync(paths.headroomPython(), ["-c", ""], { cwd: toolsDir(), stdio: "ignore" }).status !== 0) {
+  // A venv whose pip does not run is rebuilt: its base Python was removed (`python -m venv`
+  // over it would keep the dangling link), or it was interrupted before pip was in it.
+  if (spawnSync(paths.headroomPython(), ["-m", "pip", "--version"], { env, cwd: toolsDir(), stdio: "ignore" }).status !== 0) {
     rmSync(venv, { recursive: true, force: true });
     say("creating a Python environment for headroom…");
     try {

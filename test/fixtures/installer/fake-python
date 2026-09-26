@@ -6,7 +6,9 @@
 # FAKE_PY_VERSION: the version it reports (default 3.12). The model download also
 # fills $TIKTOKEN_CACHE_DIR, and the ready check wants it when it names tiktoken.
 # FAKE_PY_CWD_LOG: each call's first arguments, folder and PYTHONSAFEPATH are
-# logged there. -I (isolated) is accepted.
+# logged there. -I (isolated) is accepted. A venv holding a file named no-pip has
+# no pip (made, then interrupted before ensurepip finished); `-m venv` over it
+# installs pip, as Python's does.
 self="$0"
 venv="${self%/*}/.."
 [ "$1" = "-I" ] && shift
@@ -41,9 +43,12 @@ case "$1" in
         fi
         # Like Python's venv: an existing link, even a dangling one, is left alone.
         [ -L "$3/bin/python" ] || cp "$self" "$3/bin/python"
+        rm -f "$3/no-pip"
         exit 0 ;;
       pip)
         shift 2
+        if [ -f "$venv/no-pip" ]; then echo "$self: No module named pip" >&2; exit 1; fi
+        [ "$1" = "--version" ] && { echo "pip (fake) from $venv"; exit 0; }
         echo "pip $*" >> "$FAKE_PY_LOG"
         : > "$venv/headroom"
         exit 0 ;;
