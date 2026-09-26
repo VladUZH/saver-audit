@@ -10,6 +10,7 @@ import type { FileResult } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
 import { countProxy } from "../src/accounting/tokens.ts";
 import { detectReplayTools, isOutdated, launcherPython, runOnce, runReplays, type ReplayTool } from "../src/savers/replay.ts";
+import { readReplayCache } from "../src/savers/cache.ts";
 import { replayKey } from "../src/savers/tracker.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import type { ReplayJob } from "../src/savers/types.ts";
@@ -344,6 +345,65 @@ test("an interrupted exact run leaves a sample quick mode can extrapolate from w
     assert.equal(st.extrapolated, 100);
     const off = total(f) / total(truth) - 1;
     assert.ok(Math.abs(off) < 0.05, `quick is ${(100 * off).toFixed(1)}% off the exact total`);
+  } finally {
+    t.done();
+  }
+});
+
+// Every output among the largest (headroom's quick budget is 100: 50 outputs or fewer), sizes
+// independent of key order, and a saver that only shrinks outputs of 2,500+ chars.
+const size4 = [5000, 3000, 2000, 1000];
+const allLarge = Array.from({ length: 48 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, size4[i % 4]!) }));
+
+test("when every output is among the largest, an interrupted exact run leaves a sample without size bias", async () => {
+  const t = tmp();
+  try {
+    const truth = synth("headroom", allLarge);
+    await exactRun(truth, join(t.dir, "full.json"));
+    let n = 0;
+    const interrupt = () => {
+      if (++n === 24) throw new Error("Ctrl+C");
+    };
+    await assert.rejects(exactRun(synth("headroom", allLarge), t.cacheFile, interrupt), /Ctrl\+C/);
+    const f = synth("headroom", allLarge);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.deepEqual({ insufficient: st.insufficient, extrapolated: st.extrapolated }, { insufficient: undefined, extrapolated: 24 });
+    const off = total(f) / total(truth) - 1;
+    assert.ok(Math.abs(off) < 0.05, `quick is ${(100 * off).toFixed(1)}% off the exact total`);
+  } finally {
+    t.done();
+  }
+});
+
+test("when every output is among the largest, a cache holding only the larger ones gives no number", async () => {
+  const t = tmp();
+  try {
+    // An exact run over a longer period, or by an older release, stopped part-way: largest first.
+    await exactRun(synth("headroom", allLarge.filter((_, i) => i % 4 !== 3)), t.cacheFile);
+    const f = synth("headroom", allLarge);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.deepEqual({ insufficient: st.insufficient, extrapolated: st.extrapolated }, { insufficient: true, extrapolated: 0 });
+    assert.match(st.reason!, /only the larger outputs/);
+  } finally {
+    t.done();
+  }
+});
+
+test("when every output is among the largest, quick mode replays previews first, then in key order, not by size", async () => {
+  const t = tmp();
+  try {
+    // A quick run stopped part-way (its clock, here an error) has measured a key-order prefix.
+    const preview = { key: "z0", input: text(99, 116_000), persistedHeader: "<persisted-output>\nOutput too large. Preview (first 2KB):\n", headerTokens: 12, baseline: 500 };
+    const f = synth("token-saver", [...allLarge, preview]);
+    let n = 0;
+    const stop = () => {
+      if (++n === 12) throw new Error("stop");
+    };
+    await assert.rejects(runReplays([f], ["token-saver"], { tools: tool("token-saver", "fake-saver"), cacheFile: t.cacheFile, full: false, concurrency: 1, progress: stop }), /stop/);
+    const measured = allLarge.map((s) => s.key).filter((k) => readReplayCache(t.cacheFile).has(k));
+    assert.ok(readReplayCache(t.cacheFile).has("z0"), "the preview first");
+    assert.ok(measured.length >= 11, `${measured.length} measured`);
+    assert.deepEqual(measured, allLarge.slice(0, measured.length).map((s) => s.key));
   } finally {
     t.done();
   }

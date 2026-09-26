@@ -89,7 +89,7 @@ The headroom number is a lower estimate (see below). On Codex alone, where shell
     - It replays every output above each saver's size floor: caveman 500 tokens, token-saver and lean-ctx 1,000, headroom 200.
     - `e` first shows how long that will take on your logs. headroom can take hours on a busy month, so `e` asks about it separately.
     - `--exact` asks nothing: it replays every saver, headroom included. To leave headroom out, list the others with `--savers`.
-    - The largest outputs go first. Results are saved as it goes, so you can stop with Ctrl+C and the next run carries on.
+    - Results are saved as it goes, so you can stop with Ctrl+C and the next run carries on.
     - Results are cached, so later quick runs are exact too.
     - The floors make caveman about 5%, token-saver about 10% and lean-ctx about 4% low, and the report says so.
 - **modeled.** An estimate from a published measurement, with the assumption printed next to it.
