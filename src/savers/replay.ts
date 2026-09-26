@@ -154,7 +154,13 @@ function saverEnv(stateDir: string): NodeJS.ProcessEnv {
 
 function runOnce(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string | undefined> {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { env, stdio: ["pipe", "pipe", "ignore"] });
+    let child;
+    try {
+      child = spawn(cmd, args, { env, stdio: ["pipe", "pipe", "ignore"] });
+    } catch {
+      // Refused before starting (e.g. E2BIG: a recorded command over the argument limit).
+      return resolve(undefined);
+    }
     const chunks: Buffer[] = [];
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.stdout.on("data", (c: Buffer) => chunks.push(c));

@@ -195,3 +195,20 @@ test("an error during replay stops the other workers and leaves no saver state b
     t.done();
   }
 });
+
+test("a replay the OS refuses to start (argument too long, NUL byte) counts as failed", async () => {
+  const t = tmp();
+  try {
+    const specs: Spec[] = [0, 1, 2, 3, 4].map((i) => ({ key: `k${i}`, input: text(i), args: ["compress"] }));
+    specs[1]!.args = ["compress", "x".repeat(2_000_000)]; // over ARG_MAX (macOS) and MAX_ARG_STRLEN (Linux)
+    specs[3]!.args = ["compress", "a\0b"];
+    const f = synth("caveman-engine", specs);
+    const st = (await runReplays([f], ["caveman-engine"], { tools: tool("caveman-engine", "fake-saver"), cacheFile: t.cacheFile, full: true, concurrency: 2 })).get("caveman-engine")!;
+    assert.deepEqual({ ran: st.ran, failed: st.failed, insufficient: st.insufficient }, { ran: 5, failed: 2, insufficient: undefined });
+    const d = deltas(f);
+    assert.deepEqual([d[1], d[3]], [0, 0]);
+    assert.ok([d[0], d[2], d[4]].every((x) => x! > 0));
+  } finally {
+    t.done();
+  }
+});
