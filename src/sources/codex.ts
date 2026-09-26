@@ -189,7 +189,7 @@ export function shellCommand(tool: string, input: any): string | undefined {
     const m = EXEC_CMD.exec(input);
     return m ? m[2]! : "";
   }
-  if (tool === "exec_command" || tool === "shell" || tool === "local_shell_call" || tool === "container.exec") {
+  if (tool === "exec_command" || tool === "shell" || tool === "shell_command" || tool === "local_shell_call" || tool === "container.exec") {
     const c = input?.cmd ?? input?.command;
     if (Array.isArray(c)) return c.map(String).join(" ").replace(/^(bash|zsh|sh) -l?c /, "");
     return typeof c === "string" ? c : "";

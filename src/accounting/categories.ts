@@ -24,7 +24,7 @@ const CLAUDE_TOOLS: Record<string, Category> = {
 };
 
 const CODEX_TOOLS: Record<string, Category> = {
-  exec: "Shell", exec_command: "Shell", shell: "Shell", local_shell_call: "Shell",
+  exec: "Shell", exec_command: "Shell", shell: "Shell", shell_command: "Shell", local_shell_call: "Shell",
   write_stdin: "Shell", "container.exec": "Shell", js: "Shell", run: "Shell",
   apply_patch: "File edits", view_image: "File reads",
   web_search_call: "Web search",

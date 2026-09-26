@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { codexUsage, findCodexFiles, parseCodexFile, shellCommand } from "../src/sources/codex.ts";
+import { shellFamily, toolCategory } from "../src/accounting/categories.ts";
 import { CODEX_HOME, collect } from "./helpers.ts";
 
 const thr1 = join(CODEX_HOME, "sessions", "2026", "09", "20", "rollout-2026-09-20T10-00-00-thr1.jsonl");
@@ -51,4 +52,11 @@ test("codexUsage and shellCommand edge cases", () => {
   assert.equal(shellCommand("exec", "const x = 1;"), "");
   assert.equal(shellCommand("shell", { command: ["bash", "-lc", "cargo test"] }), "cargo test");
   assert.equal(shellCommand("apply_patch", "*** Begin Patch"), undefined);
+});
+
+test("shell_command (string command) is a shell tool", () => {
+  const cmd = shellCommand("shell_command", { command: "rg -n compute src", workdir: "/x" });
+  assert.equal(cmd, "rg -n compute src");
+  assert.equal(shellFamily(cmd!), "search");
+  assert.equal(toolCategory("shell_command"), "Shell");
 });
