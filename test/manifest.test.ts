@@ -122,6 +122,37 @@ test("a binary name with regular-expression characters is found and its version 
   }
 });
 
+test("the version number is read from lines like 'token-saver v3.0.0' and 'lean-ctx 3.10.3 (official, …)'", async () => {
+  const { saverIndex } = await import("../src/savers/registry.ts");
+  const { detectReplayTools } = await import("../src/savers/replay.ts");
+  const { keyVersion } = await import("../src/savers/tracker.ts");
+  const { renderTerminal } = await import("../src/report/terminal.ts");
+  const dir = mkdtempSync(join(tmpdir(), "sa-bin-"));
+  try {
+    const fake = (file: string, line: string) => {
+      writeFileSync(join(dir, file), `#!/usr/bin/env node\nconsole.log(${JSON.stringify(line)});\n`, { mode: 0o755 });
+      return join(dir, file);
+    };
+    const env = {
+      SAVER_AUDIT_TOKEN_SAVER: fake("token-saver", "token-saver v3.0.0"),
+      SAVER_AUDIT_LEAN_CTX: fake("lean-ctx", "lean-ctx 3.10.3 (official, https://github.com/yvgude/lean-ctx)"),
+      SAVER_AUDIT_HOME: dir,
+      SAVER_AUDIT_HEADROOM_PYTHON: "",
+    };
+    const adapters = saverIndex(["token-saver", "lean-ctx"]);
+    const found = await withEnv(env, () => detectReplayTools(adapters));
+    assert.equal(found.get("token-saver")?.version, "3.0.0");
+    assert.equal(found.get("lean-ctx")?.version, "3.10.3");
+    for (const a of adapters) assert.equal(keyVersion(a.version, found.get(a.id)?.version), a.version, `${a.id} keeps the adapter's cache key`);
+    const { runAudit } = await import("../src/pool.ts");
+    const { fixtureOptions } = await import("./helpers.ts");
+    const r = await runAudit(fixtureOptions(), undefined, 1, { ids: adapters.map((a) => a.id), tools: found, cacheFile: join(dir, "c.json") });
+    assert.doesNotMatch(renderTerminal(r, { showProjects: false, verbose: false, color: false }), /this adapter was written for/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a community saver is replayed and reported like a built-in one", async () => {
   const home = mkdtempSync(join(tmpdir(), "sa-home-"));
   try {

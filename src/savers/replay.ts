@@ -95,6 +95,11 @@ function firstLine(cmd: string, args: string[]): string | undefined {
   return r.status === 0 && out ? out : undefined;
 }
 
+/** The version number in a version line ("v3.0.0" → "3.0.0", "3.10.3 (official, …)" → "3.10.3"), else the line. */
+export function versionOf(line: string | undefined): string | undefined {
+  return line?.match(/\bv?(\d+(?:\.\d+)+(?:[-+][\w.]+)?)/)?.[1] ?? line;
+}
+
 /** Is an installed version older than the one the adapter was written for? False when either has no number. */
 export function isOutdated(installed: string | undefined, adapter: string): boolean {
   const nums = (v: string) => /(\d+)\.(\d+)(?:\.(\d+))?/.exec(v)?.slice(1).map((x) => Number(x ?? 0));
@@ -119,7 +124,7 @@ export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): 
     const m = s.manifest;
     if (!m || m.method !== "replayed" || !m.binary) continue;
     const name = new RegExp(`^${m.binary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+`); // "trim++ 1.0" → "1.0"
-    const probe = (command: string): ReplayTool => ({ saver: s.id, command, version: m.versionArgs ? firstLine(command, m.versionArgs)?.replace(name, "") : undefined });
+    const probe = (command: string): ReplayTool => ({ saver: s.id, command, version: m.versionArgs ? versionOf(firstLine(command, m.versionArgs)?.replace(name, "")) : undefined });
     const override = m.binaryEnv ? process.env[m.binaryEnv] : undefined;
     if (override) {
       found.set(s.id, probe(override));
