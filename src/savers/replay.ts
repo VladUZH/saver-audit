@@ -122,9 +122,10 @@ export function isOutdated(installed: string | undefined, adapter: string): bool
 
 /**
  * Finds the installed saver binaries: explicit overrides, then your PATH (your own
- * installs), then the folder --install-savers uses. An older version (or one that does
- * not say its version) does not hide a current one further down. Missing tools are
- * simply absent.
+ * installs), then the folder --install-savers uses. For a saver with `versionArgs`, an
+ * older version (or one that does not say its version) does not hide a current one
+ * further down; without them (the caveman engine) the first one found is used. Missing
+ * tools are simply absent.
  */
 export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): Map<string, ReplayTool> {
   // Probes run like replays: with the manifest's environment and a temporary state

@@ -153,9 +153,9 @@ Or press `i` in the short view.
 - **Where to:** `~/.saver-audit/tools`. No saver's own setup runs, so your Claude Code and Codex settings stay as they are. Delete the folder to uninstall.
 - **What it asks:** before each download, unless you pass `--yes`. Without a terminal and without `--yes`, it installs nothing and says so. The report follows either way; the exit code is 1 only if an install failed.
 - **Where it can't:** token-saver needs Python 3.10+, and its installer supports macOS and Linux; lean-ctx is not offered on Windows (see Privacy). rtk and lean-ctx are installed on x64 and arm64 CPUs only. A download that does not run on your machine is not installed.
-- **Older copies:** if the copy found is older than the version saver-audit was written for, the installer offers the current one.
+- **Older copies:** if the rtk, token-saver or lean-ctx found is older than the version saver-audit was written for, the installer offers the current one. The caveman engine has no version flag, so an older engine is not noticed.
 
-If you already have a saver installed yourself, saver-audit uses that. For rtk, the caveman engine, token-saver and lean-ctx it takes the first copy that is not older than the version its adapter was written for: on your `PATH`, then in `~/.saver-audit/tools/bin`, then in the saver's usual folder (or the first one found, if none is current). An override variable always wins.
+If you already have a saver installed yourself, saver-audit uses that. It looks on your `PATH`, then in `~/.saver-audit/tools/bin`, then (for the caveman engine) in `~/.caveman/bin`. For rtk, token-saver and lean-ctx it takes the first copy that is not older than the version its adapter was written for (or the first one found, if none is current). For the caveman engine it takes the first one found, whatever its version, so an engine on your `PATH` comes before the one `--install-savers` verified. An override variable always wins.
 
 - **rtk:** `rtk` on your `PATH`, or set `SAVER_AUDIT_RTK`.
 - **caveman engine:** `caveman-engine` on your `PATH` or in `~/.caveman/bin`, or set `CAVEMAN_ENGINE_BIN`.
