@@ -45,17 +45,15 @@ function result(savers: SaverRow[]): AuditResult {
   };
 }
 
-test("a cache-only saver with little left to replay: [e] is offered, as the view says", async () => {
-  // caveman's engine is cache-only in quick mode; the fixtures leave it a second of work.
+test("a cache-only saver with outputs left to replay: [e] is offered, as the view says", async () => {
+  // headroom is cache-only in quick mode (the caveman engine now replays new outputs that fit).
   const dir = mkdtempSync(join(tmpdir(), "sa-e2r-"));
   temps.push(dir);
-  const tools = new Map([["caveman-engine", FAKE_TOOLS.get("caveman-engine")!]]);
-  const r = await runAudit(fixtureOptions(), undefined, 1, { ids: ["caveman-engine"], tools, cacheFile: join(dir, "c.json"), full: false });
-  const work = exactSeconds(new Map(r.savers.filter((s) => s.replay).map((s) => [s.id, s.replay!])));
-  assert.ok(work.total <= 1, "under the second [e] used to need");
+  const tools = new Map([["headroom", FAKE_TOOLS.get("headroom")!]]);
+  const r = await runAudit(fixtureOptions(), undefined, 1, { ids: ["headroom"], tools, cacheFile: join(dir, "c.json"), full: false });
   assert.equal(exactPending(r), true);
   assert.equal(menuKeys(r, { menu: true }).exact, true, "the menu offers [e]");
-  assert.match(renderShort(r, { ...OPTS, menu: true }), /caveman engine\s+—\s+exact run needed: press \[e\]/);
+  assert.match(renderShort(r, { ...OPTS, menu: true }), /headroom\s+—\s+exact run needed: press \[e\]/);
 });
 
 test("nothing left to replay: neither the menu nor the view offers [e]", () => {
@@ -127,13 +125,13 @@ test("in a terminal, the menu offers the keys the short view names, and only tho
   temps.push(dir);
   const bin = join(FIXTURES, "bin");
   // lean-ctx and token-saver are nowhere; node is on PATH for the fake savers.
-  const env = { PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter), HOME: dir, XDG_CACHE_HOME: join(dir, "cache"), SAVER_AUDIT_HOME: join(dir, "home"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, NO_COLOR: "1", SAVER_AUDIT_RTK: join(bin, "rtk"), CAVEMAN_ENGINE_BIN: join(bin, "caveman-engine") };
+  const env = { PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter), HOME: dir, XDG_CACHE_HOME: join(dir, "cache"), SAVER_AUDIT_HOME: join(dir, "home"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, NO_COLOR: "1", SAVER_AUDIT_RTK: join(bin, "rtk"), SAVER_AUDIT_HEADROOM_PYTHON: join(bin, "headroom-python") };
   // The CLI up to its menu, which waits for keys.
   const run = async (savers: string) => (await inTerminalUntil([CLI, "--since", "2026-09-01", "--until", "2026-09-30", "--savers", savers, "--no-card", "--no-animation"], { env, cwd: dir }, /\[q\] quit/)) ?? "";
   const menu = (out: string) => out.split(/\r?\n/).find((l) => l.includes("[q] quit")) ?? "";
-  // caveman's engine needs an exact run; the installer can add lean-ctx here.
-  const both = await run("rtk,caveman-engine,lean-ctx");
-  assert.match(both, /caveman engine\s+—\s+exact run needed: press \[e\]/);
+  // headroom needs an exact run; the installer can add lean-ctx here.
+  const both = await run("rtk,headroom,lean-ctx");
+  assert.match(both, /headroom\s+—\s+exact run needed: press \[e\]/);
   assert.match(both, /Not installed: lean-ctx\. Press \[i\] to install and measure it\./);
   assert.match(menu(both), /\[e\] exact numbers/);
   assert.match(menu(both), /\[i\] install savers/);
@@ -148,10 +146,10 @@ test("--short names no keys", () => {
   const dir = mkdtempSync(join(tmpdir(), "sa-e2r-"));
   temps.push(dir);
   const bin = join(FIXTURES, "bin");
-  const env = { PATH: process.env.PATH, HOME: dir, XDG_CACHE_HOME: join(dir, "cache"), SAVER_AUDIT_HOME: join(dir, "home"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, NO_COLOR: "1", SAVER_AUDIT_RTK: join(bin, "rtk"), CAVEMAN_ENGINE_BIN: join(bin, "caveman-engine") };
-  const r = spawnSync(process.execPath, [CLI, "--short", "--since", "2026-09-01", "--until", "2026-09-30", "--savers", "rtk,caveman-engine,lean-ctx"], { env, cwd: dir, encoding: "utf8" });
+  const env = { PATH: process.env.PATH, HOME: dir, XDG_CACHE_HOME: join(dir, "cache"), SAVER_AUDIT_HOME: join(dir, "home"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, NO_COLOR: "1", SAVER_AUDIT_RTK: join(bin, "rtk"), SAVER_AUDIT_HEADROOM_PYTHON: join(bin, "headroom-python") };
+  const r = spawnSync(process.execPath, [CLI, "--short", "--since", "2026-09-01", "--until", "2026-09-30", "--savers", "rtk,headroom,lean-ctx"], { env, cwd: dir, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /caveman engine\s+—\s+exact run needed: --exact/);
+  assert.match(r.stdout, /headroom\s+—\s+exact run needed: --exact/);
   assert.doesNotMatch(r.stdout, /\[e\]|\[i\]/);
 });
 
@@ -160,10 +158,10 @@ test("in a terminal whose input is not one, no menu follows, so the short view n
   temps.push(dir);
   const bin = join(FIXTURES, "bin");
   // lean-ctx is nowhere; node is on PATH for the fake savers.
-  const env = { PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter), HOME: dir, XDG_CACHE_HOME: join(dir, "cache"), SAVER_AUDIT_HOME: join(dir, "home"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, NO_COLOR: "1", SAVER_AUDIT_RTK: join(bin, "rtk"), CAVEMAN_ENGINE_BIN: join(bin, "caveman-engine") };
-  const out = inTerminal([CLI, "--since", "2026-09-01", "--until", "2026-09-30", "--savers", "rtk,caveman-engine,lean-ctx", "--no-card", "--no-animation"], { env, cwd: dir, noInput: true })!;
+  const env = { PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter), HOME: dir, XDG_CACHE_HOME: join(dir, "cache"), SAVER_AUDIT_HOME: join(dir, "home"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, NO_COLOR: "1", SAVER_AUDIT_RTK: join(bin, "rtk"), SAVER_AUDIT_HEADROOM_PYTHON: join(bin, "headroom-python") };
+  const out = inTerminal([CLI, "--since", "2026-09-01", "--until", "2026-09-30", "--savers", "rtk,headroom,lean-ctx", "--no-card", "--no-animation"], { env, cwd: dir, noInput: true })!;
   assert.match(out, /Full report: npx saver-audit --full/, "the short view, in a terminal");
-  assert.match(out, /caveman engine\s+—\s+exact run needed: --exact/);
+  assert.match(out, /headroom\s+—\s+exact run needed: --exact/);
   assert.match(out, /For exact numbers \(once; cached\): npx saver-audit --exact/);
   assert.match(out, /Not installed: lean-ctx\. To install and measure it: npx saver-audit --install-savers/);
   assert.doesNotMatch(out, /\[e\]|\[i\]|\[q\] quit/);

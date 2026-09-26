@@ -252,7 +252,7 @@ test("outputs after the period end are not replayed or counted", async () => {
   assert.equal(rtk.coverage, 0);
 });
 
-test("quick mode: rtk exact; cache-only savers wait for an exact run, which then carries over", async () => {
+test("quick mode: rtk exact; caveman replays its few new outputs; headroom waits for an exact run, which then carries over", async () => {
   const dir = mkdtempSync(join(tmpdir(), "sa-quick-"));
   try {
     const cacheFile = join(dir, "replay.json");
@@ -260,13 +260,13 @@ test("quick mode: rtk exact; cache-only savers wait for an exact run, which then
     const quick = await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile });
     const q = new Map(quick.savers.map((s) => [s.id, s]));
     assert.equal(q.get("rtk")!.replay!.extrapolated, 0, "rtk always finishes");
-    assert.equal(q.get("caveman-engine")!.replay!.insufficient, true, "caveman is not estimated from a quick sample");
-    assert.equal(q.get("headroom")!.replay!.insufficient, true);
-    await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile, full: ["caveman-engine"] });
+    assert.deepEqual({ ran: q.get("caveman-engine")!.replay!.ran > 0, extrapolated: q.get("caveman-engine")!.replay!.extrapolated }, { ran: true, extrapolated: 0 }, "caveman replays its few new outputs");
+    assert.equal(q.get("headroom")!.replay!.insufficient, true, "headroom is not sampled");
+    await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile, full: ["headroom"] });
     const after = new Map((await runAudit(fixtureOptions(), undefined, 1, { ids, tools: FAKE_TOOLS, cacheFile })).savers.map((s) => [s.id, s]));
-    assert.equal(after.get("caveman-engine")!.replay!.extrapolated, 0, "exact results are reused by quick runs");
-    assert.ok(after.get("caveman-engine")!.cost > 0);
-    assert.equal(after.get("headroom")!.replay!.insufficient, true, "only the savers asked for were made exact");
+    assert.equal(after.get("headroom")!.replay!.extrapolated, 0, "exact results are reused by quick runs");
+    assert.equal(after.get("headroom")!.replay!.insufficient, undefined);
+    assert.equal(after.get("caveman-engine")!.replay!.ran, 0, "served from the cache");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -282,7 +282,7 @@ test("block weights price a saved token as the report does: Σ d × weight is ea
     const results = await processAll(findFiles(opts), undefined, 1, config);
     const w = saverBlockWeights(opts, results); // before replay: it needs no saving
     assert.ok(w.size > 0);
-    const stats = await runReplays(results, ids, { tools: FAKE_TOOLS, cacheFile: config.cacheFile, full: true, concurrency: 1 });
+    const stats = await runReplays(results, ids, { tools: FAKE_TOOLS, cacheFile: config.cacheFile, full: true, concurrency: 1, blockUsd: w });
     const report = summarize(opts, results, { savers, tools: FAKE_TOOLS, stats });
     ids.forEach((id, i) => {
       let usd = 0;

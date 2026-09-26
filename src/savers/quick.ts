@@ -39,10 +39,19 @@ export interface QuickPlan {
   ranked: string[];
   /** Uncached previews. */
   previews: Set<string>;
+  /** Every preview in the population, cached or not. */
+  allPreviews: Set<string>;
+  /**
+   * Uncached outputs of size 0: worth nothing in the period (no priced call reads them), so
+   * never drawn nor estimated; they count as unchanged unless an exact run measures them.
+   */
+  zero: Set<string>;
   /** Outputs cached when the run started: exact, never in a ratio. */
   cached: Set<string>;
   /** Size of every output in the population. */
   x: Map<string, number>;
+  /** Where size bands start (500 tokens, or its dollar value when sizes are dollars). */
+  bandBase: number;
   /** Planned inclusion probability of an uncached output. */
   piOf(key: string): number;
 }
@@ -50,16 +59,16 @@ export interface QuickPlan {
 /**
  * An output's part in a run: cached (exact, from an earlier run), preview, certain, sample (in
  * the measured prefix of the u/x order), measured (after the first gap: exact, sets no ratio),
- * extrapolated (not measured) or failed.
+ * extrapolated (not measured), zero (size 0, not measured: counts as unchanged) or failed.
  */
-export type QuickRole = "cached" | "preview" | "certain" | "sample" | "measured" | "extrapolated" | "failed";
+export type QuickRole = "cached" | "preview" | "certain" | "sample" | "measured" | "extrapolated" | "zero" | "failed";
 
 export interface QuickFit {
   /** Sampled non-certain outputs the ratios come from. */
   rows: number;
   /** No number: an unmeasured preview, or too few rows with outputs left to estimate. */
   insufficient: boolean;
-  /** Uncached outputs neither measured nor failed: each gets ratioFor(key)·x. */
+  /** Uncached outputs of non-zero size neither measured nor failed: each gets ratioFor(key)·x. */
   unmeasured: string[];
   /** R_g for the output's size band (the pooled ratio when its band has none). Undefined when insufficient. */
   ratioFor(key: string): number | undefined;
@@ -131,23 +140,72 @@ export function ppsProbs(items: Array<{ key: string; x: number }>, n: number): M
   return pi;
 }
 
-/** Size band ×2 wide from 500 tokens: 500–1k, 1k–2k, 2k–4k … (smaller ones below). */
-export const bandOf = (x: number) => Math.floor(Math.log2(Math.max(1, x) / 500));
+/** Size band ×2 wide from `base` (500 tokens): 500–1k, 1k–2k, 2k–4k … (smaller ones below). */
+export const bandOf = (x: number, base = 500) => Math.floor(Math.log2(Math.max(base / 500, x) / base));
+
+type Row = { x: number; d: number; w: number };
+
+/**
+ * Ratios per size band: bands over `sizes` (ascending), merged upward until each holds ≥ MIN
+ * rows, the tail joining the last group; R = Σw·d / Σw·x per group, the pooled ratio where a
+ * group has none. Undefined everywhere with fewer than MIN rows.
+ */
+function bandRatios(rows: Row[], sizes: number[], base: number): (size: number) => number | undefined {
+  const ratio = (rs: Row[]) => {
+    let a = 0;
+    let b = 0;
+    for (const r of rs) {
+      a += r.w * r.d;
+      b += r.w * r.x;
+    }
+    return b > 0 ? a / b : null;
+  };
+  const pooled = rows.length >= MIN_QUICK_SAMPLE ? ratio(rows) : null;
+  if (pooled === null) return () => undefined;
+  const band = (x: number) => bandOf(x, base);
+  const bands = [...new Set(sizes.map(band))].sort((a, b) => a - b);
+  const perBand = new Map<number, Row[]>(bands.map((b) => [b, []]));
+  for (const r of rows) perBand.get(band(r.x))?.push(r);
+  const merged: number[][] = [];
+  let cur: number[] = [];
+  let c = 0;
+  for (const b of bands) {
+    cur.push(b);
+    c += perBand.get(b)!.length;
+    if (c >= MIN_QUICK_SAMPLE) {
+      merged.push(cur);
+      cur = [];
+      c = 0;
+    }
+  }
+  if (cur.length) {
+    if (merged.length) merged[merged.length - 1]!.push(...cur);
+    else merged.push(cur);
+  }
+  const group = new Map<number, number | null>();
+  for (const m of merged) {
+    const rs = m.flatMap((b) => perBand.get(b)!);
+    const r = rs.length >= MIN_QUICK_SAMPLE ? ratio(rs) : null;
+    for (const b of m) group.set(b, r);
+  }
+  return (size) => group.get(band(size)) ?? pooled;
+}
 
 /**
  * The quick plan for one saver. `cached`: outputs whose result is cached when the run starts
  * (empty for SAVER_AUDIT_STRICT_SAMPLE=1); `salt`: quickSalt(saver, cacheFingerprint(…)).
  */
-export function planQuick(pop: QuickOutput[], budget: number, salt: string, cached: { has(key: string): boolean }): QuickPlan {
+export function planQuick(pop: QuickOutput[], budget: number, salt: string, cached: { has(key: string): boolean }, bandBase = 500): QuickPlan {
   const x = new Map(pop.map((o) => [o.key, o.x]));
   const inCache = new Set(pop.filter((o) => cached.has(o.key)).map((o) => o.key));
   const U = pop.filter((o) => !inCache.has(o.key));
   const u = new Map(U.map((o) => [o.key, unitOf(salt, o.key)]));
   const byU = (a: QuickOutput, b: QuickOutput) => u.get(a.key)! - u.get(b.key)! || (a.key < b.key ? -1 : 1);
   const bySize = (a: QuickOutput, b: QuickOutput) => b.x - a.x || (a.key < b.key ? -1 : 1);
-  const pv = U.filter((o) => o.preview).sort(byU);
+  const zero = U.filter((o) => !(o.x > 0));
+  const pv = U.filter((o) => o.preview && o.x > 0).sort(byU);
   const taken = pv.slice(0, Math.floor(budget / 2));
-  const other = U.filter((o) => !o.preview);
+  const other = U.filter((o) => !o.preview && o.x > 0);
   const n = budget - taken.length;
   let pi: Map<string, number>;
   let certain: QuickOutput[];
@@ -161,12 +219,12 @@ export function planQuick(pop: QuickOutput[], budget: number, salt: string, cach
     const sorted = [...other].sort(bySize);
     pi = ppsProbs(sorted, n);
     certain = sorted.filter((o) => pi.get(o.key)! >= 1);
-    // u/x: sequential Poisson order (∝ u/π); size 0 last.
-    const q = (o: QuickOutput) => (o.x > 0 ? u.get(o.key)! / o.x : Infinity);
+    // u/x: sequential Poisson order (∝ u/π).
+    const q = (o: QuickOutput) => u.get(o.key)! / o.x;
     ranked = other.filter((o) => pi.get(o.key)! < 1).sort((a, b) => q(a) - q(b) || byU(a, b));
   }
   const keys = (os: QuickOutput[]) => os.map((o) => o.key);
-  const order = [...keys(taken), ...keys(certain), ...keys(ranked), ...keys(pv.slice(taken.length))];
+  const order = [...keys(taken), ...keys(certain), ...keys(ranked), ...keys(pv.slice(taken.length)), ...keys(zero)];
   const quick = taken.length + certain.length + Math.max(0, Math.min(ranked.length, n - certain.length));
   const pvTaken = new Set(keys(taken));
   return {
@@ -175,8 +233,11 @@ export function planQuick(pop: QuickOutput[], budget: number, salt: string, cach
     certain: new Set(keys(certain)),
     ranked: keys(ranked),
     previews: new Set(keys(pv)),
+    allPreviews: new Set(keys(pop.filter((o) => o.preview))),
+    zero: new Set(keys(zero)),
     cached: inCache,
     x,
+    bandBase,
     piOf: (k) => (inCache.has(k) ? 1 : pvTaken.has(k) ? 1 : (pi.get(k) ?? 0)),
   };
 }
@@ -214,48 +275,14 @@ export function fitQuick(plan: QuickPlan, measured: ReadonlyMap<string, number>,
   let previewLeft = false;
   let otherLeft = false;
   for (const k of plan.order) {
-    if (measured.has(k) || failed.has(k)) continue;
+    if (measured.has(k) || failed.has(k) || plan.zero.has(k)) continue;
     unmeasured.push(k);
     if (plan.previews.has(k)) previewLeft = true;
     else otherLeft = true;
   }
   // Size bands over every non-preview uncached output, merged upward until each holds ≥ MIN rows.
-  const ratio = (rs: typeof rows) => {
-    let a = 0;
-    let b = 0;
-    for (const r of rs) {
-      a += r.w * r.d;
-      b += r.w * r.x;
-    }
-    return b > 0 ? a / b : null;
-  };
-  const pooled = rows.length >= MIN_QUICK_SAMPLE ? ratio(rows) : null;
-  const bands = [...new Set(plan.order.filter((k) => !plan.previews.has(k)).map((k) => bandOf(x(k))))].sort((a, b) => a - b);
-  const perBand = new Map<number, typeof rows>(bands.map((b) => [b, []]));
-  for (const r of rows) perBand.get(bandOf(r.x))!.push(r);
-  const merged: number[][] = [];
-  let cur: number[] = [];
-  let c = 0;
-  for (const b of bands) {
-    cur.push(b);
-    c += perBand.get(b)!.length;
-    if (c >= MIN_QUICK_SAMPLE) {
-      merged.push(cur);
-      cur = [];
-      c = 0;
-    }
-  }
-  if (cur.length) {
-    if (merged.length) merged[merged.length - 1]!.push(...cur);
-    else merged.push(cur);
-  }
-  const group = new Map<number, number | null>();
-  for (const m of merged) {
-    const rs = m.flatMap((b) => perBand.get(b)!);
-    const r = rs.length >= MIN_QUICK_SAMPLE ? ratio(rs) : null;
-    for (const b of m) group.set(b, r);
-  }
-  const ratioOfSize = (size: number) => (pooled === null ? undefined : (group.get(bandOf(size)) ?? pooled));
+  const ratioOfSize = bandRatios(rows, plan.order.filter((k) => !plan.previews.has(k) && !plan.zero.has(k)).map(x), plan.bandBase);
+  const pooled = ratioOfSize(0) ?? null;
   const insufficient = previewLeft || (otherLeft && pooled === null);
   let v = 0;
   if (!insufficient && unmeasured.length) {
@@ -273,7 +300,7 @@ export function fitQuick(plan: QuickPlan, measured: ReadonlyMap<string, number>,
     role(k) {
       if (plan.cached.has(k)) return "cached";
       if (failed.has(k)) return "failed";
-      if (!measured.has(k)) return "extrapolated";
+      if (!measured.has(k)) return plan.zero.has(k) ? "zero" : "extrapolated";
       if (plan.previews.has(k)) return "preview";
       if (plan.certain.has(k)) return "certain";
       // In the sample; one whose recomputed π is 1 carries no weight (w = 0).
@@ -282,4 +309,38 @@ export function fitQuick(plan: QuickPlan, measured: ReadonlyMap<string, number>,
     },
     pi: (k) => (plan.cached.has(k) ? undefined : (piUsed.get(k) ?? plan.piOf(k))),
   };
+}
+
+/** A cache-only saver's quick run estimates the rest from what is known only up to this share of its size. */
+export const MAX_FROM_CACHE = 0.25;
+
+export interface CacheFit {
+  /** The share of the saver's size (Σx, failed outputs left out) that is estimated. */
+  share: number;
+  /** No number: an unmeasured preview, too few known outputs, or more than MAX_FROM_CACHE to estimate. */
+  insufficient: boolean;
+  /** Outputs neither known nor failed: each gets ratioFor(key)·x. */
+  unmeasured: string[];
+  ratioFor(key: string): number | undefined;
+}
+
+/**
+ * A cache-only saver in quick mode (headroom, or the caveman engine with too many new
+ * outputs to replay) samples nothing. Its outputs not known yet (new since its last exact
+ * run) get the known outputs' ratio Σd/Σx per size band, when they are at most
+ * MAX_FROM_CACHE of its size. The known outputs are not a probability sample (they may be an
+ * earlier sub-period), so there is no standard error; any bias is confined to that share,
+ * which the report states. `known`: saving d of each cached or replayed output.
+ */
+export function fitFromCache(plan: QuickPlan, known: ReadonlyMap<string, number>, failed: { has(key: string): boolean }): CacheFit {
+  const all = [...plan.x.keys()].filter((k) => !failed.has(k));
+  const unmeasured = plan.order.filter((k) => !known.has(k) && !failed.has(k) && !plan.zero.has(k));
+  const sum = (ks: string[]) => ks.reduce((a, k) => a + plan.x.get(k)!, 0);
+  const total = sum(all);
+  const share = unmeasured.length ? (total > 0 ? sum(unmeasured) / total : 1) : 0;
+  const rows: Row[] = [];
+  for (const [k, d] of known) if (!plan.allPreviews.has(k) && plan.x.has(k) && plan.x.get(k)! > 0) rows.push({ x: plan.x.get(k)!, d, w: 1 });
+  const ratioOfSize = bandRatios(rows, all.filter((k) => !plan.allPreviews.has(k) && plan.x.get(k)! > 0).map((k) => plan.x.get(k)!), plan.bandBase);
+  const insufficient = unmeasured.length > 0 && (share > MAX_FROM_CACHE || unmeasured.some((k) => plan.allPreviews.has(k)) || ratioOfSize(0) === undefined);
+  return { share, insufficient, unmeasured, ratioFor: (k) => (insufficient ? undefined : ratioOfSize(plan.x.get(k)!)) };
 }

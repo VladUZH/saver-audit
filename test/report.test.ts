@@ -63,31 +63,47 @@ test("some failed replays: the number is indicative everywhere, and the full rep
 });
 
 test("a saver with no number gets no 'indicative … replayed … extrapolated' note", async () => {
-  const r = await audit(new Map([["caveman-engine", FAKE_TOOLS.get("caveman-engine")!]]), false);
-  const c = r.savers.find((s) => s.id === "caveman-engine")!;
+  const r = await audit(new Map([["headroom", FAKE_TOOLS.get("headroom")!]]), false);
+  const c = r.savers.find((s) => s.id === "headroom")!;
   assert.equal(tooLittleData(c), true, "cache-only in quick mode, nothing cached");
   const full = renderTerminal(r, OPTS);
-  assert.match(full, /caveman \(proxy engine\)\s+replayed[^\n]*exact run needed: --exact/);
-  assert.doesNotMatch(full, /caveman \(proxy engine\): indicative/);
+  assert.match(full, /headroom\s+replayed[^\n]*exact run needed: --exact/);
+  assert.doesNotMatch(full, /headroom: indicative/);
   assert.equal(quickRange(c), undefined);
 });
 
 test("a quick estimate states its own likely range: per saver in the report, compact in the short view, the se in JSON, ≈ only on the card and post", async () => {
   const r = await audit(new Map([["rtk", FAKE_TOOLS.get("rtk")!]]));
   const rtk = r.savers.find((s) => s.id === "rtk")!;
-  rtk.replay = { total: 3000, pending: 2730, ran: 270, extrapolated: 2730, failed: 0, seTokens: 600, savedTokens: 10_000 };
+  rtk.replay = { total: 3000, pending: 2730, ran: 270, extrapolated: 2730, failed: 0, se: 0.6, estimate: 10, unit: "usd" };
   rtk.replayTotal = 3000;
   assert.equal(quickRange(rtk), 0.12);
   const full = renderTerminal(r, OPTS);
-  assert.match(full, /rtk: indicative: estimated from 270 of 3,000 outputs; likely within ±12% \(2 s\.e\., in tokens\); dollars weight outputs differently and can be off by more; --exact for exact numbers\./);
+  assert.match(full, /rtk: indicative: estimated from 270 of 3,000 outputs; likely within ±12% \(2 s\.e\., in dollars\); --exact for exact numbers\./);
   assert.match(renderTerminal(r, { ...OPTS, menu: true }), /; press \[e\] for exact numbers\./);
   const short = renderShort(r, OPTS);
-  assert.match(short, /"indicative" = from a quick sample, likely within rtk ±12% \(in tokens\)\./);
+  assert.match(short, /"indicative" = from a quick sample, likely within rtk ±12%\./);
   assert.doesNotMatch(short + full, /off by half/);
-  const json = JSON.parse(renderJson(r, { showProjects: false, version: "test" }));
-  assert.deepEqual([json.savers.find((s: { id: string }) => s.id === "rtk").replay.seTokens, json.savers.find((s: { id: string }) => s.id === "rtk").replay.savedTokens], [600, 10_000]);
+  const json = JSON.parse(renderJson(r, { showProjects: false, version: "test" })).savers.find((s: { id: string }) => s.id === "rtk").replay;
+  assert.deepEqual([json.se, json.estimate, json.unit], [0.6, 10, "usd"]);
   assert.match(shareText(r), /rtk ≈/);
   assert.doesNotMatch(shareText(r) + cardSvg(r), /±/);
+  // Nothing priced: the range is in tokens, and dollars are said to be off by more.
+  rtk.replay = { ...rtk.replay, unit: "tokens" };
+  assert.match(renderTerminal(r, OPTS), /likely within ±12% \(2 s\.e\., in tokens; dollars weight outputs differently and can be off by more\)/);
+  assert.match(renderShort(r, OPTS), /likely within rtk ±12% \(in tokens\)\./);
   assert.equal(fmtRange(0.004), "±1%");
   assert.equal(fmtRange(Infinity), "±>999%");
+});
+
+test("a cache-only saver estimated from its cached results says how much is estimated, with no ±", async () => {
+  const r = await audit(new Map([["rtk", FAKE_TOOLS.get("rtk")!]]));
+  const h = r.savers.find((s) => s.id === "rtk")!;
+  h.replay = { total: 3000, pending: 40, ran: 0, extrapolated: 40, failed: 0, fromCache: 0.12, estimate: 10, unit: "usd" };
+  h.replayTotal = 3000;
+  assert.equal(quickRange(h), undefined);
+  assert.equal(confidence(h), "indicative");
+  assert.match(renderTerminal(r, OPTS), /rtk: indicative: 40 new outputs, 12% of it by dollar value, estimated from the 88% cached, so any error is confined to that share; --exact for exact numbers\./);
+  assert.match(renderShort(r, OPTS), /"indicative" = from a quick sample; rtk 12% from cached results\./);
+  assert.doesNotMatch(renderShort(r, OPTS) + renderTerminal(r, OPTS), /±/);
 });

@@ -3,7 +3,7 @@
 import { statSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { Worker } from "node:worker_threads";
-import { findFiles, processFile, summarize, type AuditOptions, type AuditResult, type FileResult, type SaverConfig } from "./audit.ts";
+import { findFiles, processFile, saverBlockWeights, summarize, type AuditOptions, type AuditResult, type FileResult, type SaverConfig } from "./audit.ts";
 import { saverIndex } from "./savers/registry.ts";
 import { detectReplayTools, runReplays, type ReplayTool } from "./savers/replay.ts";
 import { defaultReplayCachePath } from "./savers/cache.ts";
@@ -119,7 +119,9 @@ export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJo
     versions: Object.fromEntries([...tools].flatMap(([id, t]) => (t.version ? [[id, t.version]] : []))),
   };
   const results = await processAll(findFiles(opts), entry, jobs, config, hooks.files);
-  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: jobs, log: saverOpts?.log, warn: saverOpts?.warn, progress: hooks.replay });
+  // Priced before replay, so quick mode samples and estimates in dollars.
+  const blockUsd = saverBlockWeights(opts, results);
+  const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: jobs, log: saverOpts?.log, warn: saverOpts?.warn, progress: hooks.replay, blockUsd });
   return summarize(opts, results, { savers, tools, stats });
 }
 

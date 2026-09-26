@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { bandOf, cacheFingerprint, fitQuick, MIN_QUICK_SAMPLE, planQuick, ppsProbs, quickSalt, type QuickOutput, type QuickPlan } from "../src/savers/quick.ts";
+import { bandOf, cacheFingerprint, fitFromCache, fitQuick, MAX_FROM_CACHE, MIN_QUICK_SAMPLE, planQuick, ppsProbs, quickSalt, type QuickOutput, type QuickPlan } from "../src/savers/quick.ts";
 
 type Out = QuickOutput & { d: number };
 
@@ -245,7 +245,7 @@ test("10. size bands: thin bands merge upward, the tail joins the last group", (
     x.set(key, [700, 1500, 3000, 6000, 12000, 20000][j % 6]!);
     ranked.push(key);
   }
-  const plan: QuickPlan = { order: ranked, quick: 57, certain: new Set(), ranked, previews: new Set(), cached: new Set(), x, piOf: () => 0.01 };
+  const plan: QuickPlan = { order: ranked, quick: 57, certain: new Set(), ranked, previews: new Set(), allPreviews: new Set(), zero: new Set(), cached: new Set(), x, bandBase: 500, piOf: () => 0.01 };
   const fit = fitQuick(plan, measured, NONE);
   assert.equal(fit.rows, 57);
   const X = [...x.values()].reduce((a, b) => a + b, 0);
@@ -421,4 +421,75 @@ test("14. planQuick/fitQuick match the simulator's reference implementation", ()
       close(r.fit.se, want.se, `seed ${seed} at ${frac}: se`);
     }
   }
+});
+
+test("15. in dollars: sizes and savings weighted per output, outputs worth $0 never drawn, the dollar total unbiased", () => {
+  // Each output's dollar weight per token: 0 for a fifth of them (read by no call in the
+  // period), otherwise spread over two orders of magnitude and unrelated to its size.
+  const tokens = synthPop(1500, 15);
+  const weight = (i: number) => (i % 5 === 0 ? 0 : 1e-6 * Math.pow(100, ((i * 7919) % 1000) / 1000));
+  const pop = tokens.map((o, i) => ({ ...o, x: o.x * weight(i), d: o.d * weight(i) }));
+  const base = (500 * pop.reduce((a, o) => a + o.x, 0)) / tokens.reduce((a, o) => a + o.x, 0);
+  const T = truth(pop);
+  let sum = 0;
+  let covered = 0;
+  for (let s = 0; s < 200; s++) {
+    const plan = planQuick(pop, 270, `usd:${s}`, NONE, base);
+    const drawn = new Set(plan.order.slice(0, plan.quick));
+    assert.ok(pop.every((o, i) => o.preview || weight(i) > 0 || !drawn.has(o.key)), "an output worth $0 is never drawn");
+    const d = new Map(pop.map((o) => [o.key, o.d]));
+    const fit = fitQuick(plan, new Map([...drawn].map((k) => [k, d.get(k)!])), NONE);
+    let est = 0;
+    for (const o of pop) est += drawn.has(o.key) ? o.d : fit.ratioFor(o.key)! * o.x;
+    sum += est;
+    if (Math.abs(est - T) <= 2 * fit.se) covered++;
+  }
+  const bias = sum / 200 / T - 1;
+  assert.ok(Math.abs(bias) <= 0.03, `mean ${(100 * bias).toFixed(1)}% off`);
+  assert.ok(covered >= 170, `±2 s.e. covers ${covered} of 200`);
+  assert.equal(bandOf(2 * base, base), bandOf(1000), "bands scale with their base (base = 500 tokens' worth)");
+});
+
+test("16. a cache-only saver: new outputs get the known outputs' ratio up to a quarter of its size, else no number", () => {
+  const pop = synthPop(400, 16).map((o) => ({ ...o, preview: false }));
+  const total = pop.reduce((a, o) => a + o.x, 0);
+  const known = (n: number) => new Map(pop.slice(0, n).map((o) => [o.key, o.d]));
+  const newShare = (n: number) => pop.slice(n).reduce((a, o) => a + o.x, 0) / total;
+  const plan = (n: number) => planQuick(pop, 100, "s", new Set(pop.slice(0, n).map((o) => o.key)));
+  // A few new: estimated, the share given.
+  const few = fitFromCache(plan(380), known(380), NONE);
+  assert.equal(few.insufficient, false);
+  assert.ok(Math.abs(few.share - newShare(380)) < 1e-12);
+  assert.equal(few.unmeasured.length, 20);
+  const R = few.ratioFor(pop[390]!.key)!;
+  assert.ok(Number.isFinite(R) && R > 0);
+  // Not a sample: which new outputs there are does not move the ratio of the known ones.
+  assert.equal(fitFromCache(plan(380), known(380), new Set([pop[395]!.key])).ratioFor(pop[390]!.key), R);
+  // More than a quarter new: no number.
+  let n = 380;
+  while (newShare(n) <= MAX_FROM_CACHE) n -= 10;
+  assert.equal(fitFromCache(plan(n), known(n), NONE).insufficient, true);
+  // Nothing new: exact.
+  const none = fitFromCache(plan(400), known(400), NONE);
+  assert.deepEqual({ insufficient: none.insufficient, share: none.share, unmeasured: none.unmeasured }, { insufficient: false, share: 0, unmeasured: [] });
+  // An unmeasured preview, or too few known outputs: no number.
+  const withPreview = pop.map((o, i) => (i === 399 ? { ...o, preview: true } : o));
+  const pp = planQuick(withPreview, 100, "s", new Set(withPreview.slice(0, 380).map((o) => o.key)));
+  assert.equal(fitFromCache(pp, known(380), NONE).insufficient, true);
+  const small = pop.slice(0, 22);
+  const ps = planQuick(small, 100, "s", new Set(small.slice(0, 19).map((o) => o.key)));
+  assert.equal(fitFromCache(ps, new Map(small.slice(0, 19).map((o) => [o.key, o.d])), NONE).insufficient, true);
+});
+
+test("17. outputs of size 0 (worth nothing in the period) are never drawn or estimated, and do not cost a number", () => {
+  const pop = synthPop(1500, 17).map((o, i) => (i >= 100 ? { ...o, x: 0 } : o));
+  const plan = planQuick(pop, 270, "s", NONE);
+  assert.equal(plan.zero.size, 1400);
+  assert.ok(plan.order.slice(0, plan.quick).every((k) => !plan.zero.has(k)), "the budget goes to outputs worth something");
+  assert.equal(plan.quick, 100, "all 100 fit: exact");
+  const d = new Map(pop.map((o) => [o.key, o.d]));
+  const fit = fitQuick(plan, new Map(plan.order.slice(0, plan.quick).map((k) => [k, d.get(k)!])), NONE);
+  assert.deepEqual({ insufficient: fit.insufficient, unmeasured: fit.unmeasured }, { insufficient: false, unmeasured: [] });
+  assert.equal(fit.role(pop[500]!.key), "zero");
+  assert.deepEqual(plan.order.slice(-1400).sort(), [...plan.zero].sort(), "an exact run replays them last");
 });

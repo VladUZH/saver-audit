@@ -54,15 +54,15 @@ test("SAVER_AUDIT_DUMP (quick-mode accuracy checks) holds hashes, fixed labels a
   const rtk = rows.filter((r) => r.saver === "rtk");
   assert.ok(rtk.length && rtk.every((r) => typeof r.d === "number"), "rtk (replayed in full) with its exact savings");
   for (const r of rows) {
-    assert.deepEqual(Object.keys(r), ["saver", "key", "cls", "baseline", "persisted", "d", "n", "sumBaseline", "sumD", "est", "mixed", "pi", "role"]);
+    assert.deepEqual(Object.keys(r), ["saver", "key", "cls", "baseline", "persisted", "d", "n", "sumBaseline", "sumD", "est", "mixed", "x", "pi", "role"]);
     assert.match(r.saver, /^(rtk|caveman-engine|headroom)$/);
     assert.match(r.key, /^[\w-]{32}$/, "a hash");
     assert.match(r.cls, /^[A-Za-z ]+\|[a-z &]*$/, "a category and shell family from the fixed tables");
-    for (const k of ["baseline", "n", "sumBaseline", "est"]) assert.equal(typeof r[k], "number", k);
+    for (const k of ["baseline", "n", "sumBaseline", "est", "x"]) assert.equal(typeof r[k], "number", k);
     for (const k of ["d", "sumD"]) assert.ok(r[k] === null || typeof r[k] === "number", k); // null: not cached
     for (const k of ["persisted", "mixed"]) assert.equal(typeof r[k], "boolean", k);
     assert.ok(r.pi === null || (typeof r.pi === "number" && r.pi >= 0 && r.pi <= 1), "pi"); // null: cached before the run
-    assert.match(r.role, /^(cached|preview|certain|sample|measured|extrapolated|failed)$/, "a fixed role");
+    assert.match(r.role, /^(cached|preview|certain|sample|measured|extrapolated|zero|failed)$/, "a fixed role");
   }
 });
 

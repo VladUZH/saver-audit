@@ -14,7 +14,8 @@ import type { ReplayJob } from "./types.ts";
 import type { SaverManifest } from "./manifest.ts";
 import { toolPaths, toolsDir } from "./toolsdir.ts";
 import { allSavers, saverIndex, type SaverAdapter } from "./registry.ts";
-import { cacheFingerprint, fitQuick, planQuick, quickSalt, type QuickFit, type QuickPlan } from "./quick.ts";
+import { cacheFingerprint, fitFromCache, fitQuick, planQuick, quickSalt, type CacheFit, type QuickFit, type QuickPlan } from "./quick.ts";
+import type { SaverBlock } from "./tracker.ts";
 
 export interface ReplayTool {
   saver: string;
@@ -41,13 +42,20 @@ export interface ReplayStats {
   extrapolated: number;
   /** Unique outputs whose replay failed in this run; counted as unchanged, tried again next run. */
   failed: number;
+  /** With extrapolated outputs: the estimated total saving (measured + extrapolated), in `unit`. */
+  estimate?: number;
   /**
-   * With extrapolated outputs: the standard error of the estimated total saving (quick.ts),
-   * in o200k tokens the model saw, each output counted once (not priced, not compounded).
+   * The unit of `estimate` and `se`: dollars as the report prices them (the default), or o200k
+   * tokens the model saw, each output counted once, when nothing is priced.
    */
-  seTokens?: number;
-  /** With extrapolated outputs: that estimated total saving, in the same unit (measured + extrapolated). */
-  savedTokens?: number;
+  unit?: "usd" | "tokens";
+  /** A sampled estimate: its standard error (quick.ts). */
+  se?: number;
+  /**
+   * A cache-only saver's estimate: the share of its size (in `unit`) not replayed yet, estimated
+   * from the ratio of its cached outputs (fitFromCache). No standard error: not a sample.
+   */
+  fromCache?: number;
 }
 
 /** Default number of unique outputs replayed per run and saver; --full-replay lifts it. */
@@ -60,11 +68,14 @@ const CHECKPOINT = 250;
 export const QUICK_SECONDS = 6;
 /**
  * Per-saver quick budgets. rtk is cheap enough to always finish. headroom and the
- * caveman engine only use cached (exact) results: a few seconds of sampling was off by
- * 35–73% for caveman (rare, spiky savings) and too slow to estimate headroom at all.
+ * caveman engine sample nothing (a few seconds of sampling was off by 35–73% for caveman,
+ * and too slow for headroom): the caveman engine replays its new outputs when they fit in
+ * its budget (CATCH_UP), and otherwise both use cached results (fitFromCache).
  */
 const QUICK_SECONDS_FOR: Record<string, number> = { rtk: 15, headroom: 0, "caveman-engine": 0 };
 const quickSeconds = (saver: string) => QUICK_SECONDS_FOR[saver] ?? QUICK_SECONDS;
+/** Cache-only savers fast enough to replay their new outputs in a quick run when they fit in its budget. */
+const CATCH_UP = new Set(["caveman-engine"]);
 const QUICK_REASON = "too few outputs replayed in quick mode";
 /** Measured replay throughput on an M-series Mac, outputs per second (tech-notes §8.11). */
 export const RATE: Record<string, number> = { rtk: 800, "caveman-engine": 250, "token-saver": 45, "lean-ctx": 45, headroom: 4 };
@@ -537,6 +548,8 @@ export interface ReplayOptions {
   /** Problems the user should see even when progress is shown otherwise (defaults to log). */
   warn?: (s: string) => void;
   progress?: (saver: string, done: number, total: number) => void;
+  /** What one token saved in each saver block is worth (saverBlockWeights); without it, quick mode works in tokens. */
+  blockUsd?: Map<SaverBlock, number>;
 }
 
 /**
@@ -550,27 +563,42 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const cache = readReplayCache(o.cacheFile);
   const adapters = new Map(saverIndex(saverIds).map((a) => [a.id, a]));
   // Unique outputs per saver; keep a job that carries the text when one does. An output's
-  // size is the tokens the model saw over all its occurrences.
+  // size is what its saving is worth: the tokens the model saw over all its occurrences,
+  // each priced like the report prices a saved token there (o.blockUsd), so quick mode
+  // samples and estimates dollars. A saver with no priced occurrence (only unpriced models),
+  // or a run without prices, uses tokens.
   const bySaver = new Map<string, Map<string, ReplayJob>>();
-  const sizes = new Map<string, Map<string, number>>();
+  const tokenSizes = new Map<string, Map<string, number>>();
+  const usdSizes = new Map<string, Map<string, number>>();
+  const blockOf = (r: FileResult, j: ReplayJob) => r.savers!.timelines[j.timeline]!.blocks[j.block]!;
   for (const r of results) {
     for (const j of r.savers?.jobs ?? []) {
       let m = bySaver.get(j.saver);
       if (!m) bySaver.set(j.saver, (m = new Map()));
       const cur = m.get(j.key);
       if (!cur || (!cur.input && j.input)) m.set(j.key, j);
-      let x = sizes.get(j.saver);
-      if (!x) sizes.set(j.saver, (x = new Map()));
-      x.set(j.key, (x.get(j.key) ?? 0) + j.baseline);
+      for (const [sizes, x] of [[tokenSizes, j.baseline], [usdSizes, o.blockUsd ? j.baseline * (o.blockUsd.get(blockOf(r, j)) ?? 0) : 0]] as const) {
+        let m = sizes.get(j.saver);
+        if (!m) sizes.set(j.saver, (m = new Map()));
+        m.set(j.key, (m.get(j.key) ?? 0) + x);
+      }
     }
   }
+  const sum = (m: Map<string, number>) => [...m.values()].reduce((a, b) => a + b, 0);
+  /** Savers whose sizes, ratios and error bar are in dollars. */
+  const inUsd = new Set([...usdSizes].filter(([, m]) => sum(m) > 0).map(([saver]) => saver));
+  /** What one token saved in this occurrence counts for: its dollar value, or 1. */
+  const weightOf = (r: FileResult, j: ReplayJob) => (inUsd.has(j.saver) ? (o.blockUsd!.get(blockOf(r, j)) ?? 0) : 1);
   // The quick sample (quick.ts, tech-notes §8.13), per saver:
   //  - outputs cached when the run starts are exact and never set a ratio;
   //  - the others are drawn with a salt made from the whole cache's keys, so any change to the
   //    cache (a run that replayed something) gives a fresh draw, and an unchanged cache the
   //    same one: <persisted-output> previews first (up to half the budget; they never set a
   //    ratio, and an unmeasured one means no number), then outputs in proportion to size;
-  //  - exact mode replays every uncached output in the same order, the quick sample first.
+  //  - exact mode replays every uncached output in the same order, the quick sample first;
+  //  - cache-only savers (headroom, the caveman engine) sample nothing. The caveman engine
+  //    replays its new outputs when they all fit in its budget; what is left gets the known
+  //    outputs' ratio when it is at most a quarter of the saver's size (fitFromCache).
   // SAVER_AUDIT_STRICT_SAMPLE=1 draws as if the cache were empty and uses cached results only
   // for the drawn outputs (for checking accuracy against a complete cache).
   // SAVER_AUDIT_DUMP=<file> writes each unique output's hash, class, sizes, exact saving when
@@ -579,9 +607,11 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const fingerprint = strict ? "" : cacheFingerprint(cache.keys());
   const plans = new Map<string, QuickPlan>();
   for (const [saver, unique] of bySaver) {
-    const x = sizes.get(saver)!;
+    const x = (inUsd.has(saver) ? usdSizes : tokenSizes).get(saver)!;
     const pop = [...unique.keys()].sort().map((k) => ({ key: k, x: x.get(k)!, preview: unique.get(k)!.persistedHeader !== undefined }));
-    plans.set(saver, planQuick(pop, quickBudget(saver), quickSalt(saver, fingerprint), strict ? new Set<string>() : cache));
+    // Bands start at 500 tokens, or what 500 tokens are worth on average for this saver.
+    const base = inUsd.has(saver) ? (500 * sum(x)) / sum(tokenSizes.get(saver)!) : 500;
+    plans.set(saver, planQuick(pop, quickBudget(saver), quickSalt(saver, fingerprint), strict ? new Set<string>() : cache, base));
   }
   /** Per saver: the outputs whose results this run uses (cached when it started, or replayed now). */
   const sampled = new Map<string, Set<string>>();
@@ -629,9 +659,14 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       const tool = o.tools.get(saver);
       const plan = plans.get(saver)!;
       const exact = o.full === true || (Array.isArray(o.full) && o.full.includes(saver));
+      const cacheOnly = !exact && !strict && quickSeconds(saver) === 0;
+      // The caveman engine catches up: every new output worth something in the period, when
+      // they fit in its quick budget.
+      const worth = plan.order.filter((k) => !plan.zero.has(k));
+      const catchUp = cacheOnly && CATCH_UP.has(saver) && worth.length <= quickBudget(saver);
       // An interrupted exact run leaves the quick sample's start, then more of the same order;
       // the next run takes what it cached as exact and draws the rest afresh.
-      const sample = exact ? plan.order : plan.order.slice(0, plan.quick);
+      const sample = exact ? plan.order : catchUp ? worth : plan.order.slice(0, plan.quick);
       sampled.set(saver, new Set([...plan.cached, ...sample]));
       const uncached = [...unique.keys()].filter((k) => !cache.has(k) && unique.get(k)!.input).length;
       const st: ReplayStats = { total: unique.size, pending: uncached, ran: 0, extrapolated: 0, failed: 0 };
@@ -640,7 +675,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       if (!tool || !todo.length) return;
       // Quick mode has a clock: no new replays after the budget; outputs not reached are
       // estimated like the rest (and stay "indicative").
-      let deadline = exact ? Infinity : Date.now() + quickSeconds(saver) * 1000;
+      let deadline = exact ? Infinity : Date.now() + (catchUp ? QUICK_SECONDS : quickSeconds(saver)) * 1000;
       const inTime = () => Date.now() < deadline;
       const store = (key: string, out: string | undefined, counted?: ReplayResult) => {
         if (counted) cache.set(key, counted);
@@ -661,8 +696,8 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
           o.log?.(`  ${saver}: ${st.ran.toLocaleString("en-US")} of ${todo.length.toLocaleString("en-US")} replayed`);
         }
       };
-      // Cache-only savers in quick mode (budget 0): use what an exact run cached, if anything.
-      if (!exact && quickSeconds(saver) === 0) return;
+      // Cache-only savers in quick mode: use what an exact run cached (fitFromCache).
+      if (cacheOnly && !catchUp) return;
       // Every output left counts as failed when one cause stops them all.
       const failAll = (reason: string) => {
         for (const k of todo) failed.add(k);
@@ -747,8 +782,10 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
 
   // Cached and replayed outputs get their own result; the rest are estimated (quick.ts).
   const idx = new Map(saverIds.map((id, i) => [id, i]));
-  /** Per saver: Σd over the occurrences of each output measured in this run (not cached before it). */
+  /** Per saver: Σd·weight over the occurrences of each output measured in this run (not cached before it). */
   const measured = new Map<string, Map<string, number>>();
+  /** Per saver: the same for every output with a result, cached before the run too. */
+  const known = new Map<string, Map<string, number>>();
   const totals = new Map<string, number>();
   const pending: Array<[FileResult, ReplayJob]> = [];
   for (const r of results) {
@@ -761,36 +798,55 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       }
       const d = j.baseline - presentedTokens(hit, j);
       r.savers!.timelines[j.timeline]!.blocks[j.block]!.d[idx.get(j.saver)!] = d;
-      totals.set(j.saver, (totals.get(j.saver) ?? 0) + d);
-      if (plans.get(j.saver)!.cached.has(j.key)) continue; // exact, and never in a ratio
+      const dw = d * weightOf(r, j);
+      totals.set(j.saver, (totals.get(j.saver) ?? 0) + dw);
+      let kn = known.get(j.saver);
+      if (!kn) known.set(j.saver, (kn = new Map()));
+      kn.set(j.key, (kn.get(j.key) ?? 0) + dw);
+      if (plans.get(j.saver)!.cached.has(j.key)) continue; // exact, and never in a sampled ratio
       let m = measured.get(j.saver);
       if (!m) measured.set(j.saver, (m = new Map()));
-      m.set(j.key, (m.get(j.key) ?? 0) + d);
+      m.set(j.key, (m.get(j.key) ?? 0) + dw);
     }
   }
   const fits = new Map<string, QuickFit>();
+  /** Cache-only savers estimated from their known outputs (fitFromCache). */
+  const fromCache = new Map<string, CacheFit>();
   for (const [saver, st] of stats) {
-    const fit = fitQuick(plans.get(saver)!, measured.get(saver) ?? new Map(), failed);
+    const plan = plans.get(saver)!;
+    const fit = fitQuick(plan, measured.get(saver) ?? new Map(), failed);
     fits.set(saver, fit);
-    // Too few sampled outputs to estimate from, or an unmeasured preview: no number rather than a guess.
-    if (o.tools.has(saver) && !st.insufficient && fit.unmeasured.length && fit.insufficient) Object.assign(st, { insufficient: true, reason: QUICK_REASON });
+    if (!o.tools.has(saver) || st.insufficient || !fit.unmeasured.length) continue;
+    const exact = o.full === true || (Array.isArray(o.full) && o.full.includes(saver));
+    if (!exact && !strict && quickSeconds(saver) === 0) {
+      const cf = fitFromCache(plan, known.get(saver) ?? new Map(), failed);
+      if (cf.insufficient) Object.assign(st, { insufficient: true, reason: QUICK_REASON });
+      else fromCache.set(saver, cf);
+    } else if (fit.insufficient) {
+      // Too few sampled outputs to estimate from, or an unmeasured preview: no number rather than a guess.
+      Object.assign(st, { insufficient: true, reason: QUICK_REASON });
+    }
   }
   const extrapolated = new Map<string, Set<string>>();
   for (const [r, j] of pending) {
     const st = o.tools.has(j.saver) ? stats.get(j.saver) : undefined;
     if (!st || st.insufficient) continue;
-    const d = fits.get(j.saver)!.ratioFor(j.key)! * j.baseline;
+    if (plans.get(j.saver)!.zero.has(j.key)) continue; // worth nothing in the period: unchanged
+    const d = (fromCache.get(j.saver) ?? fits.get(j.saver)!).ratioFor(j.key)! * j.baseline;
     r.savers!.timelines[j.timeline]!.blocks[j.block]!.d[idx.get(j.saver)!] = d;
-    totals.set(j.saver, (totals.get(j.saver) ?? 0) + d);
+    totals.set(j.saver, (totals.get(j.saver) ?? 0) + d * weightOf(r, j));
     let e = extrapolated.get(j.saver);
     if (!e) extrapolated.set(j.saver, (e = new Set()));
     e.add(j.key);
   }
   for (const [saver, st] of stats) {
     st.extrapolated = st.insufficient ? 0 : (extrapolated.get(saver)?.size ?? 0);
-    if (st.extrapolated) Object.assign(st, { seTokens: fits.get(saver)!.se, savedTokens: totals.get(saver) ?? 0 });
+    if (!st.extrapolated) continue;
+    const unit = inUsd.has(saver) ? "usd" : "tokens";
+    const cf = fromCache.get(saver);
+    Object.assign(st, cf ? { fromCache: cf.share, estimate: totals.get(saver) ?? 0, unit } : { se: fits.get(saver)!.se, estimate: totals.get(saver) ?? 0, unit });
   }
-  if (process.env.SAVER_AUDIT_DUMP) dumpJobs(process.env.SAVER_AUDIT_DUMP, results, bySaver, cache, idx, fits);
+  if (process.env.SAVER_AUDIT_DUMP) dumpJobs(process.env.SAVER_AUDIT_DUMP, results, bySaver, cache, idx, fits, plans);
   for (const r of results) if (r.savers) r.savers.jobs = [];
   return stats;
 }
@@ -803,11 +859,12 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
  * - `n`, `sumBaseline`, `sumD`: over every occurrence of the output (quick mode's size x is sumBaseline);
  * - `est`: the saving this run wrote for all occurrences (measured or extrapolated);
  * - `mixed`: occurrences differ in class or preview;
+ * - `x`: the size quick mode used: dollars at stake (Σ baseline × block weight), or tokens when nothing is priced;
  * - `pi`: the inclusion probability this run used (null for an output cached before it);
  * - `role`: cached, preview, certain, sample, measured (after a gap), extrapolated or failed.
  */
-function dumpJobs(file: string, results: FileResult[], bySaver: Map<string, Map<string, ReplayJob>>, cache: Map<string, ReplayResult>, idx: Map<string, number>, fits: Map<string, QuickFit>): void {
-  type Row = { saver: string; key: string; cls: string; baseline: number; persisted: boolean; d: number | null; n: number; sumBaseline: number; sumD: number | null; est: number; mixed: boolean; pi: number | null; role: string };
+function dumpJobs(file: string, results: FileResult[], bySaver: Map<string, Map<string, ReplayJob>>, cache: Map<string, ReplayResult>, idx: Map<string, number>, fits: Map<string, QuickFit>, plans: Map<string, QuickPlan>): void {
+  type Row = { saver: string; key: string; cls: string; baseline: number; persisted: boolean; d: number | null; n: number; sumBaseline: number; sumD: number | null; est: number; mixed: boolean; x: number; pi: number | null; role: string };
   const rows = new Map<string, Row>();
   const saving = (j: ReplayJob) => {
     const hit = cache.get(j.key);
@@ -829,7 +886,7 @@ function dumpJobs(file: string, results: FileResult[], bySaver: Map<string, Map<
       const u = bySaver.get(j.saver)!.get(j.key)!;
       const persisted = u.persistedHeader !== undefined;
       const fit = fits.get(j.saver)!;
-      rows.set(`${j.saver}\0${j.key}`, { saver: j.saver, key: j.key, cls: u.cls, baseline: u.baseline, persisted, d: saving(u), n: 1, sumBaseline: j.baseline, sumD: d, est, mixed: j.cls !== u.cls || (j.persistedHeader !== undefined) !== persisted, pi: fit.pi(j.key) ?? null, role: fit.role(j.key) });
+      rows.set(`${j.saver}\0${j.key}`, { saver: j.saver, key: j.key, cls: u.cls, baseline: u.baseline, persisted, d: saving(u), n: 1, sumBaseline: j.baseline, sumD: d, est, mixed: j.cls !== u.cls || (j.persistedHeader !== undefined) !== persisted, x: plans.get(j.saver)!.x.get(j.key)!, pi: fit.pi(j.key) ?? null, role: fit.role(j.key) });
     }
   }
   writeFileSync(file, [...rows.values()].map((row) => JSON.stringify(row) + "\n").join(""));

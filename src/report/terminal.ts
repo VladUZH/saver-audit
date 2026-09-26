@@ -96,10 +96,15 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
     // Nothing measured: every replayed saver here is missing, or --savers picked none.
     if (!measured.length && !later.length) out.push(dim(r.savers.some((y) => y.method === "replayed") ? "  None measured yet: none of the replayed savers in this run is installed." : "  None measured: none of the selected savers is replayed (--savers)."));
     const exact = keys.exact ? `${bold("Press [e]")} for exact numbers (once; cached).` : "For exact numbers (once; cached): npx saver-audit --exact";
-    // Each quick estimate's own error bar (2 s.e., in tokens), not one fixed caveat.
-    const ranges = measured.filter((x) => quickRange(x) !== undefined).map((x) => `${x.name.replace(" (proxy engine)", " engine")} ${fmtRange(quickRange(x)!)}`);
-    const within = ranges.length ? `, likely within ${ranges.join(", ")} (in tokens)` : "";
-    if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failedOut)) out.push(dim(`  "indicative" = from a quick sample${within}. ${exact}`));
+    // Each quick estimate's own error bar (2 s.e.), not one fixed caveat; a cache-only
+    // saver's estimate says how much of it is estimated from its cached results.
+    const short = (x: Saver) => x.name.replace(" (proxy engine)", " engine");
+    const sampledIn = (unit: string) => measured.filter((x) => quickRange(x) !== undefined && x.replay!.unit === unit).map((x) => `${short(x)} ${fmtRange(quickRange(x)!)}`);
+    const ranges = [...sampledIn("usd"), ...sampledIn("tokens").map((t) => `${t} (in tokens)`)];
+    const cached = measured.filter((x) => cachedShare(x) !== undefined).map((x) => `${short(x)} ${fmtShare(cachedShare(x)!)} from cached results`);
+    const within = ranges.length ? `, likely within ${ranges.join(", ")}` : "";
+    const also = cached.length ? `; ${cached.join(", ")}` : "";
+    if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failedOut)) out.push(dim(`  "indicative" = from a quick sample${within}${also}. ${exact}`));
     if (measured.some((x) => x.replay?.failed)) out.push(dim(`  Some replays failed and count as unchanged, so those numbers are "indicative"; the full report has the counts.`));
     const hypo = measured.filter(hypotheticalCodex);
     if (hypo.length) out.push(dim(`  The Codex part is left out above (${hypo.map((x) => `${x.name.replace(" (proxy engine)", " engine")} about ${signedUsd(x.codexCost)}`).join(", ")}): it is hypothetical, since Codex hooks cannot rewrite tool input.`));
@@ -347,13 +352,25 @@ function noNumber(s: AuditResult["savers"][number], exact: string): string {
 }
 
 /**
- * A quick estimate's likely range: 2 standard errors as a share of its estimated total saving,
- * in tokens (Infinity when that total is 0). Undefined when nothing was estimated.
+ * A sampled quick estimate's likely range: 2 standard errors as a share of its estimated total
+ * saving, in its unit (dollars, or tokens when nothing is priced); Infinity when that total is
+ * 0. Undefined when nothing was sampled and estimated.
  */
 export function quickRange(s: AuditResult["savers"][number]): number | undefined {
   const r = s.replay;
-  if (s.method !== "replayed" || tooLittleData(s) || !r?.extrapolated || r.seTokens === undefined || r.savedTokens === undefined) return undefined;
-  return r.savedTokens ? (2 * r.seTokens) / Math.abs(r.savedTokens) : r.seTokens ? Infinity : 0;
+  if (s.method !== "replayed" || tooLittleData(s) || !r?.extrapolated || r.se === undefined || r.estimate === undefined) return undefined;
+  return r.estimate ? (2 * r.se) / Math.abs(r.estimate) : r.se ? Infinity : 0;
+}
+
+/** A cache-only saver's estimate: the share of it (by value) estimated from its cached results. */
+export function cachedShare(s: AuditResult["savers"][number]): number | undefined {
+  const r = s.replay;
+  return s.method !== "replayed" || tooLittleData(s) || !r?.extrapolated ? undefined : r.fromCache;
+}
+
+/** "12%", never "0%" for a share that is not 0. */
+export function fmtShare(x: number): string {
+  return `${Math.max(1, Math.round(100 * x))}%`;
 }
 
 /** "±12%"; "±>999%" when the range dwarfs the estimate (or the estimate is 0). */
@@ -388,11 +405,16 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
       if (s.replay.extrapolated) {
         const all = s.replayTotal ?? s.replay.total;
         const range = quickRange(s);
-        parts.push(
-          `indicative: estimated from ${(all - s.replay.extrapolated).toLocaleString("en-US")} of ${all.toLocaleString("en-US")} outputs` +
-            (range !== undefined ? `; likely within ${fmtRange(range)} (2 s.e., in tokens)` : "") +
-            `; dollars weight outputs differently and can be off by more; ${exact} for exact numbers`,
-        );
+        const share = cachedShare(s);
+        const unit = s.replay.unit === "tokens" ? "in tokens; dollars weight outputs differently and can be off by more" : "in dollars";
+        if (share !== undefined) {
+          // Not a sample: its cached outputs may come from an earlier part of the period, so
+          // the share estimated is what bounds the error.
+          const by = s.replay.unit === "tokens" ? "size" : "dollar value";
+          parts.push(`indicative: ${s.replay.extrapolated.toLocaleString("en-US")} new outputs, ${fmtShare(share)} of it by ${by}, estimated from the ${Math.min(99, Math.round(100 * (1 - share)))}% cached, so any error is confined to that share; ${exact} for exact numbers`);
+        } else {
+          parts.push(`indicative: estimated from ${(all - s.replay.extrapolated).toLocaleString("en-US")} of ${all.toLocaleString("en-US")} outputs` + (range !== undefined ? `; likely within ${fmtRange(range)} (2 s.e., ${unit})` : "") + `; ${exact} for exact numbers`);
+        }
       }
       if (s.replay.failed) parts.push(`${s.replay.failed.toLocaleString("en-US")} ${s.replay.failed === 1 ? "replay" : "replays"} failed and count as unchanged (tried again next run)`);
       notes.push(`${s.name}: ${parts.join("; ")}.`);

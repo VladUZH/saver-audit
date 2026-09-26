@@ -316,13 +316,14 @@ test("Ctrl+C during a replay removes the savers' state once a killed saver lets 
   }
 });
 
-test("quick mode announces replays only for savers it replays (not the cache-only ones)", async () => {
+test("quick mode announces replays only for savers it replays (headroom only uses cached results)", async () => {
   const t = tmp();
   try {
     const logs: string[] = [];
     await runAudit(fixtureOptions(), undefined, 1, { ids: ["rtk", "caveman-engine", "headroom"], tools: FAKE_TOOLS, cacheFile: t.cacheFile, log: (s) => logs.push(s) });
     assert.ok(logs.some((l) => /^replaying \d+ new outputs through rtk/.test(l)), logs.join("\n"));
-    assert.deepEqual(logs.filter((l) => /through (caveman-engine|headroom)/.test(l)), []);
+    assert.ok(logs.some((l) => /^replaying \d+ new outputs through caveman-engine/.test(l)), "the caveman engine's few new outputs fit in its budget");
+    assert.deepEqual(logs.filter((l) => /through headroom/.test(l)), []);
   } finally {
     t.done();
   }
@@ -364,19 +365,50 @@ test("quick mode: no measured small output means no number, not zeros for the re
   }
 });
 
-test("cached results never set a ratio: a cache-only saver with one output new since an exact run shows no number", async () => {
+test("a cache-only saver with a few outputs new since an exact run: they get the cached outputs' ratio, and the note gives their share", async () => {
   const t = tmp();
   try {
     const specs = cycling(40);
     await exactRun(synth("headroom", specs.slice(0, 39)), t.cacheFile);
     const f = synth("headroom", specs);
     const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
-    assert.deepEqual({ insufficient: st.insufficient, reason: st.reason, extrapolated: st.extrapolated }, { insufficient: true, reason: "too few outputs replayed in quick mode", extrapolated: 0 });
+    assert.deepEqual({ insufficient: st.insufficient, extrapolated: st.extrapolated, se: st.se, unit: st.unit }, { insufficient: undefined, extrapolated: 1, se: undefined, unit: "tokens" });
+    const x = popOf(synth("headroom", specs)).map((o) => o.x);
+    assert.ok(Math.abs(st.fromCache! - x[39]! / x.reduce((a, b) => a + b, 0)) < 1e-12, "the new output's share of the size");
+    assert.ok(deltas(f)[39]! > 0, "estimated, never 0");
     // Once it is replayed too, the number is exact.
     await exactRun(synth("headroom", specs), t.cacheFile);
     const g = synth("headroom", specs);
     const ok = (await quickRun(g, t.cacheFile)).get("headroom")!;
-    assert.deepEqual({ insufficient: ok.insufficient, extrapolated: ok.extrapolated, seTokens: ok.seTokens }, { insufficient: undefined, extrapolated: 0, seTokens: undefined });
+    assert.deepEqual({ insufficient: ok.insufficient, extrapolated: ok.extrapolated, fromCache: ok.fromCache }, { insufficient: undefined, extrapolated: 0, fromCache: undefined });
+  } finally {
+    t.done();
+  }
+});
+
+test("a cache-only saver with more than a quarter of its size new since an exact run shows no number", async () => {
+  const t = tmp();
+  try {
+    const specs = cycling(40);
+    await exactRun(synth("headroom", specs.slice(0, 29)), t.cacheFile); // 11 of 40 new: over 25%
+    const st = (await quickRun(synth("headroom", specs), t.cacheFile)).get("headroom")!;
+    assert.deepEqual({ insufficient: st.insufficient, reason: st.reason, extrapolated: st.extrapolated }, { insufficient: true, reason: "too few outputs replayed in quick mode", extrapolated: 0 });
+  } finally {
+    t.done();
+  }
+});
+
+test("the caveman engine replays its new outputs in a quick run when they fit in its budget: exact", async () => {
+  const t = tmp();
+  try {
+    const caveman = tool("caveman-engine", "fake-saver", { FAKE_MIN_CHARS: "2500" });
+    const run = (f: FileResult, full: boolean) => runReplays([f], ["caveman-engine"], { tools: caveman, cacheFile: t.cacheFile, full, concurrency: 4 });
+    const specs = cycling(60);
+    await run(synth("caveman-engine", specs.slice(0, 30)), true);
+    const f = synth("caveman-engine", specs);
+    const st = (await run(f, false)).get("caveman-engine")!;
+    assert.deepEqual({ ran: st.ran, extrapolated: st.extrapolated, insufficient: st.insufficient, pending: st.pending }, { ran: 30, extrapolated: 0, insufficient: undefined, pending: 0 });
+    assert.ok(specs.every((s) => readReplayCache(t.cacheFile).has(s.key)));
   } finally {
     t.done();
   }
@@ -392,11 +424,11 @@ test("quick estimate: the drawn sample only, every other output R·x (never 0), 
     const plan = planQuick(popOf(f), 100, quickSalt("headroom", ""), new Set());
     const st = (await strictRun(f, t.cacheFile)).get("headroom")!;
     assert.deepEqual({ insufficient: st.insufficient, extrapolated: st.extrapolated, ran: st.ran }, { insufficient: undefined, extrapolated: 300, ran: 0 });
-    assert.ok(st.seTokens! > 0);
-    assert.ok(Math.abs(st.savedTokens! - total(f)) < 1e-6, "the total the error bar is for");
+    assert.ok(st.se! > 0);
+    assert.ok(Math.abs(st.estimate! - total(f)) < 1e-6, "the total the error bar is for");
     assert.ok(deltas(f).every((d) => d >= 0 && Number.isFinite(d)), "a saver that only shrinks never gets a negative or missing estimate");
     const off = total(f) - total(truth);
-    assert.ok(Math.abs(off) <= 2 * st.seTokens!, `quick is ${(100 * off / total(truth)).toFixed(1)}% off the exact total, 2 s.e. ${(200 * st.seTokens! / total(truth)).toFixed(1)}%`);
+    assert.ok(Math.abs(off) <= 2 * st.se!, `quick is ${(100 * off / total(truth)).toFixed(1)}% off the exact total, 2 s.e. ${(200 * st.se! / total(truth)).toFixed(1)}%`);
     // The drawn outputs keep their own result; the others are estimated.
     const drawn = new Set(plan.order.slice(0, plan.quick));
     assert.equal(drawn.size, 100);
@@ -482,7 +514,7 @@ test("quick mode draws afresh from the outputs not cached, with a salt from the 
       if (i < 100) assert.notEqual(da[i], db[i], "a cached output has its own result");
       else assert.equal(da[i], db[i], "nothing else moves");
     });
-    assert.equal(a.st.seTokens, b.st.seTokens);
+    assert.equal(a.st.se, b.st.se);
   } finally {
     t.done();
   }
