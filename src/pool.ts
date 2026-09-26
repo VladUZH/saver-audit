@@ -111,6 +111,7 @@ export async function runAudit(opts: AuditOptions, entry?: URL, jobs = defaultJo
     replayable: savers.filter((s) => s.method === "replayed" && tools.has(s.id)).map((s) => s.id),
     cacheFile: saverOpts?.cacheFile,
     until: new Date(opts.untilMs).toISOString(),
+    versions: Object.fromEntries([...tools].flatMap(([id, t]) => (t.version ? [[id, t.version]] : []))),
   };
   const results = await processAll(findFiles(opts), entry, jobs, config, hooks.files);
   const stats = await runReplays(results, config.ids, { tools, cacheFile: config.cacheFile, full: saverOpts?.full ?? false, concurrency: Math.max(1, jobs), log: saverOpts?.log, progress: hooks.replay });

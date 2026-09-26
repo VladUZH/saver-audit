@@ -52,8 +52,18 @@ interface TimelineBlocks {
  */
 const keySalt = (id: string) => (id === "headroom" ? "" : "#2");
 
-export function replayKey(saver: SaverAdapter, tool: string, arg: string | undefined, input: string): string {
-  return createHash("sha256").update(`${saver.id}@${saver.version}${keySalt(saver.id)}\0${tool}\0${arg ?? ""}\0`).update(input).digest("base64url").slice(0, 32);
+/**
+ * The saver version a result is cached under: the installed one when it differs from the
+ * adapter's (same test as the report's version note), so an upgraded saver is measured
+ * again while results from a matching install stay valid.
+ */
+export function keyVersion(adapter: string, installed?: string): string {
+  return installed && installed !== "version unknown" && !adapter.startsWith(installed) ? installed : adapter;
+}
+
+export function replayKey(saver: SaverAdapter, tool: string, arg: string | undefined, input: string, installed?: string): string {
+  const v = keyVersion(saver.version, installed);
+  return createHash("sha256").update(`${saver.id}@${v}${keySalt(saver.id)}\0${tool}\0${arg ?? ""}\0`).update(input).digest("base64url").slice(0, 32);
 }
 
 /**
@@ -85,9 +95,11 @@ export class SaverTracker {
   private lookup: ReplayLookup;
   private skillIdx: number;
   private until?: string;
+  private versions: Record<string, string>;
 
-  constructor(savers: SaverAdapter[], replayable: Set<string>, lookup: ReplayLookup, until?: string) {
+  constructor(savers: SaverAdapter[], replayable: Set<string>, lookup: ReplayLookup, until?: string, versions: Record<string, string> = {}) {
     this.until = until;
+    this.versions = versions;
     this.savers = savers;
     this.replayable = replayable;
     this.lookup = lookup;
@@ -129,7 +141,7 @@ export class SaverTracker {
       if (s.minTokens && o.tokens < s.minTokens) return; // counted as unchanged
       const inp = s.replayInput(o);
       if (!inp || !inp.input) return;
-      const key = replayKey(s, o.tool, inp.arg, inp.input);
+      const key = replayKey(s, o.tool, inp.arg, inp.input, this.versions[s.id]);
       // Codex shell output keeps its Exit code / Wall time header around rtk's output.
       // Tool-stage savers (hooks like rtk) see the full output before the agent does:
       // a Codex shell header is kept around their output, and a Claude preview may be

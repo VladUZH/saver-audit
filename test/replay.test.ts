@@ -346,3 +346,23 @@ test("an unmeasured persisted-output preview is not estimated from preview token
     t.done();
   }
 });
+
+test("an upgraded saver is measured again; a matching install keeps its cached results", async () => {
+  const rtk = SAVERS.find((s) => s.id === "rtk")!;
+  assert.equal(replayKey(rtk, "Bash", "pytest", "out", rtk.version), replayKey(rtk, "Bash", "pytest", "out"), "installed = adapter version: same key");
+  assert.notEqual(replayKey(rtk, "Bash", "pytest", "out", "0.51.0"), replayKey(rtk, "Bash", "pytest", "out"));
+  const t = tmp();
+  try {
+    const run = async (version: string) => {
+      const tools = new Map([["rtk", { ...FAKE_TOOLS.get("rtk")!, version }]]);
+      const r = await runAudit(fixtureOptions(), undefined, 1, { ids: ["rtk"], tools, cacheFile: t.cacheFile, full: true });
+      return r.savers.find((s) => s.id === "rtk")!.replay!.ran;
+    };
+    assert.ok((await run(rtk.version)) > 0);
+    assert.equal(await run(rtk.version), 0, "same install: served from the cache");
+    assert.ok((await run("0.51.0")) > 0, "upgraded: replayed again");
+    assert.equal(await run("0.51.0"), 0);
+  } finally {
+    t.done();
+  }
+});

@@ -48,6 +48,8 @@ export interface SaverConfig {
   cacheFile?: string;
   /** ISO end of the period: outputs after it cannot reach an in-period call. */
   until?: string;
+  /** Installed versions of the replayed savers (part of their replay cache keys). */
+  versions?: Record<string, string>;
 }
 
 export interface Amount {
@@ -126,7 +128,7 @@ export interface AuditResult {
 }
 
 export async function processFile(file: string, source: Source, index: number, savers?: SaverConfig): Promise<FileResult> {
-  const st = savers && savers.ids.length ? new SaverTracker(saverIndex(savers.ids), new Set(savers.replayable), loadReplayCache(savers.cacheFile), savers.until) : undefined;
+  const st = savers && savers.ids.length ? new SaverTracker(saverIndex(savers.ids), new Set(savers.replayable), loadReplayCache(savers.cacheFile), savers.until, savers.versions) : undefined;
   const tracker = new ContextTracker(index, source, st);
   const res: FileResult = { file, source, records: tracker.records, skippedLines: 0 };
   const events: AsyncGenerator<SourceEvent> = source === "claude-code" ? parseClaudeFile(file) : parseCodexFile(file);
