@@ -35,25 +35,29 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKR5zq0dz0mTUtkiX0b6jqtyG3uQV
 const EXE = process.platform === "win32" ? ".exe" : "";
 const paths = toolPaths;
 
-type Arch = "arm64" | "x64";
+/** Release builds exist for 64-bit Intel and ARM only; other CPUs get none. */
+const cpu = (arch: string) => (arch === "arm64" ? "aarch64" : arch === "x64" ? "x86_64" : undefined);
 
-export function rtkAsset(platform = process.platform, arch = process.arch as Arch): string | undefined {
-  const a = arch === "arm64" ? "aarch64" : "x86_64";
+export function rtkAsset(platform: string = process.platform, arch: string = process.arch): string | undefined {
+  const a = cpu(arch);
+  if (!a) return undefined;
   if (platform === "darwin") return `rtk-${a}-apple-darwin.tar.gz`;
   if (platform === "linux") return arch === "arm64" ? "rtk-aarch64-unknown-linux-gnu.tar.gz" : "rtk-x86_64-unknown-linux-musl.tar.gz";
   if (platform === "win32" && arch === "x64") return "rtk-x86_64-pc-windows-msvc.zip";
   return undefined;
 }
 
-export function cavemanAsset(platform = process.platform, arch = process.arch as Arch): string | undefined {
+export function cavemanAsset(platform: string = process.platform, arch: string = process.arch): string | undefined {
   const os = platform === "darwin" ? "darwin" : platform === "linux" ? "linux" : platform === "win32" ? "win32" : undefined;
   const a = arch === "arm64" ? "arm64" : arch === "x64" ? "amd64" : undefined;
   return os && a ? `caveman-engine_${os}_${a}` : undefined;
 }
 
-export function leanCtxAsset(platform = process.platform, arch = process.arch as Arch): string | undefined {
-  if (platform === "darwin") return `lean-ctx-${arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin.tar.gz`;
-  if (platform === "linux") return `lean-ctx-${arch === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-musl.tar.gz`;
+export function leanCtxAsset(platform: string = process.platform, arch: string = process.arch): string | undefined {
+  const a = cpu(arch);
+  if (!a) return undefined;
+  if (platform === "darwin") return `lean-ctx-${a}-apple-darwin.tar.gz`;
+  if (platform === "linux") return `lean-ctx-${a}-unknown-linux-musl.tar.gz`;
   if (platform === "win32" && arch === "x64") return "lean-ctx-x86_64-pc-windows-msvc.zip";
   return undefined;
 }
