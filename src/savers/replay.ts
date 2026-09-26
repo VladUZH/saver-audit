@@ -95,9 +95,21 @@ function firstLine(cmd: string, args: string[]): string | undefined {
   return r.status === 0 && out ? out : undefined;
 }
 
+/** Is an installed version older than the one the adapter was written for? False when either has no number. */
+export function isOutdated(installed: string | undefined, adapter: string): boolean {
+  const nums = (v: string) => /(\d+)\.(\d+)(?:\.(\d+))?/.exec(v)?.slice(1).map((x) => Number(x ?? 0));
+  const a = installed ? nums(installed) : undefined;
+  const b = nums(adapter);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! < b[i]!;
+  return false;
+}
+
 /**
  * Finds the installed saver binaries: explicit overrides, then your PATH (your own
- * installs), then the folder --install-savers uses. Missing tools are simply absent.
+ * installs), then the folder --install-savers uses. An older version (or one that does
+ * not say its version) does not hide a current one further down. Missing tools are
+ * simply absent.
  */
 export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): Map<string, ReplayTool> {
   const found = new Map<string, ReplayTool>();
@@ -106,16 +118,25 @@ export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): 
   for (const s of savers) {
     const m = s.manifest;
     if (!m || m.method !== "replayed" || !m.binary) continue;
-    const extra = (m.paths ?? []).map((p) => join(p.replace(/^~(?=\/|$)/, homedir()), m.binary + exe));
-    const command =
-      (m.binaryEnv ? process.env[m.binaryEnv] : undefined) ??
-      onPath(m.binary + exe) ??
-      exists(join(toolsDir(), "bin", m.binary + exe)) ??
-      extra.find((p) => existsSync(p));
-    if (!command) continue;
     const name = new RegExp(`^${m.binary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+`); // "trim++ 1.0" → "1.0"
-    const version = m.versionArgs ? firstLine(command, m.versionArgs)?.replace(name, "") : undefined;
-    found.set(s.id, { saver: s.id, command, version });
+    const probe = (command: string): ReplayTool => ({ saver: s.id, command, version: m.versionArgs ? firstLine(command, m.versionArgs)?.replace(name, "") : undefined });
+    const override = m.binaryEnv ? process.env[m.binaryEnv] : undefined;
+    if (override) {
+      found.set(s.id, probe(override));
+      continue;
+    }
+    const extra = (m.paths ?? []).map((p) => join(p.replace(/^~(?=\/|$)/, homedir()), m.binary + exe));
+    const candidates = [...new Set([onPath(m.binary + exe), exists(join(toolsDir(), "bin", m.binary + exe)), ...extra.filter((p) => existsSync(p))])].filter((p): p is string => !!p);
+    let pick: ReplayTool | undefined;
+    for (const c of candidates) {
+      const t = probe(c);
+      if (!m.versionArgs || (t.version !== undefined && !isOutdated(t.version, m.version))) {
+        pick = t;
+        break;
+      }
+      pick ??= t; // none current: the first one, as found (the report notes its version)
+    }
+    if (pick) found.set(s.id, pick);
   }
   const own = process.env.SAVER_AUDIT_HEADROOM_PYTHON ?? headroomPython();
   const ours = own ? undefined : exists(toolPaths.headroomPython());

@@ -4,16 +4,17 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FileResult } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
 import { countProxy } from "../src/accounting/tokens.ts";
-import { runReplays, type ReplayTool } from "../src/savers/replay.ts";
+import { detectReplayTools, isOutdated, runReplays, type ReplayTool } from "../src/savers/replay.ts";
 import { replayKey } from "../src/savers/tracker.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import type { ReplayJob } from "../src/savers/types.ts";
 import { FAKE_TOOLS, fixtureOptions } from "./helpers.ts";
+import { withEnv } from "./env.ts";
 
 const BIN = fileURLToPath(new URL("./fixtures/bin/", import.meta.url));
 
@@ -396,6 +397,30 @@ test("quick mode does not extrapolate from a cache that holds only the larger ou
     const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
     assert.deepEqual({ insufficient: st.insufficient, extrapolated: st.extrapolated }, { insufficient: true, extrapolated: 0 });
     assert.match(st.reason!, /only the larger outputs/);
+  } finally {
+    t.done();
+  }
+});
+
+test("an older saver earlier on PATH does not hide the current one in the tools folder", async () => {
+  const t = tmp();
+  try {
+    const put = (dir: string, version: string) => {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "rtk"), `#!/usr/bin/env node\nif (process.argv[2] === "--version") console.log("rtk ${version}");\nelse process.exit(2);\n`, { mode: 0o755 });
+      return join(dir, "rtk");
+    };
+    const old = put(join(t.dir, "old"), "0.1.4");
+    const newer = put(join(t.dir, "newer"), "0.51.0");
+    const ours = put(join(t.dir, "home", "tools", "bin"), "0.50.0");
+    const rtk = SAVERS.filter((s) => s.id === "rtk");
+    const env = { SAVER_AUDIT_HOME: join(t.dir, "home"), SAVER_AUDIT_RTK: undefined, SAVER_AUDIT_HEADROOM_PYTHON: "" };
+    const detect = (first: string) => withEnv({ ...env, PATH: `${join(t.dir, first)}${delimiter}${process.env.PATH}` }, () => detectReplayTools(rtk).get("rtk"));
+    assert.deepEqual(await detect("old"), { saver: "rtk", command: ours, version: "0.50.0" });
+    assert.deepEqual(await detect("newer"), { saver: "rtk", command: newer, version: "0.51.0" }, "your own newer install comes first");
+    rmSync(ours);
+    assert.deepEqual(await detect("old"), { saver: "rtk", command: old, version: "0.1.4" }, "the only one is used (the report notes its version)");
+    assert.deepEqual([isOutdated("0.1.4", "0.50.0"), isOutdated("0.50.0", "0.50.0"), isOutdated("v1.2", "0.50.0"), isOutdated("unknown", "0.50.0")], [true, false, false, false]);
   } finally {
     t.done();
   }
