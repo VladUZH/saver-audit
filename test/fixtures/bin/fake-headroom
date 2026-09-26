@@ -2,6 +2,7 @@
 // Fake headroom sidecar for replay tests (the JSON-lines protocol of src/savers/replay.ts).
 // Behaviour from environment variables:
 //   FAKE_READY=0         report the compression model as not cached
+//   FAKE_TOKENIZER=0     report tiktoken's vocabulary as not cached
 //   FAKE_MIN_CHARS=<n>   keep the first quarter of texts of at least n chars (default 0)
 //   FAKE_DIE_AFTER=<n>   exit after answering n requests
 //   FAKE_PIDFILE=<file>  write this process's pid there
@@ -14,7 +15,7 @@ if ((process.argv[3] ?? "").includes("__version__")) {
 }
 import("node:readline").then(async ({ createInterface }) => {
   if (env.FAKE_PIDFILE) (await import("node:fs")).writeFileSync(env.FAKE_PIDFILE, String(process.pid));
-  console.log(JSON.stringify({ ready: env.FAKE_READY !== "0" }));
+  console.log(JSON.stringify({ ready: env.FAKE_READY !== "0", ...(env.FAKE_TOKENIZER === "0" ? { tokenizer: false } : {}) }));
   let n = 0;
   const rl = createInterface({ input: process.stdin });
   rl.on("line", (line) => {

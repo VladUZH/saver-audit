@@ -23,6 +23,8 @@ export const toolPaths = {
   caveman: () => join(toolsDir(), "bin", `caveman-engine${EXE}`),
   headroomPython: () => join(toolsDir(), "headroom-venv", process.platform === "win32" ? "Scripts\\python.exe" : "bin/python"),
   hfHome: () => join(toolsDir(), "hf"),
+  /** tiktoken's o200k_base vocabulary, which headroom counts tokens with (TIKTOKEN_CACHE_DIR). */
+  tiktoken: () => join(toolsDir(), "tiktoken"),
   headroomState: () => join(toolsDir(), "headroom-state"),
 };
 

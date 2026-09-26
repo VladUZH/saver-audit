@@ -19,7 +19,7 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, win32 } from "node:path";
-import { NO_CWD } from "./replay.ts";
+import { NO_CWD, NO_NETWORK } from "./replay.ts";
 import { CAVEMAN_BIN_TAG, cavemanAsset, findPython, HEADROOM_VERSION, LEAN_CTX_TAG, leanCtxAsset, RTK_TAG, rtkAsset, TOKEN_SAVER_TAG, toolPaths, toolsDir } from "./toolsdir.ts";
 import type { InstallChoice } from "./toolsdir.ts";
 
@@ -253,20 +253,24 @@ from huggingface_hub import snapshot_download
 prefetch_kompress_artifacts()
 snapshot_download("answerdotai/ModernBERT-base", allow_patterns=["tokenizer*", "special_tokens_map.json", "config.json"])
 _load_kompress(allow_download=False)
+import tiktoken
+tiktoken.get_encoding("o200k_base")
 print("ready")
 `;
 
 // PYTHONSAFEPATH (Python 3.11+): `-m pip` and `-m venv` do not import from the current folder either.
-const headroomEnv = (): NodeJS.ProcessEnv => ({ ...process.env, DO_NOT_TRACK: "1", HEADROOM_BEACON: "off", HF_HOME: paths.hfHome(), HEADROOM_WORKSPACE_DIR: paths.headroomState(), PIP_DISABLE_PIP_VERSION_CHECK: "1", PYTHONSAFEPATH: "1" });
+// The tokenizer vocabulary goes into the tools folder with the model: an audit never downloads it.
+const headroomEnv = (): NodeJS.ProcessEnv => ({ ...process.env, DO_NOT_TRACK: "1", HEADROOM_BEACON: "off", HF_HOME: paths.hfHome(), TIKTOKEN_CACHE_DIR: paths.tiktoken(), HEADROOM_WORKSPACE_DIR: paths.headroomState(), PIP_DISABLE_PIP_VERSION_CHECK: "1", PYTHONSAFEPATH: "1" });
 
 /**
- * The tools folder's headroom imports but cannot load its model offline (the check the
- * replay makes), e.g. after a failed or interrupted model download: not finished.
+ * The tools folder's headroom imports but cannot load its model or its tokenizer offline
+ * (the checks the replay makes), e.g. after a failed or interrupted download, or an
+ * install from before the tokenizer was fetched: not finished.
  */
 export function headroomIncomplete(): boolean {
   if (!existsSync(paths.headroomPython())) return false;
-  const ready = `${NO_CWD}; from headroom.transforms.kompress_compressor import _load_kompress; _load_kompress(allow_download=False)`;
-  const env = { ...headroomEnv(), HEADROOM_OFFLINE: "1", HF_HUB_OFFLINE: "1", TRANSFORMERS_OFFLINE: "1" };
+  const ready = `${NO_CWD}; from headroom.transforms.kompress_compressor import _load_kompress; _load_kompress(allow_download=False); import tiktoken; tiktoken.get_encoding("o200k_base")`;
+  const env = { ...headroomEnv(), HEADROOM_OFFLINE: "1", HF_HUB_OFFLINE: "1", TRANSFORMERS_OFFLINE: "1", ...NO_NETWORK };
   return spawnSync(paths.headroomPython(), ["-c", ready], { env, cwd: toolsDir(), stdio: "ignore", timeout: 120_000 }).status !== 0;
 }
 
@@ -300,7 +304,8 @@ export async function installHeadroom(say: Say): Promise<string> {
   say(`installing headroom-ai ${HEADROOM_VERSION} from PyPI (about 1.3 GB, a few minutes)…`);
   // No pip cache: it would leave the downloads outside the tools folder.
   await run(paths.headroomPython(), ["-m", "pip", "install", "--quiet", "--no-cache-dir", `headroom-ai[ml]==${HEADROOM_VERSION}`, "onnxruntime>=1.24"], env, (l) => say(`pip: ${l}`));
-  say("downloading headroom's compression model from Hugging Face (about 260 MB)…");
+  mkdirSync(paths.tiktoken(), { recursive: true });
+  say("downloading headroom's compression model from Hugging Face (about 260 MB) and its tokenizer…");
   await run(paths.headroomPython(), ["-c", PREFETCH], env, (l) => say(`model: ${l}`));
   return paths.headroomPython();
 }

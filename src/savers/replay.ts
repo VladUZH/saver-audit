@@ -149,7 +149,7 @@ export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): 
   if (py) {
     const v = firstLine(py, ["-c", `${NO_CWD}; import headroom; print(getattr(headroom, '__version__', 'unknown'))`]);
     // --install-savers keeps headroom's model, and its tokenizer vocabulary, in the tools folder.
-    const vocab = join(toolsDir(), "tiktoken");
+    const vocab = toolPaths.tiktoken();
     const env = ours ? { HF_HOME: toolPaths.hfHome(), ...(existsSync(vocab) ? { TIKTOKEN_CACHE_DIR: vocab } : {}) } : undefined;
     if (v) found.set("headroom", { saver: "headroom", command: py, version: v, env });
   }
@@ -198,7 +198,7 @@ const OWN_SETTINGS = /^(CAVEMAN|TOKEN_SAVER)_/;
  * download its vocabulary; its offline flags do not cover that).
  */
 const DEAD_PROXY = "http://127.0.0.1:9";
-const NO_NETWORK: Record<string, string> = Object.fromEntries([
+export const NO_NETWORK: Record<string, string> = Object.fromEntries([
   ...["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"].flatMap((k) => [[k, DEAD_PROXY], [k.toLowerCase(), DEAD_PROXY]]),
   ...["NO_PROXY", "no_proxy"].map((k) => [k, "localhost,127.0.0.1,::1"]),
 ]);
@@ -574,16 +574,17 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(dir, "headroom") }, join(dir, "empty"));
         live.add(side.child);
         try {
+          // The installer's own headroom is finished by the installer; another runs once online.
+          const ours = tool.command === toolPaths.headroomPython();
+          const fix = (other: string) => (ours ? "finish its install with: npx saver-audit --install-savers --with-headroom" : other);
           if (!(await side.ready)) {
             failAll("compression model not cached");
-            // The installer's own headroom is finished by the installer; another runs once online.
-            const fix = tool.command === toolPaths.headroomPython() ? "finish its install with: npx saver-audit --install-savers --with-headroom" : "run headroom once online to download it";
-            warn?.(`headroom: its compression model is not cached; skipped (${fix}).`);
+            warn?.(`headroom: its compression model is not cached; skipped (${fix("run headroom once online to download it")}).`);
             return;
           }
           if (side.tokenizer === false) {
             failAll("tokenizer not cached");
-            warn?.("headroom: its tokenizer (tiktoken's o200k_base) is not cached, and an audit never downloads it; skipped (run headroom once online).");
+            warn?.(`headroom: its tokenizer (tiktoken's o200k_base) is not cached, and an audit never downloads it; skipped (${fix("run headroom once online")}).`);
             return;
           }
           for (const key of todo) {

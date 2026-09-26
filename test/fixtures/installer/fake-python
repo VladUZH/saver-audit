@@ -3,8 +3,10 @@
 # create headroom's venv, pip-install it and fetch its model, without a network.
 # Each call is logged to $FAKE_PY_LOG. FAKE_PY_NO_VENV=1: no venv module (as on
 # Debian without python3-venv). FAKE_PY_NO_MODEL=1: the model download fails.
-# FAKE_PY_VERSION: the version it reports (default 3.12). FAKE_PY_CWD_LOG: each call's
-# first arguments, folder and PYTHONSAFEPATH are logged there. -I (isolated) is accepted.
+# FAKE_PY_VERSION: the version it reports (default 3.12). The model download also
+# fills $TIKTOKEN_CACHE_DIR, and the ready check wants it when it names tiktoken.
+# FAKE_PY_CWD_LOG: each call's first arguments, folder and PYTHONSAFEPATH are
+# logged there. -I (isolated) is accepted.
 self="$0"
 venv="${self%/*}/.."
 [ "$1" = "-I" ] && shift
@@ -17,8 +19,14 @@ case "$1" in
       *prefetch_kompress_artifacts*)
         echo "prefetch" >> "$FAKE_PY_LOG"
         if [ -n "$FAKE_PY_NO_MODEL" ]; then echo "requests.exceptions.HTTPError: 503 Server Error" >&2; exit 1; fi
-        mkdir -p "$HF_HOME" && : > "$HF_HOME/model" && echo ready; exit 0 ;;
-      *_load_kompress*) [ -f "$HF_HOME/model" ]; exit $? ;;
+        mkdir -p "$HF_HOME" && : > "$HF_HOME/model"
+        # tiktoken's vocabulary, when the install gives it a cache folder.
+        [ -z "$TIKTOKEN_CACHE_DIR" ] || { mkdir -p "$TIKTOKEN_CACHE_DIR" && : > "$TIKTOKEN_CACHE_DIR/o200k_base"; }
+        echo ready; exit 0 ;;
+      *_load_kompress*)
+        [ -f "$HF_HOME/model" ] || exit 1
+        case "$2" in *tiktoken*) [ -f "$TIKTOKEN_CACHE_DIR/o200k_base" ]; exit $? ;; esac
+        exit 0 ;;
       *"import headroom"*) if [ -f "$venv/headroom" ]; then echo 0.38.0; exit 0; fi; exit 1 ;;
       *) exit 0 ;;
     esac ;;

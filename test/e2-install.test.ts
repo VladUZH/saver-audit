@@ -6,7 +6,7 @@ import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { headroomIncomplete, installHeadroom } from "../src/savers/install.ts";
 import { userSaversDir } from "../src/savers/manifest.ts";
-import { findPython, installPlan, onPathOnly, toolsDir } from "../src/savers/toolsdir.ts";
+import { findPython, installPlan, onPathOnly, toolPaths, toolsDir } from "../src/savers/toolsdir.ts";
 import { withEnv } from "./env.ts";
 import { FIXTURES } from "./helpers.ts";
 
@@ -86,6 +86,27 @@ test("checking Python's venv module never imports a venv.py from the current fol
     assert.equal(existsSync(marker), false);
   } finally {
     process.chdir(cwd);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the headroom install caches tiktoken's vocabulary in the tools folder; an install without it is finished", { skip: unix }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sa-hr-tt-"));
+  try {
+    mkdirSync(join(dir, "pybin"));
+    copyFileSync(join(FIXTURES, "installer", "fake-python"), join(dir, "pybin", "python3"));
+    chmodSync(join(dir, "pybin", "python3"), 0o755);
+    await withEnv({ PATH: [join(dir, "pybin"), "/usr/bin", "/bin"].join(delimiter), SAVER_AUDIT_HOME: join(dir, "home"), FAKE_PY_LOG: join(dir, "calls.log"), TIKTOKEN_CACHE_DIR: undefined }, async () => {
+      await installHeadroom(() => {});
+      const vocab = join(toolPaths.tiktoken(), "o200k_base");
+      assert.equal(existsSync(vocab), true, "fetched with the model, into tools/tiktoken");
+      assert.equal(headroomIncomplete(), false);
+      rmSync(vocab); // as an install from before this, or a cleared cache, would be
+      assert.equal(headroomIncomplete(), true, "--install-savers --with-headroom then finishes it");
+      await installHeadroom(() => {});
+      assert.equal(headroomIncomplete(), false);
+    });
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

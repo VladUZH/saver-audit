@@ -38,3 +38,20 @@ test("headroom without its model: the installer's own copy is finished by the in
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("headroom without its tokenizer: the installer's own copy is finished by the installer", { skip: process.platform === "win32" ? "needs a script as the Python" : false }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sa-e2-"));
+  try {
+    await withEnv({ SAVER_AUDIT_HOME: join(dir, "home") }, async () => {
+      mkdirSync(dirname(toolPaths.headroomPython()), { recursive: true });
+      copyFileSync(join(FIXTURES, "bin", "fake-headroom"), toolPaths.headroomPython());
+      const warnings: string[] = [];
+      const run = (command: string) => runReplays([synth("headroom", ["x".repeat(4000)])], ["headroom"], { tools: new Map([["headroom", { saver: "headroom", command, env: { FAKE_TOKENIZER: "0" } }]]), full: true, concurrency: 1, warn: (s) => warnings.push(s) });
+      await run(toolPaths.headroomPython());
+      await run(join(FIXTURES, "bin", "fake-headroom"));
+      assert.deepEqual(warnings.map((w) => /skipped \((.*)\)\.$/.exec(w)?.[1]), ["finish its install with: npx saver-audit --install-savers --with-headroom", "run headroom once online"]);
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
