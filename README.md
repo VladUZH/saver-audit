@@ -84,10 +84,10 @@ The headroom number is a lower estimate (see below). On Codex alone, where shell
     - rtk replays up to about 12,000 distinct outputs in its 15 s (the author's month had 3,291), so its number is usually **exact**. Past that, or on a machine too slow to finish in 15 s, the rest is estimated and marked **indicative**.
     - token-saver and lean-ctx are estimated from a sample and marked **indicative**. Outputs worth more in dollars (larger, and re-read by more calls) are more likely to be picked.
     - Each estimate comes with its own likely range, ±X%: two standard errors, in dollars. On the author's month it was ±21% for token-saver and ±16% for lean-ctx.
-    - With fewer than 20 sampled outputs to estimate from, they show no number until you ask for exact numbers.
+    - When the quick clock stops early and fewer than 20 sampled outputs are left to estimate from, the same rule applies: a quarter at most is estimated from the measured outputs, else no number.
     - A quick run keeps its sample while your logs change little (90% of the value shared with the last run). Running again gives the same numbers, or nearly the same after a little new work, and replays few outputs if any.
-    - The caveman engine and headroom are not sampled: a quick sample was too far off for them. Until an exact run, they show "—".
-    - After one, the caveman engine replays new outputs in a quick run when they fit in its few seconds. Otherwise new outputs worth up to a quarter of the saver's value get the ratio of its cached results, marked **indicative** with that share. Above a quarter, "—" again.
+    - The caveman engine and headroom are not sampled: a quick sample was too far off for them.
+    - The caveman engine replays every output not cached yet when they fit in its quick budget (1,500 outputs, a few seconds), which makes it exact. headroom, and the caveman engine with more than that, give outputs not measured yet the ratio of the measured ones when they are at most a quarter of the saver's value, marked **indicative** with that share. Above a quarter they show "—" until you ask for exact numbers.
     - A replay that fails counts as unchanged, is not cached, and is tried again next run. A number with failed replays is marked **indicative**. When most replays fail, the saver shows "not measured" and why, for example headroom without its model.
   - **Exact on request:** press `e` or pass `--exact`.
     - It replays every output above each saver's size floor: caveman, token-saver and lean-ctx 500 tokens, headroom 200.
