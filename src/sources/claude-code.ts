@@ -24,7 +24,8 @@ export function findClaudeFiles(roots: string[], sinceMs: number): string[] {
   return out.sort();
 }
 
-interface OpenCall { key: string; turn: Turn }
+/** A response still being written, and the user-side turns logged while it was. */
+interface OpenCall { key: string; turn: Turn; held: Turn[] }
 interface ToolMeta { tool: string; family: string; command?: string }
 
 export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent> {
@@ -32,12 +33,25 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
   const tools = new Map<string, ToolMeta>();
   const calls = new Map<string, Call>();
   let session: Session | undefined;
-  let open: OpenCall | undefined;
   let index = 0;
+  // One response is written as one line per content block, with a placeholder
+  // output count on the early lines, and tool results or attachments can land between
+  // those lines. They reach the model after the response, so they are held until it is
+  // complete: a new response starts, the context is compacted or the file ends.
+  const open = new Map<string, OpenCall>();
 
-  function* flush(): Generator<SourceEvent> {
-    if (open) yield { t: "turn", turn: open.turn };
-    open = undefined;
+  function* flush(timeline: string): Generator<SourceEvent> {
+    const cur = open.get(timeline);
+    if (!cur) return;
+    open.delete(timeline);
+    yield { t: "turn", turn: cur.turn };
+    for (const turn of cur.held) yield { t: "turn", turn };
+  }
+
+  function* user(turn: Turn): Generator<SourceEvent> {
+    const cur = open.get(turn.timeline);
+    if (cur) cur.held.push(turn);
+    else yield { t: "turn", turn };
   }
 
   for await (const line of readLines(file)) {
@@ -70,16 +84,13 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
       // Reminders, hook context and attached files are rendered into the next prompt
       // from this object. Its string values approximate that text.
       const text = NOT_IN_PROMPT.has(o.attachment?.type) ? "" : attachmentText(o.attachment);
-      if (text) {
-        yield* flush();
-        yield { t: "turn", turn: { index: index++, role: "user", timeline, timestamp, blocks: [{ kind: "text", text }], userKind: "injected" } };
-      }
+      if (text) yield* user({ index: index++, role: "user", timeline, timestamp, blocks: [{ kind: "text", text }], userKind: "injected" });
       continue;
     }
 
     if (type === "system") {
       if (o.subtype === "compact_boundary") {
-        yield* flush();
+        yield* flush(timeline);
         yield { t: "compact", timeline };
       }
       continue;
@@ -95,9 +106,10 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
       if (!msg.usage || typeof msg.id !== "string") continue;
       const key = `${msg.id}|${typeof o.requestId === "string" ? o.requestId : ""}`;
       const usage = claudeUsage(msg.usage);
-      if (open?.key === key) {
-        open.turn.blocks.push(...blocks);
-        maxUsage(open.turn.call!.usage, usage);
+      const cur = open.get(timeline);
+      if (cur?.key === key) {
+        cur.turn.blocks.push(...blocks);
+        maxUsage(cur.turn.call!.usage, usage);
         continue;
       }
       const seen = calls.get(key);
@@ -106,15 +118,14 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
         maxUsage(seen.usage, usage);
         continue;
       }
-      yield* flush();
+      yield* flush(timeline);
       const call: Call = { key, model, usage, multiplier: claudeMultiplier(msg.usage), billable: true };
       calls.set(key, call);
-      open = { key, turn: { index: index++, role: "assistant", timeline, timestamp, blocks, call } };
+      open.set(timeline, { key, turn: { index: index++, role: "assistant", timeline, timestamp, blocks, call }, held: [] });
       continue;
     }
 
     // user
-    yield* flush();
     const content = msg.content;
     const kind = o.isCompactSummary === true ? "compaction-summary" : o.isMeta === true ? "injected" : "prompt";
     const blocks: Block[] = [];
@@ -134,9 +145,9 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
     }
     if (blocks.length === 0) continue;
     const userKind = blocks.every((b) => b.kind === "tool_result") ? "tool-results" : kind === "prompt" && isInjectedText(blocks) ? "injected" : kind;
-    yield { t: "turn", turn: { index: index++, role: "user", timeline, timestamp, blocks, userKind } };
+    yield* user({ index: index++, role: "user", timeline, timestamp, blocks, userKind });
   }
-  yield* flush();
+  for (const timeline of [...open.keys()]) yield* flush(timeline);
 }
 
 /** Full Bash output from the structured result, when Claude Code kept it. */
