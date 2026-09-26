@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { cavemanAsset, cavemanSignatureValid, checksumFor, leanCtxAsset, rtkAsset } from "../src/savers/install.ts";
+import { cavemanAsset, cavemanSignatureValid, checksumFor, leanCtxAsset, rtkAsset, tarCommand } from "../src/savers/install.ts";
 
 // Real, public release files of rtk v0.50.0 and caveman bin-v1.1.7.
 const dir = fileURLToPath(new URL("./fixtures/installer/", import.meta.url));
@@ -26,6 +26,13 @@ test("no release build for CPUs other than x64 and arm64 (not an x86_64 one)", (
       assert.equal(cavemanAsset(platform, arch), undefined, `caveman ${platform}/${arch}`);
     }
   }
+});
+
+test("Windows unpacks with its own tar, not a GNU tar first on PATH", () => {
+  assert.equal(tarCommand("win32", { SystemRoot: "D:\\Win" }), "D:\\Win\\System32\\tar.exe");
+  assert.equal(tarCommand("win32", {}), "C:\\Windows\\System32\\tar.exe");
+  assert.equal(tarCommand("linux", {}), "tar");
+  assert.equal(tarCommand("darwin", {}), "tar");
 });
 
 test("checksums are read from the release files", () => {

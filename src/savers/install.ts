@@ -14,7 +14,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, win32 } from "node:path";
 import { toolPaths, toolsDir } from "./toolsdir.ts";
 
 export const RTK_TAG = "v0.50.0";
@@ -94,9 +94,17 @@ async function download(url: string): Promise<Buffer> {
 
 export type Say = (s: string) => void;
 
+/**
+ * On Windows, the system's own tar (bsdtar): it reads .zip and C:\ paths. A GNU tar
+ * first on PATH (Git Bash) reads neither.
+ */
+export function tarCommand(platform: string = process.platform, env: NodeJS.ProcessEnv = process.env): string {
+  return platform === "win32" ? win32.join(env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+}
+
 /** Runs tar; on failure the error carries tar's own message. */
 function untar(what: string, args: string[]): void {
-  const r = spawnSync("tar", args, { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" });
+  const r = spawnSync(tarCommand(), args, { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" });
   if (r.error) throw new Error(`${what}: could not run \`tar\` (${r.error.message})`);
   const why = (r.stderr ?? "").split("\n").find((l) => l.trim())?.trim();
   if (r.status !== 0) throw new Error(`${what}: could not unpack the archive (tar: ${why ?? `exit ${r.status ?? r.signal}`})`);
