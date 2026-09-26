@@ -55,6 +55,8 @@ export interface Call {
   usage: Usage;
   /** Price multiplier from fast mode / priority tier / data residency. */
   multiplier: number;
+  /** Claude fast mode (usage.speed "fast"); `multiplier` holds its premium when one is published. */
+  fast?: boolean;
   /** False for history replayed into a forked Codex thread. */
   billable: boolean;
   /**

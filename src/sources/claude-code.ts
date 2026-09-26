@@ -170,6 +170,7 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
       }
       yield* flush(timeline);
       const call: Call = { key, model, usage, multiplier: claudeMultiplier(msg.usage, model), billable: true };
+      if (msg.usage.speed === "fast") call.fast = true;
       calls.set(key, call);
       chain.keys.push(key);
       const turn: Turn = { index: index++, role: "assistant", timeline, timestamp, blocks, call };

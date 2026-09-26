@@ -282,6 +282,8 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   const unpriced = r.models.filter((m) => !m.pricedAs);
   if (unpriced.length) out.push(`  No price for: ${unpriced.map((m) => m.model).join(", ")} (tokens counted, $0).`);
   if (r.billing.webSearch.unpriced) out.push("  Codex web search fees are not in the total: the price list has no OpenAI per-search fee.");
+  const fast = r.models.filter((m) => m.fastUnpriced);
+  if (fast.length) out.push(`  Fast mode price unknown, standard rate used: ${fast.map((m) => `${m.model} (${plural(m.fastUnpriced!, "call")})`).join(", ")}.`);
   // A model priced as more than one (an alias that changed on a date) lists each with its calls.
   const aliased = new Map<string, AuditResult["models"]>();
   for (const m of r.models) if (m.pricedAs && m.pricedAs !== m.model && !m.model.includes("[")) aliased.set(m.model, [...(aliased.get(m.model) ?? []), m]);

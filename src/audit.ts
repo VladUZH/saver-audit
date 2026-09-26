@@ -5,7 +5,7 @@ import { calibrate, type Calibration } from "./accounting/tokens.ts";
 import { findClaudeFiles, parseClaudeFile } from "./sources/claude-code.ts";
 import { findCodexFiles, parseCodexFile } from "./sources/codex.ts";
 import { promptTokens, type Session, type Source, type SourceEvent } from "./sources/types.ts";
-import { ratesFor, resolveModel, type PriceTable } from "./prices/table.ts";
+import { fastMultiplier, ratesFor, resolveModel, type PriceTable } from "./prices/table.ts";
 import { CAVEMAN_SKILL_OUTPUT_CUT, CAVEMAN_SKILL_TOKENS, saverIndex, type SaverAdapter } from "./savers/registry.ts";
 import type { ReplayStats, ReplayTool } from "./savers/replay.ts";
 import { SaverTracker, type SaverBlock } from "./savers/tracker.ts";
@@ -72,6 +72,8 @@ export interface ModelRow extends Amount {
   model: string;
   pricedAs?: string;
   calls: number;
+  /** Fast-mode calls priced at the standard rate: no fast-mode price is published for the model. */
+  fastUnpriced?: number;
 }
 
 export interface SaverRow {
@@ -278,6 +280,7 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     if (!row) models.set(mk, (row = { model: rec.model, pricedAs: priced, calls: 0, tokens: 0, cost: 0 }));
     row.calls++;
     row.tokens += prompt + u.output;
+    if (priced && rec.call.fast && fastMultiplier(rec.model) === undefined) row.fastUnpriced = (row.fastUnpriced ?? 0) + 1;
 
     billing.input.tokens += u.input;
     billing.cacheWrite.tokens += u.cacheWrite;

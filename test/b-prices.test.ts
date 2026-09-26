@@ -8,6 +8,7 @@ import { runAudit } from "../src/pool.ts";
 import { BUNDLED, loadPrices, userPricesPath } from "../src/prices/load.ts";
 import { ratesFor, resolveModel, type Rates } from "../src/prices/table.ts";
 import { LITELLM_URL, updatePrices } from "../src/prices/update.ts";
+import { renderTerminal } from "../src/report/terminal.ts";
 import { fixtureOptions } from "./helpers.ts";
 
 /** A temp XDG cache dir holding `table` where --update-prices saves it. */
@@ -101,6 +102,15 @@ test("fast mode is priced per model: 6x on Opus 4.6, 2x on Opus 5.5, standard wh
   const r = await auditClaude([fast("claude-opus-4-6"), fast("claude-opus-4-6-20260205"), fast("claude-opus-5-5[1m]"), fast("claude-sonnet-5")]);
   const cost = Object.fromEntries(r.models.map((m) => [m.model, m.cost]));
   assert.deepEqual(cost, { "claude-opus-4-6": 150, "claude-opus-4-6-20260205": 150, "claude-opus-5-5[1m]": 40, "claude-sonnet-5": 10 });
+});
+
+test("fast-mode calls on a model with no published fast price are flagged, and the report says the standard rate was used", async () => {
+  const fast = (model: string) => ({ model, usage: { input_tokens: 0, output_tokens: 1_000_000, speed: "fast" } });
+  const r = await auditClaude([fast("claude-opus-5-5"), fast("claude-sonnet-5"), fast("claude-sonnet-5"), { model: "claude-sonnet-5", usage: { input_tokens: 0, output_tokens: 1 } }, fast("claude-unknown-9")]);
+  const flagged = Object.fromEntries(r.models.map((m) => [m.model, m.fastUnpriced]));
+  assert.deepEqual(flagged, { "claude-opus-5-5": undefined, "claude-sonnet-5": 2, "claude-unknown-9": undefined }, "an unpriced model is already named as such");
+  const text = renderTerminal(r, { showProjects: false, color: false, verbose: false });
+  assert.match(text, /Fast mode price unknown, standard rate used: claude-sonnet-5 \(2 calls\)\./);
 });
 
 test("a table saved by --update-prices overlays the bundled one: dropped models keep their price, aliases come from this version", () => {
