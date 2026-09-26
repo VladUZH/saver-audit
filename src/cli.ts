@@ -2,7 +2,7 @@
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { parseArgs } from "node:util";
 import { runAudit, runWorker, defaultJobs, defaultReplayCachePath, WORKER_FLAG } from "./pool.ts";
-import { allSavers, saverIndex } from "./savers/registry.ts";
+import { allSavers, saverIndex, saversHelp } from "./savers/registry.ts";
 import { claudeRoots } from "./sources/claude-code.ts";
 import { codexHome } from "./sources/codex.ts";
 import { loadPrices, userPricesPath } from "./prices/load.ts";
@@ -52,8 +52,7 @@ Usage: saver-audit [options]
   --verbose              more detail about skipped records
   -h, --help / -v, --version
 
-Savers: rtk, caveman-engine, token-saver, lean-ctx, headroom (replayed on your
-installed copies), caveman-skill (modeled), codegraph, context-mode (upper bounds).
+${saversHelp()}
 
 Reads ~/.claude/projects and ~/.codex/sessions locally. Nothing leaves your machine.
 Network only when you ask: --update-prices, --install-savers / [i], and [s] opens x.com.

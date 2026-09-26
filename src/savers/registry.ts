@@ -2,7 +2,7 @@
 // manifests (~/.saver-audit/savers/*.json), and two savers that need code: headroom
 // (a Python sidecar) and the caveman skill (modeled from a cited measurement).
 // Mechanisms: tech-notes §8.5.
-import type { OutputView, SaverInfo } from "./types.ts";
+import type { Method, OutputView, SaverInfo } from "./types.ts";
 import { findRoute, loadManifests, routeArgs, usesCommand, type SaverManifest } from "./manifest.ts";
 import rtk from "./builtin/rtk.json" with { type: "json" };
 import cavemanEngine from "./builtin/caveman-engine.json" with { type: "json" };
@@ -128,6 +128,29 @@ function build(manifests: SaverManifest[]): SaverAdapter[] {
 
 /** The built-in savers (no user manifests): stable for tests and the docs. */
 export const SAVERS: SaverAdapter[] = build(BUILTIN);
+
+/**
+ * The "Savers:" paragraph of --help, grouped by method and wrapped at 84 columns. Built
+ * from the registry, so registering a saver (CONTRIBUTING's checklist) names it there too.
+ */
+export function saversHelp(savers: SaverAdapter[] = SAVERS): string {
+  const how: [Method, string, string][] = [
+    ["replayed", "replayed on your installed copy", "replayed on your installed copies"],
+    ["modeled", "modeled", "modeled"],
+    ["upper-bound", "upper bound", "upper bounds"],
+  ];
+  const groups = how.flatMap(([method, one, many]) => {
+    const ids = savers.filter((s) => s.method === method).map((s) => s.id);
+    return ids.length ? [`${ids.join(", ")} (${ids.length === 1 ? one : many})`] : [];
+  });
+  const lines = [""];
+  for (const word of `Savers: ${groups.join(", ")}.`.split(" ")) {
+    const last = lines[lines.length - 1]!;
+    if (last && last.length + 1 + word.length > 84) lines.push(word);
+    else lines[lines.length - 1] = last ? `${last} ${word}` : word;
+  }
+  return lines.join("\n");
+}
 
 let loaded: { savers: SaverAdapter[]; problems: string[] } | undefined;
 
