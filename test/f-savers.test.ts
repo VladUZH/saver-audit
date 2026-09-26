@@ -77,6 +77,23 @@ test("--check-saver fails a jsonRatio saver whose output has no counts, as its r
   assert.doesNotMatch(r.stdout, /sample run ok/);
 });
 
+test("--check-saver lists a taken id: never says to install a manifest the audit would skip", () => {
+  const s = scratch();
+  // Written as code: no manifest can have these ids, as a user's or a built-in one.
+  for (const id of ["headroom", "caveman-skill"]) {
+    const r = check(s, { id, routes: [{ args: [] }] }, "fake-trim");
+    assert.equal(r.status, 1, id);
+    assert.match(r.stdout, new RegExp(`- id "${id}" is already taken by a built-in saver\\n`));
+    assert.doesNotMatch(r.stdout, /copy the file into/);
+  }
+  // A built-in manifest's id: the check still runs (a change to src/savers/builtin/rtk.json).
+  const r = check(s, { id: "rtk", routes: [{ args: [] }] }, "fake-trim");
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /sample run ok: /);
+  assert.match(r.stdout, /id "rtk" is already taken by a built-in saver, so a copy in ~\/\.saver-audit\/savers\/ would be skipped/);
+  assert.doesNotMatch(r.stdout, /copy the file into/);
+});
+
 test("the installer's own copy that fails its version probe counts as not installed; a user's own is still used", { skip: process.platform === "win32" ? "needs a script as the program" : false }, async () => {
   const s = scratch();
   const bin = join(s.dir, "home", "tools", "bin");

@@ -92,6 +92,8 @@ npx saver-audit --savers my-saver --exact
 
 With `jsonRatio`, the check fails when your program's output lacks the before and after numbers.
 
+An id that is taken is listed too. `headroom` and `caveman-skill` fail the check. The id of a built-in manifest (such as `rtk`) is noted, and the check still runs, so a change to a built-in manifest can be checked; a copy in `~/.saver-audit/savers/` with that id would be skipped.
+
 ## Pull request checklist
 
 - [ ] The manifest is in `src/savers/builtin/<id>.json`, and `npx saver-audit --check-saver` passes.

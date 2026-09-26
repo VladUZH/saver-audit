@@ -400,7 +400,7 @@ async function checkSaver(file: string): Promise<number> {
   const { readFileSync, rmSync } = await import("node:fs");
   const { spawnSync } = await import("node:child_process");
   const { routeArgs, usesCommand, validateManifest } = await import("./savers/manifest.ts");
-  const { manifestAdapter } = await import("./savers/registry.ts");
+  const { manifestAdapter, SAVERS } = await import("./savers/registry.ts");
   const { detectReplayTools, makeStateDir, ratioResult, saverRunEnv } = await import("./savers/replay.ts");
   const out = process.stdout;
   let m: any;
@@ -411,11 +411,16 @@ async function checkSaver(file: string): Promise<number> {
     return 1;
   }
   const problems = validateManifest(m);
+  // The audit skips a user manifest whose id a built-in saver has; one written as code
+  // (headroom, the caveman skill) cannot be a built-in manifest either.
+  const taken = problems.length ? undefined : SAVERS.find((x) => x.id === m.id);
+  if (taken && !taken.manifest) problems.push(`id "${m.id}" is already taken by a built-in saver`);
   if (problems.length) {
     out.write(`${file}: ${problems.length} problem(s)\n${problems.map((p) => `  - ${p}`).join("\n")}\n`);
     return 1;
   }
   out.write(`${file}: valid ${m.method} manifest for "${m.id}" (${m.routes.length} route${m.routes.length === 1 ? "" : "s"})\n`);
+  if (taken) out.write(`  id "${m.id}" is already taken by a built-in saver, so a copy in ~/.saver-audit/savers/ would be skipped: give your saver its own id, or change src/savers/builtin/${m.id}.json in a pull request.\n`);
   if (m.method !== "replayed") return 0;
   const tool = detectReplayTools([manifestAdapter(m)]).get(m.id);
   if (!tool) {
@@ -454,7 +459,7 @@ async function checkSaver(file: string): Promise<number> {
     return 1;
   }
   out.write(`  sample run ok: ${sample.length} chars in, ${String(r.stdout).length} chars out, ${ms} ms\n`);
-  out.write(`  To use it: copy the file into ~/.saver-audit/savers/, then run saver-audit.\n`);
+  if (!taken) out.write(`  To use it: copy the file into ~/.saver-audit/savers/, then run saver-audit.\n`);
   return 0;
 }
 
