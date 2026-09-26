@@ -151,9 +151,9 @@ test("coverage rules", () => {
 test("a Claude preview does not hide the full output from tool-stage size rules", () => {
   const byId = new Map(SAVERS.map((s) => [s.id, s]));
   const raw = `collected 1200 items\n${"tests/test_x.py::test_case PASSED\n".repeat(1200)}`;
-  const text = `<persisted-output>\nOutput too large (40KB). Full output saved to: /x/y.txt\n\nPreview (first 2KB):\n${raw.slice(0, 2000)}\n</persisted-output>`;
+  const text = `<persisted-output>\nOutput too large (40KB). Full output saved to: /x/y.txt\n\nPreview (first 2KB):\n${raw.slice(0, 1000)}\n</persisted-output>`;
   const o: OutputView = { source: "claude-code", tool: "Bash", category: "Shell", family: "tests", command: "pytest -q", text, raw, tokens: countProxy(text) };
-  assert.ok(o.tokens < 1000, "the preview is under token-saver's and lean-ctx's floor");
+  assert.ok(o.tokens < byId.get("token-saver")!.minTokens! && o.tokens < byId.get("lean-ctx")!.minTokens!, "the preview is under token-saver's and lean-ctx's floor");
   const t = new SaverTracker(["token-saver", "lean-ctx", "context-mode"].map((id) => byId.get(id)!), new Set(["token-saver", "lean-ctx"]), () => undefined);
   t.output("main", undefined, o);
   assert.deepEqual(t.jobs.map((j) => [j.saver, j.persistedHeader !== undefined]), [["token-saver", true], ["lean-ctx", true]], "the full output is replayed");

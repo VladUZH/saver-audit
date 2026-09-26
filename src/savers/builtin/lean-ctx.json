@@ -6,7 +6,7 @@
   "licence": "Apache-2.0",
   "method": "replayed",
   "covers": "shell output and file reads, by its shell and read pipelines",
-  "assumption": "lean-ctx reports its own before/after token counts (its offline `compress diff` preview), and that ratio is applied to saver-audit's count of the same output; run with default settings. Outputs under 1,000 tokens are not replayed; on the author's logs that left out about 4% of its savings",
+  "assumption": "lean-ctx reports its own before/after token counts (its offline `compress diff` preview), and that ratio is applied to saver-audit's count of the same output; run with default settings. Outputs under 500 tokens are not replayed; on the author's logs that left out about 1% of its savings",
   "stage": "tool",
   "binary": "lean-ctx",
   "binaryEnv": "SAVER_AUDIT_LEAN_CTX",
@@ -60,7 +60,7 @@
       ]
     }
   ],
-  "minTokens": 1000,
+  "minTokens": 500,
   "codexHypothetical": true,
   "install": "npx saver-audit --install-savers"
 }

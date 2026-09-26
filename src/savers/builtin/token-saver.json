@@ -6,7 +6,7 @@
   "licence": "Apache-2.0",
   "method": "replayed",
   "covers": "shell output, by its 36 command-aware processors",
-  "assumption": "run with default settings and without the exit code (the logs do not keep it), so failure-aware routing is not used. Outputs under 1,000 tokens are not replayed; on the author's logs that left out about 10% of its savings, so this is somewhat low",
+  "assumption": "run with default settings and without the exit code (the logs do not keep it), so failure-aware routing is not used. Outputs under 500 tokens are not replayed; on the author's logs that left out about 9% of its savings, so this is slightly low",
   "stage": "tool",
   "binary": "token-saver",
   "binaryEnv": "SAVER_AUDIT_TOKEN_SAVER",
@@ -37,7 +37,7 @@
       ]
     }
   ],
-  "minTokens": 1000,
+  "minTokens": 500,
   "codexHypothetical": true,
   "install": "npx saver-audit --install-savers"
 }
