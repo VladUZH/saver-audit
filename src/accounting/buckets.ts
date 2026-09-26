@@ -192,7 +192,7 @@ export class ContextTracker {
       newReal: t.pendReal,
       prev: t.prev && t.prev.model === call.model ? t.prev : undefined,
       proxyAppended,
-      range: this.savers?.call(turn.timeline, call.usage.output),
+      range: this.savers?.call(turn.timeline),
     };
     this.records.push(rec);
     add(t.ctxRaw, t.pendRaw);

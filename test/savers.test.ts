@@ -132,10 +132,10 @@ function record(key: string, ts: string, usage: Partial<ReturnType<typeof emptyU
 test("compounding: a removed token is a cache write once, then a cache read on every later call", () => {
   // Opus 5.5: 5m cache write $5/M, cache read $0.2/M. 1,000 tokens of file output,
   // of which the saver removes 400; it is new at call 1 and old at call 2.
-  const rec1 = record("a", "2026-09-20T10:00:00Z", { cacheWrite: 10_000 }, { newRaw: { "tool:File reads|": 1000 }, range: { tl: "main", ctxStart: 0, newStart: 0, newEnd: 1, end: 1, first: true } });
-  const rec2 = record("b", "2026-09-20T10:01:00Z", { cacheRead: 20_000, cacheWrite: 100 }, { oldRaw: { "tool:File reads|": 1000 }, range: { tl: "main", ctxStart: 0, newStart: 1, newEnd: 1, end: 1, first: false } });
+  const rec1 = record("a", "2026-09-20T10:00:00Z", { cacheWrite: 10_000 }, { newRaw: { "tool:File reads|": 1000 }, range: { tl: "main", ctxStart: 0, newStart: 0, newEnd: 1, first: true } });
+  const rec2 = record("b", "2026-09-20T10:01:00Z", { cacheRead: 20_000, cacheWrite: 100 }, { oldRaw: { "tool:File reads|": 1000 }, range: { tl: "main", ctxStart: 0, newStart: 1, newEnd: 1, first: false } });
   const savers = saverIndex(["codegraph"]);
-  const file: FileResult = { file: "f", source: "claude-code", records: [rec1, rec2], skippedLines: 0, savers: { timelines: { main: { blocks: [{ d: [400], r: [0] }] } }, jobs: [], covered: [1000], toolTokens: 2000 } };
+  const file: FileResult = { file: "f", source: "claude-code", records: [rec1, rec2], skippedLines: 0, savers: { timelines: { main: { blocks: [{ d: [400] }] } }, jobs: [], covered: [1000], toolTokens: 2000 } };
   const r = summarize(fixtureOptions(), [file], { savers, tools: new Map(), stats: new Map() });
   const row = r.savers[0]!;
   assert.ok(Math.abs(row.cost - (400 * 5 + 400 * 0.2) / 1e6) < 1e-12, String(row.cost));
@@ -144,7 +144,7 @@ test("compounding: a removed token is a cache write once, then a cache read on e
 });
 
 test("caveman skill: output cut minus its SKILL.md in the prompt", () => {
-  const rec = record("a", "2026-09-20T10:00:00Z", { cacheWrite: 10_000, output: 1000 }, { range: { tl: "main", ctxStart: 0, newStart: 0, newEnd: 0, end: 0, first: true } });
+  const rec = record("a", "2026-09-20T10:00:00Z", { cacheWrite: 10_000, output: 1000 }, { range: { tl: "main", ctxStart: 0, newStart: 0, newEnd: 0, first: true } });
   const file: FileResult = { file: "f", source: "claude-code", records: [rec], skippedLines: 0, savers: { timelines: { main: { blocks: [] } }, jobs: [], covered: [0], toolTokens: 0 } };
   const r = summarize(fixtureOptions(), [file], { savers: saverIndex(["caveman-skill"]), tools: new Map(), stats: new Map() });
   // 8.5% of 1,000 output tokens at $20/M, minus 1,650 skill tokens as a cache write at $5/M.

@@ -570,6 +570,8 @@ past wrappers, Codex base instructions after compaction, rewind credit).
   hook leaves alone (`sudo …`, `xargs …`, `env -u …`, `command -v …`, `(cmd)`, `{ cmd; }`;
   70cf9cc), and every caveman-engine replay failed from 362bb03 until db50321, so a run in
   between has no caveman-engine number. Re-run with `--exact` before quoting either.
+- The caveman-skill row: on older Claude models with thinking (Haiku 4.5, Sonnet 4/4.5,
+  Opus 4/4.1), its re-read credit no longer counts thinking the model dropped at a prompt.
 
 **Human steps (GATE):**
 - Discard the uncommitted changes in the worktree `.claude/worktrees/wf_0ba0b3d4-ab4-5`

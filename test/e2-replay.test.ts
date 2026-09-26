@@ -15,7 +15,7 @@ import { FIXTURES } from "./helpers.ts";
 /** One synthetic log file whose outputs are replay jobs for `saver`. */
 function synth(saver: string, inputs: string[]): FileResult {
   const jobs = inputs.map((input, i): ReplayJob => ({ saver, tool: "Bash", cls: "Shell|tests", baseline: countProxy(input), headerTokens: 0, addTokens: 0, timeline: "main", block: i, key: `k${i}`, input }));
-  return { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: jobs.map(() => ({ d: [0], r: [0] })) } }, jobs, covered: [0], toolTokens: 0 } };
+  return { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: jobs.map(() => ({ d: [0] })) } }, jobs, covered: [0], toolTokens: 0 } };
 }
 
 test("headroom without its model: the installer's own copy is finished by the installer, another is run once online", { skip: process.platform === "win32" ? "needs a script as the Python" : false }, async () => {

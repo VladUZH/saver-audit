@@ -8,13 +8,12 @@
 // compaction. Replayed savers resolve `d` from the cache or leave a ReplayJob.
 import { createHash } from "node:crypto";
 import { countProxy } from "../accounting/tokens.ts";
-import { CAVEMAN_SKILL_OUTPUT_CUT, splitCodexHeader, type SaverAdapter } from "./registry.ts";
+import { splitCodexHeader, type SaverAdapter } from "./registry.ts";
 import type { OutputView, ReplayJob } from "./types.ts";
 
-/** Per-saver token deltas for one block: proxy (o200k, calibrated later) and real tokens. */
+/** Per saver: the o200k tokens (calibrated later) it removes from one block. */
 export interface SaverBlock {
   d: number[];
-  r: number[];
 }
 
 export interface CallRange {
@@ -22,8 +21,6 @@ export interface CallRange {
   ctxStart: number;
   newStart: number;
   newEnd: number;
-  /** Block count right after the call (its output-style block included). */
-  end: number;
   /** First call in this timeline (a prompt-level addition is new, not cached, here). */
   first: boolean;
 }
@@ -96,7 +93,6 @@ export class SaverTracker {
   readonly savers: SaverAdapter[];
   private replayable: Set<string>;
   private lookup: ReplayLookup;
-  private skillIdx: number;
   private until?: string;
   private versions: Record<string, string>;
 
@@ -107,7 +103,6 @@ export class SaverTracker {
     this.replayable = replayable;
     this.lookup = lookup;
     this.covered = savers.map(() => 0);
-    this.skillIdx = savers.findIndex((s) => s.id === "caveman-skill");
   }
 
   private tl(name: string): TimelineBlocks {
@@ -115,7 +110,7 @@ export class SaverTracker {
   }
 
   private zero(): SaverBlock {
-    return { d: this.savers.map(() => 0), r: this.savers.map(() => 0) };
+    return { d: this.savers.map(() => 0) };
   }
 
   compact(timeline: string): void {
@@ -133,9 +128,9 @@ export class SaverTracker {
     if (!range || range.tl !== timeline) return this.compact(timeline);
     const t = this.tl(timeline);
     const start = t.blocks.length;
-    t.blocks.push(...t.blocks.slice(range.ctxStart, range.end));
+    t.blocks.push(...t.blocks.slice(range.ctxStart, range.newEnd));
     t.ctxStart = start;
-    t.pendStart = start + range.newEnd - range.ctxStart;
+    t.pendStart = t.blocks.length;
   }
 
   output(timeline: string, timestamp: string | undefined, o: OutputView): void {
@@ -190,17 +185,9 @@ export class SaverTracker {
   }
 
   /** Marks a call's block range; returns it for the CallRecord. */
-  call(timeline: string, output: number): CallRange {
+  call(timeline: string): CallRange {
     const t = this.tl(timeline);
-    const range = { tl: timeline, ctxStart: t.ctxStart, newStart: t.pendStart, newEnd: t.blocks.length, end: t.blocks.length, first: t.calls++ === 0 };
-    // Output-style saver: part of this call's output is never written, so it is also
-    // never re-read by later calls in this context.
-    if (this.skillIdx >= 0 && output > 0) {
-      const b = this.zero();
-      b.r[this.skillIdx] = output * CAVEMAN_SKILL_OUTPUT_CUT;
-      t.blocks.push(b);
-    }
-    range.end = t.blocks.length;
+    const range = { tl: timeline, ctxStart: t.ctxStart, newStart: t.pendStart, newEnd: t.blocks.length, first: t.calls++ === 0 };
     t.pendStart = range.newEnd;
     return range;
   }

@@ -24,7 +24,7 @@ type Spec = Partial<ReplayJob> & { key: string; input: string };
 /** One synthetic log file whose outputs are replay jobs for `saver` (the saver at index 0). */
 function synth(saver: string, specs: Spec[]): FileResult {
   const jobs = specs.map((s, i): ReplayJob => ({ saver, tool: "Bash", cls: "Shell|tests", baseline: countProxy(s.input), headerTokens: 0, addTokens: 0, timeline: "main", block: i, ...s }));
-  return { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: jobs.map(() => ({ d: [0], r: [0] })) } }, jobs, covered: [0], toolTokens: 0 } };
+  return { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: jobs.map(() => ({ d: [0] })) } }, jobs, covered: [0], toolTokens: 0 } };
 }
 
 const deltas = (f: FileResult) => f.savers!.timelines.main!.blocks.map((b) => b.d[0]!);
@@ -260,7 +260,7 @@ test("Ctrl+C during a replay removes the savers' state folder (copies of tool ou
     const script = `
       import { runReplays } from ${JSON.stringify(new URL("../src/savers/replay.ts", import.meta.url).href)};
       const jobs = [0, 1].map((i) => ({ saver: "caveman-engine", key: "k" + i, tool: "Bash", cls: "c", baseline: 100, headerTokens: 0, addTokens: 0, timeline: "main", block: i, input: i + " SLOW tool output", args: [] }));
-      const f = { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: jobs.map(() => ({ d: [0], r: [0] })) } }, jobs, covered: [0], toolTokens: 0 } };
+      const f = { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: jobs.map(() => ({ d: [0] })) } }, jobs, covered: [0], toolTokens: 0 } };
       const tools = new Map([["caveman-engine", { saver: "caveman-engine", command: ${JSON.stringify(join(BIN, "fake-saver"))}, env: { FAKE_SLEEP_MS: "30000", FAKE_STATE: "1" } }]]);
       await runReplays([f], ["caveman-engine"], { tools, full: true, concurrency: 2 });`;
     const child = spawn(process.execPath, ["--input-type=module", "-e", script], { env: { ...process.env, TMPDIR: temp }, stdio: "ignore" });
@@ -556,7 +556,7 @@ function stubHeadroom(cwd: string, texts: string[], env: Record<string, string> 
     import { countProxy } from ${JSON.stringify(new URL("../src/accounting/tokens.ts", import.meta.url).href)};
     const texts = ${JSON.stringify(texts)};
     const jobs = texts.map((input, i) => ({ saver: "headroom", key: "k" + i, tool: "Bash", cls: "Shell|tests", baseline: countProxy(input), headerTokens: 0, addTokens: 0, timeline: "main", block: i, input }));
-    const f = { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: jobs.map(() => ({ d: [0], r: [0] })) } }, jobs, covered: [0], toolTokens: 0 } };
+    const f = { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: jobs.map(() => ({ d: [0] })) } }, jobs, covered: [0], toolTokens: 0 } };
     const tools = detectReplayTools([]);
     const stats = tools.has("headroom") ? (await runReplays([f], ["headroom"], { tools, full: true, concurrency: 1 })).get("headroom") : undefined;
     console.log(JSON.stringify({ version: tools.get("headroom")?.version, stats, d: f.savers.timelines.main.blocks.map((b) => b.d[0]) }));`;

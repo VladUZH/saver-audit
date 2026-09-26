@@ -194,17 +194,13 @@ function amount(): Amount {
   return { tokens: 0, cost: 0 };
 }
 
-/** Prefix sums of a timeline's saver deltas: pd (o200k, ×k later) and pr (real tokens). */
-function prefixes(blocks: SaverBlock[], n: number): { pd: number[][]; pr: number[][] } {
+/** Prefix sums of a timeline's saver deltas, per saver (o200k, ×k later). */
+function prefixes(blocks: SaverBlock[], n: number): number[][] {
   const pd = Array.from({ length: n }, () => new Array<number>(blocks.length + 1).fill(0));
-  const pr = Array.from({ length: n }, () => new Array<number>(blocks.length + 1).fill(0));
   for (let i = 0; i < n; i++) {
-    for (let b = 0; b < blocks.length; b++) {
-      pd[i]![b + 1] = pd[i]![b]! + blocks[b]!.d[i]!;
-      pr[i]![b + 1] = pr[i]![b]! + blocks[b]!.r[i]!;
-    }
+    for (let b = 0; b < blocks.length; b++) pd[i]![b + 1] = pd[i]![b]! + blocks[b]!.d[i]!;
   }
-  return { pd, pr };
+  return pd;
 }
 
 export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: SaverRun): AuditResult {
@@ -249,7 +245,7 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
   let last = "";
   const savers = saverRun?.savers ?? [];
   const saved = savers.map(() => ({ tokens: 0, cost: 0, codexCost: 0 }));
-  const prefixCache = new Map<string, { pd: number[][]; pr: number[][] }>();
+  const prefixCache = new Map<string, number[][]>();
   const skillIdx = savers.findIndex((sv) => sv.id === "caveman-skill");
   const addBucket = (key: BucketKey, tokens: number, cost: number, file: number) => {
     let b = buckets.get(key);
@@ -298,7 +294,8 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     billing.output.cost += c.output;
     billing.webSearch.cost += c.webSearch;
     const k = calib.get(rec.model)!.k;
-    for (const [key, share] of attribute(rec, k, c)) addBucket(key, share.tokens, share.cost, rec.file);
+    const shares = attribute(rec, k, c);
+    for (const [key, share] of shares) addBucket(key, share.tokens, share.cost, rec.file);
     const fs = results[rec.file]?.savers;
     if (savers.length && rec.range && fs) {
       const tl = fs.timelines[rec.range.tl];
@@ -312,15 +309,18 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
         let tok = 0;
         let usd = 0;
         if (pre) {
-          const oldD = k * (pre.pd[i]![newStart]! - pre.pd[i]![ctxStart]!) + (pre.pr[i]![newStart]! - pre.pr[i]![ctxStart]!);
-          const newD = k * (pre.pd[i]![newEnd]! - pre.pd[i]![newStart]!) + (pre.pr[i]![newEnd]! - pre.pr[i]![newStart]!);
+          const oldD = k * (pre[i]![newStart]! - pre[i]![ctxStart]!);
+          const newD = k * (pre[i]![newEnd]! - pre[i]![newStart]!);
           tok += oldD * rates.oldTokens + newD * rates.newTokens;
           usd += oldD * rates.oldCost + newD * rates.newCost;
         }
         if (i === skillIdx) {
-          // Output style: fewer output tokens now; the skill text is in every prompt.
-          tok += u.output * CAVEMAN_SKILL_OUTPUT_CUT;
-          usd += c.output * CAVEMAN_SKILL_OUTPUT_CUT;
+          // Output style: fewer output tokens now, so less earlier output to re-read (what the
+          // context split counts as re-read: not thinking an older model dropped); the
+          // skill text is in every prompt.
+          const reread = shares.get("assistant") ?? { tokens: 0, cost: 0 };
+          tok += (u.output + reread.tokens) * CAVEMAN_SKILL_OUTPUT_CUT;
+          usd += (c.output + reread.cost) * CAVEMAN_SKILL_OUTPUT_CUT;
           const overhead = CAVEMAN_SKILL_TOKENS * k;
           tok -= overhead * (rec.range.first ? rates.newTokens : rates.oldTokens);
           usd -= overhead * (rec.range.first ? rates.newCost : rates.oldCost);

@@ -72,8 +72,9 @@ test("a response split around its tool results keeps its final output count in c
     assert.equal(split.records[1]!.newReal, 400, "msg_2 re-reads msg_1's final output, not the placeholder");
     assert.equal(split.records[2]!.oldReal, 400, "and so does every later call");
     assert.deepEqual(view(split), view(adjacent));
-    assert.deepEqual(split.savers!.timelines.main!.blocks, adjacent.savers!.timelines.main!.blocks, "caveman-skill's re-read block uses the final output");
     assert.deepEqual(buckets(split), buckets(adjacent));
+    const skill = (r: FileResult) => summarize(fixtureOptions(), [r], { savers: saverIndex(["caveman-skill"]), tools: new Map(), stats: new Map() }).savers;
+    assert.deepEqual(skill(split), skill(adjacent), "caveman-skill's re-read credit uses the final output");
   });
 });
 
@@ -180,6 +181,30 @@ test("within a tool loop thinking stays; a logged thinking count drops only that
   });
 });
 
+test("caveman-skill is credited for re-reading only the earlier output the context keeps", async () => {
+  await withDir(async (run) => {
+    const skill = { ids: ["caveman-skill"], replayable: [] };
+    const audit = (r: FileResult) => summarize(fixtureOptions(), [r], { savers: saverIndex(["caveman-skill"]), tools: new Map(), stats: new Map() });
+    const row = (r: ReturnType<typeof audit>, key: string) => r.buckets.find((b) => b.key === key) ?? { tokens: 0, cost: 0 };
+    // The same session with and without 4,000 thinking tokens per answer: same prompts, same cache numbers.
+    const pair = async (model: string) => {
+      const a = audit(await run(thinkingSession(model, 20, 15_000, 4000), skill));
+      const b = audit(await run(thinkingSession(model, 20, 15_000, 0), skill));
+      return { a, b, saved: a.savers[0]!.tokens - b.savers[0]!.tokens, usd: a.savers[0]!.cost - b.savers[0]!.cost, out: row(a, "output").tokens - row(b, "output").tokens, outUsd: row(a, "output").cost - row(b, "output").cost };
+    };
+    // Dropped at each prompt: the thinking is never re-read, so it adds only the output cut itself.
+    const drop = await pair("claude-sonnet-4-5-20250929");
+    assert.deepEqual(drop.a.buckets.filter((b) => b.key !== "output"), drop.b.buckets.filter((b) => b.key !== "output"), "same context either way");
+    assert.equal(drop.out, 20 * 4000);
+    assert.ok(Math.abs(drop.saved - 0.085 * drop.out) < 1e-6, `${drop.saved} vs ${0.085 * drop.out}`);
+    assert.ok(Math.abs(drop.usd - 0.085 * drop.outUsd) < 1e-12, `${drop.usd} vs ${0.085 * drop.outUsd}`);
+    // Kept: later calls re-read it, and the skill's shorter output is re-read too.
+    const keep = await pair("claude-sonnet-4-6");
+    assert.ok(row(keep.a, "assistant").tokens > row(keep.b, "assistant").tokens);
+    assert.ok(keep.saved > 0.085 * keep.out + 1000, `${keep.saved} vs ${0.085 * keep.out}`);
+  });
+});
+
 const ts = (n: number) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
 const system = (uuid: string, t: string, parentUuid: string) => ({ ...env(uuid, t, parentUuid), type: "system", subtype: "turn_duration", durationMs: 1000 });
 const contextMode = { ids: ["context-mode"], replayable: [] };
@@ -252,7 +277,7 @@ test("a rewind to an earlier prompt gives the context of the kept conversation",
 const credit = (r: FileResult) =>
   r.records.map((x) => {
     const blocks = r.savers!.timelines[x.range!.tl]!.blocks;
-    const sum = (a: number, z: number, i: number) => blocks.slice(a, z).reduce((n, b) => n + b.d[i]! + b.r[i]!, 0);
+    const sum = (a: number, z: number, i: number) => blocks.slice(a, z).reduce((n, b) => n + b.d[i]!, 0);
     return r.savers!.covered.map((_, i) => [sum(x.range!.ctxStart, x.range!.newStart, i), sum(x.range!.newStart, x.range!.newEnd, i)]);
   });
 
@@ -276,16 +301,13 @@ test("after a rewind, savers keep crediting the kept conversation as without the
       prompt("p3", "00:10", "thanks", "m4"),
       assistant("m5", "00:11", "msg_5", [text("ok")], usage(20, 5950, 5), undefined, "p3"),
     ];
-    // An upper bound on tool output, and an output style (its block follows each call).
-    const savers = { ids: ["context-mode", "caveman-skill"], replayable: [] };
-    const branched = await run([...head, ...abandoned, ...tail], savers);
-    const linear = await run([...head, ...tail], savers);
+    const branched = await run([...head, ...abandoned, ...tail], contextMode);
+    const linear = await run([...head, ...tail], contextMode);
     assert.deepEqual(credit(branched).slice(4), credit(linear).slice(2));
     assert.ok(credit(linear)[2]![0]![0]! > 0, "the kept build log is credited on every later call");
-    assert.ok(credit(linear)[2]![1]![1]! > 0, "the rewound-to call's output style counts as new on the next call");
     // Replay results are written to a job's block after the worker's structured clone: the kept copy is the same object.
     const blocks = structuredClone(branched).savers!.timelines.main!.blocks;
-    assert.equal(blocks.filter((b) => b === blocks[1]).length, 2);
+    assert.equal(blocks.filter((b) => b === blocks[0]).length, 2);
   });
 });
 
