@@ -6,7 +6,7 @@ import { isAbsolute, join } from "node:path";
 import snapshot from "../data/prices.json" with { type: "json" };
 import { runAudit } from "../src/pool.ts";
 import { BUNDLED, loadPrices, userPricesPath } from "../src/prices/load.ts";
-import { ratesFor, resolveModel, type Rates } from "../src/prices/table.ts";
+import { ratesFor, resolveModel, viaAlias, type Rates } from "../src/prices/table.ts";
 import { LITELLM_URL, updatePrices } from "../src/prices/update.ts";
 import { renderTerminal } from "../src/report/terminal.ts";
 import { fixtureOptions } from "./helpers.ts";
@@ -111,6 +111,29 @@ test("fast-mode calls on a model with no published fast price are flagged, and t
   assert.deepEqual(flagged, { "claude-opus-5-5": undefined, "claude-sonnet-5": 2, "claude-unknown-9": undefined }, "an unpriced model is already named as such");
   const text = renderTerminal(r, { showProjects: false, color: false, verbose: false });
   assert.match(text, /Fast mode price unknown, standard rate used: claude-sonnet-5 \(2 calls\)\./);
+});
+
+test("a dated snapshot priced as its base model is not listed as having no public price; an alias is", async () => {
+  assert.equal(viaAlias("gpt-5-2025-08-07", "gpt-5"), false);
+  assert.equal(viaAlias("claude-opus-4-6-20260205", "claude-opus-4-6"), false);
+  assert.equal(viaAlias("anthropic/claude-sonnet-4-5-20250929[1m]", "claude-sonnet-4-5-20250929"), false);
+  assert.equal(viaAlias("codex-auto-review", "gpt-5.6-luna"), true);
+  const home = mkdtempSync(join(tmpdir(), "sa-b-codex-"));
+  const day = join(home, "sessions", "2026", "09", "20");
+  mkdirSync(day, { recursive: true });
+  const usage = { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 10, total_tokens: 1010 };
+  const rows = [
+    { timestamp: "2026-09-20T10:00:00.000Z", type: "session_meta", payload: { id: "t", cwd: "/tmp/p" } },
+    { timestamp: "2026-09-20T10:00:00.100Z", type: "turn_context", payload: { model: "gpt-5-2025-08-07" } },
+    { timestamp: "2026-09-20T10:00:01.000Z", type: "event_msg", payload: { type: "token_count", info: { total_token_usage: usage, last_token_usage: usage } } },
+  ];
+  writeFileSync(join(day, "rollout-2026-09-20T10-00-00-t.jsonl"), rows.map((x) => JSON.stringify(x)).join("\n") + "\n");
+  const codex = await runAudit(fixtureOptions({ sources: ["codex"], codexHome: home }), undefined, 1);
+  const claude = await auditClaude([{ model: "claude-opus-4-6-20260205", usage: { input_tokens: 10, output_tokens: 10 } }]);
+  for (const r of [codex, claude]) {
+    assert.ok(r.models[0]!.pricedAs && r.billing.total.cost > 0, r.models[0]!.model);
+    assert.doesNotMatch(renderTerminal(r, { showProjects: false, color: false, verbose: false }), /Priced as|no public price/);
+  }
 });
 
 test("a table saved by --update-prices overlays the bundled one: dropped models keep their price, aliases come from this version", () => {

@@ -139,9 +139,23 @@ export function buildPriceTable(modelsDev: any, litellm: any, date: string): Pri
   };
 }
 
+// Dated snapshot of a model: Anthropic -YYYYMMDD, OpenAI -YYYY-MM-DD.
+const DATED = /-(\d{8}|\d{4}-\d{2}-\d{2})$/;
+
+/** A logged model name without its 1M-context marker and provider prefix. */
+function bareModel(model: string): string {
+  return model.replace(/\[1m\]$/i, "").replace(/^(openai|anthropic)\//, "");
+}
+
+/** Priced through an alias (the model has no public price), not as itself or its dated snapshot's base model. */
+export function viaAlias(model: string, pricedAs: string): boolean {
+  const m = bareModel(model);
+  return pricedAs !== m && pricedAs !== m.replace(DATED, "");
+}
+
 /** Resolves a logged model name to a priced model id, or undefined. */
 export function resolveModel(table: PriceTable, model: string, timestamp?: string): string | undefined {
-  let m = model.replace(/\[1m\]$/i, "").replace(/^(openai|anthropic)\//, "");
+  let m = bareModel(model);
   // Own keys only: a logged name like "constructor" must not hit Object.prototype.
   const alias = Object.hasOwn(table.aliases, m) ? table.aliases[m] : undefined;
   if (Array.isArray(alias) && alias.length) {
@@ -149,8 +163,8 @@ export function resolveModel(table: PriceTable, model: string, timestamp?: strin
     m = (alias.find((a) => !a.until || (day && day < a.until)) ?? alias[alias.length - 1]!).model;
   }
   if (Object.hasOwn(table.models, m)) return m;
-  // Dated snapshot of a priced model: Anthropic -YYYYMMDD, OpenAI -YYYY-MM-DD.
-  const undated = m.replace(/-(\d{8}|\d{4}-\d{2}-\d{2})$/, "");
+  // Dated snapshot of a priced model.
+  const undated = m.replace(DATED, "");
   if (Object.hasOwn(table.models, undated)) return undated;
   return undefined;
 }

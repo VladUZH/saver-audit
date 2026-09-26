@@ -1,6 +1,7 @@
 // The human report. Prints numbers, fixed labels and model names only: never prompts,
 // paths, commands or tool output. Project names only with --show-projects.
 import type { AuditResult } from "../audit.ts";
+import { viaAlias } from "../prices/table.ts";
 import type { InstallOffer } from "../savers/toolsdir.ts";
 
 export interface TerminalOptions {
@@ -285,8 +286,9 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   const fast = r.models.filter((m) => m.fastUnpriced);
   if (fast.length) out.push(`  Fast mode price unknown, standard rate used: ${fast.map((m) => `${m.model} (${plural(m.fastUnpriced!, "call")})`).join(", ")}.`);
   // A model priced as more than one (an alias that changed on a date) lists each with its calls.
+  // A dated snapshot priced as its base model has a public price: not listed.
   const aliased = new Map<string, AuditResult["models"]>();
-  for (const m of r.models) if (m.pricedAs && m.pricedAs !== m.model && !m.model.includes("[")) aliased.set(m.model, [...(aliased.get(m.model) ?? []), m]);
+  for (const m of r.models) if (m.pricedAs && viaAlias(m.model, m.pricedAs)) aliased.set(m.model, [...(aliased.get(m.model) ?? []), m]);
   const as = (rows: AuditResult["models"]) => (rows.length === 1 ? rows[0]!.pricedAs : rows.map((m) => `${m.pricedAs} (${plural(m.calls, "call")})`).join(" / "));
   if (aliased.size) out.push(`  Priced as: ${[...aliased].map(([model, rows]) => `${model} → ${as(rows)}`).join(", ")} (no public price).`);
   out.push(`  Prices: snapshot of ${r.prices.date} (models.dev). Refresh with --update-prices (network).`);
