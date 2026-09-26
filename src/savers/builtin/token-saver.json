@@ -14,7 +14,14 @@
     "version"
   ],
   "env": {
-    "HOME": "{state}/token-saver-home"
+    "HOME": "{state}/token-saver-home",
+    "USERPROFILE": "{state}/token-saver-home",
+    "APPDATA": "{state}/token-saver-home/AppData/Roaming",
+    "LOCALAPPDATA": "{state}/token-saver-home/AppData/Local",
+    "XDG_CONFIG_HOME": "{state}/token-saver-home/.config",
+    "XDG_DATA_HOME": "{state}/token-saver-home/.local/share",
+    "XDG_STATE_HOME": "{state}/token-saver-home/.local/state",
+    "XDG_CACHE_HOME": "{state}/token-saver-home/.cache"
   },
   "routes": [
     {

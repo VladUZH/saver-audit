@@ -500,3 +500,22 @@ test("rtk runs with its telemetry and hook warning off, for the version probe to
     t.done();
   }
 });
+
+test("token-saver and lean-ctx get a whole temporary home: HOME, the XDG folders and the Windows profile folders", async () => {
+  const t = tmp();
+  try {
+    const log = join(t.dir, "runs.jsonl");
+    const user = { XDG_CONFIG_HOME: join(t.dir, "config"), XDG_DATA_HOME: join(t.dir, "data"), USERPROFILE: t.dir, APPDATA: t.dir };
+    for (const saver of ["token-saver", "lean-ctx"]) {
+      const f = synth(saver, [{ key: `${saver}0`, input: text(0) }]);
+      await withEnv(user, () => runReplays([f], [saver], { tools: tool(saver, "fake-saver", { FAKE_ENV_LOG: log }), full: true, concurrency: 1 }));
+    }
+    for (const r of readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l))) {
+      const home = r.env.HOME;
+      assert.match(home, /saver-audit-[^/]+\/(token-saver|lean-ctx)-home$/);
+      for (const k of ["USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"]) assert.ok(r.env[k].startsWith(home), `${k}: ${r.env[k]}`);
+    }
+  } finally {
+    t.done();
+  }
+});

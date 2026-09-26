@@ -14,7 +14,14 @@
     "--version"
   ],
   "env": {
-    "HOME": "{state}/lean-ctx-home"
+    "HOME": "{state}/lean-ctx-home",
+    "USERPROFILE": "{state}/lean-ctx-home",
+    "APPDATA": "{state}/lean-ctx-home/AppData/Roaming",
+    "LOCALAPPDATA": "{state}/lean-ctx-home/AppData/Local",
+    "XDG_CONFIG_HOME": "{state}/lean-ctx-home/.config",
+    "XDG_DATA_HOME": "{state}/lean-ctx-home/.local/share",
+    "XDG_STATE_HOME": "{state}/lean-ctx-home/.local/state",
+    "XDG_CACHE_HOME": "{state}/lean-ctx-home/.cache"
   },
   "jsonRatio": {
     "before": "original_tokens",
