@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAudit } from "../src/pool.ts";
-import { intentUrl, REPO_URL, shareText } from "../src/report/share.ts";
+import { intentUrl, REPO_URL, shareText, xLength } from "../src/report/share.ts";
 import { renderShort } from "../src/report/terminal.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import { FAKE_TOOLS, fixtureOptions, SECRET } from "./helpers.ts";
@@ -27,8 +27,8 @@ test("the pre-filled post holds numbers only and fits a post", async () => {
   assert.match(text, /\nheadroom −[\d.]+% \(\$0\.\d\d\)/, "measured savers lead, with % and $");
   assert.match(text, /of \$0\.04 API-equivalent spend\./);
   assert.match(text, /npx saver-audit$/);
-  // X counts every link as 23 characters.
-  assert.ok(text.length + 1 + 23 <= 280, `${text.length} characters`);
+  // X counts every link as 23 characters, and "−" or "≈" as 2.
+  assert.ok(xLength(text) + 1 + 23 <= 280, `${xLength(text)} weighted characters`);
 });
 
 test("the X intent link carries the text and the repo", () => {
@@ -56,5 +56,5 @@ test("without installed savers the post uses modeled and best-case numbers, labe
   assert.match(text, /Best case \(changes how the agent works\): at most −[\d.]+% \(context-mode\)/);
   assert.doesNotMatch(text, /caveman skill/, "modeled numbers are not posted");
   assert.doesNotMatch(text, /replayed/);
-  assert.ok(text.length + 1 + 23 <= 280);
+  assert.ok(xLength(text) + 1 + 23 <= 280);
 });

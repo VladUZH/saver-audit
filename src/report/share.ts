@@ -13,8 +13,37 @@ function usd(n: number): string {
   return n >= 100 ? `$${Math.round(n).toLocaleString("en-US")}` : `$${n.toFixed(2)}`;
 }
 
-const LINK = 23; // X counts every link as 23 characters
+// X's weighted length (twitter-text config v3): a link counts 23, code points in these
+// ranges 1, every other one 2 (so "−" and "≈" count 2); at most 280.
+const LINK = 23;
 const LIMIT = 280;
+const LIGHT: Array<[number, number]> = [[0, 4351], [8192, 8205], [8208, 8223], [8242, 8247]];
+
+function weight(ch: string): number {
+  const cp = ch.codePointAt(0)!;
+  return LIGHT.some(([a, b]) => cp >= a && cp <= b) ? 1 : 2;
+}
+
+/** A text's length as X counts it. */
+export function xLength(text: string): number {
+  // Split keeps each link at an odd index.
+  return text
+    .normalize("NFC")
+    .split(/(https?:\/\/\S+)/)
+    .reduce((n, part, i) => n + (i % 2 ? LINK : [...part].reduce((m, ch) => m + weight(ch), 0)), 0);
+}
+
+/** The longest start of `text` whose X length is at most `max`. */
+function fit(text: string, max: number): string {
+  let n = 0;
+  let out = "";
+  for (const ch of text.normalize("NFC")) {
+    n += weight(ch);
+    if (n > max) break;
+    out += ch;
+  }
+  return out;
+}
 
 const short = (name: string) => name.replace(" (proxy engine)", " engine").replace(" (skill)", " skill");
 
@@ -64,11 +93,12 @@ export function shareText(r: AuditResult): string {
     const head = `My AI coding agents (${agents}) used ${spend} of API-equivalent tokens in ${days} days.`;
     candidates.push([head, best], [head]);
   }
+  // The link goes after the text, one character apart.
   for (const c of candidates) {
     const text = [...c.filter(Boolean), ...tail].join("\n");
-    if (text.length + 1 + LINK <= LIMIT) return text;
+    if (xLength(text) + 1 + LINK <= LIMIT) return text;
   }
-  return [...candidates[candidates.length - 1]!.filter(Boolean), ...tail].join("\n").slice(0, LIMIT - 1 - LINK);
+  return fit([...candidates[candidates.length - 1]!.filter(Boolean), ...tail].join("\n"), LIMIT - 1 - LINK);
 }
 
 export function intentUrl(text: string, url = REPO_URL): string {

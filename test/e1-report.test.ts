@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { AuditResult, SaverRow } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
 import { cardSvg } from "../src/report/card.ts";
-import { shareText } from "../src/report/share.ts";
+import { shareText, xLength } from "../src/report/share.ts";
 import { renderShort, renderTerminal } from "../src/report/terminal.ts";
 import { CLAUDE_ROOT, FAKE_TOOLS, fixtureOptions } from "./helpers.ts";
 
@@ -112,5 +112,27 @@ test("a Codex part that is a net cost is never shown as a hypothetical saving", 
     assert.doesNotMatch(full, /caveman \(skill\) \$0\.01/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("X's weighted length: Latin 1, '−' '≈' '≤' and CJK 2, a link 23", () => {
+  assert.equal(xLength("abc $1.00"), 9);
+  assert.equal(xLength("é—"), 2, "U+00E9 and U+2014 weigh 1");
+  assert.equal(xLength("−≈≤…"), 8);
+  assert.equal(xLength("日本"), 4);
+  assert.equal(xLength("see https://github.com/VladUZH/saver-audit now"), 4 + 23 + 4);
+  assert.equal(xLength("e\u0301"), 1, "NFC first");
+});
+
+test("the post fits X's weighted limit with the link, with many savers and '≈' marks", () => {
+  const indicative = { replay: { total: 100, pending: 0, ran: 50, extrapolated: 50, failed: 0 } };
+  const ceiling = saver("context-mode", "context-mode", 45.6, { method: "upper-bound" });
+  const four = result({ savers: [saver("rtk", "rtk", 9.87), saver("lean-ctx", "lean-ctx", 7.65), saver("token-saver", "token-saver", 5.43), saver("caveman-engine", "caveman (proxy engine)", 3.21), ceiling] });
+  const big = { billing: { ...result().billing, total: amt(3e9, 1234.5) } };
+  const five = result({ ...big, savers: [saver("rtk", "rtk", 98.7, indicative), saver("lean-ctx", "lean-ctx", 76.5, indicative), saver("token-saver", "token-saver", 54.3, indicative), saver("caveman-engine", "caveman (proxy engine)", 32.1, indicative), saver("headroom", "headroom", 21.2, indicative), ceiling] });
+  for (const r of [four, five]) {
+    const post = shareText(r);
+    assert.ok(xLength(post) + 1 + 23 <= 280, `${xLength(post)} weighted characters:\n${post}`);
+    assert.match(post, /rtk ≈?−/);
   }
 });
