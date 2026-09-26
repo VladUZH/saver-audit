@@ -47,7 +47,7 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
   out.push("");
   out.push(`${bold(accent(fmtUsd(total)))} ${bold("API-equivalent at list prices")} · ${fmtTokens(r.billing.total.tokens)} tokens`);
   const unpriced = unpricedCalls(r);
-  if (unpriced) out.push(accent(`Excludes ${unpriced.toLocaleString("en-US")} ${unpriced === 1 ? "call" : "calls"} on unpriced models: ${[...new Set(r.models.filter((m) => !m.pricedAs).map((m) => m.model))].join(", ")} (tokens counted, $0).`));
+  if (unpriced) out.push(accent(`Excludes ${plural(unpriced, "call")} on unpriced models: ${[...new Set(r.models.filter((m) => !m.pricedAs).map((m) => m.model))].join(", ")} (tokens counted, $0).`));
   out.push(dim(`Not your bill: on a subscription you pay the plan price. List prices of ${r.prices.date}.`));
   out.push("");
 
@@ -109,7 +109,10 @@ export function loggedDays(r: AuditResult): number {
   return Math.min(periodDays(r), Math.round((day(r.covered.last) - day(r.covered.first)) / 864e5) + 1);
 }
 
-export const plural = (n: number, word: string) => `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
+/** "1 call", "2 calls". */
+export function plural(n: number, word: string): string {
+  return `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
+}
 
 /** The agents behind the counted calls, subagent runs included: "Claude Code + Codex". */
 export function agentNames(r: AuditResult): string {
@@ -252,7 +255,7 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   // A model priced as more than one (an alias that changed on a date) lists each with its calls.
   const aliased = new Map<string, AuditResult["models"]>();
   for (const m of r.models) if (m.pricedAs && m.pricedAs !== m.model && !m.model.includes("[")) aliased.set(m.model, [...(aliased.get(m.model) ?? []), m]);
-  const as = (rows: AuditResult["models"]) => (rows.length === 1 ? rows[0]!.pricedAs : rows.map((m) => `${m.pricedAs} (${m.calls} ${m.calls === 1 ? "call" : "calls"})`).join(" / "));
+  const as = (rows: AuditResult["models"]) => (rows.length === 1 ? rows[0]!.pricedAs : rows.map((m) => `${m.pricedAs} (${plural(m.calls, "call")})`).join(" / "));
   if (aliased.size) out.push(`  Priced as: ${[...aliased].map(([model, rows]) => `${model} → ${as(rows)}`).join(", ")} (no public price).`);
   out.push(`  Prices: snapshot of ${r.prices.date} (models.dev). Refresh with --update-prices (network).`);
   if (o.verbose || r.skipped.lines || r.skipped.unreadableFiles) {
