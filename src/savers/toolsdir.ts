@@ -1,9 +1,9 @@
 // Where `--install-savers` puts the savers, and what it can install on this machine.
 // No network code here, so detection and the report can import it on every run.
 import { spawnSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { lstatSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 
 export const RTK_TAG = "v0.50.0";
 export const CAVEMAN_BIN_TAG = "bin-v1.1.7";
@@ -25,9 +25,31 @@ export const toolPaths = {
   headroomState: () => join(toolsDir(), "headroom-state"),
 };
 
+/**
+ * A program in one of PATH's absolute folders, by full path; undefined if none has it.
+ * For Windows, where a bare name is looked up in the current folder first.
+ */
+export function onPathOnly(file: string): string | undefined {
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!isAbsolute(dir)) continue;
+    try {
+      lstatSync(join(dir, file)); // lstat: the Store's python.exe alias is a link stat cannot follow
+      return join(dir, file);
+    } catch {
+      // not in this folder
+    }
+  }
+  return undefined;
+}
+
 /** python3, python, then versioned names on PATH (a python3.12 next to an older python3), newest first. */
 function pythonCandidates(): string[][] {
-  if (process.platform === "win32") return [["py", "-3"], ["python"]];
+  if (process.platform === "win32") {
+    return [["py.exe", "-3"], ["python.exe"]].flatMap(([exe, ...pre]) => {
+      const p = onPathOnly(exe!);
+      return p ? [[p, ...pre]] : [];
+    });
+  }
   const versioned = new Set<string>();
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
     try {
