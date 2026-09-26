@@ -5,6 +5,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { AuditResult } from "../audit.ts";
+import { isIndicative, tooLittleData } from "./terminal.ts";
 
 export const REPO_URL = "https://github.com/VladUZH/saver-audit";
 
@@ -29,7 +30,7 @@ export function shareText(r: AuditResult): string {
   const agents = Object.keys(r.sessions.bySource).map((s) => (s === "claude-code" ? "Claude Code" : "Codex")).join(" + ");
   const pct = (x: number) => `${((100 * x) / total).toFixed(1)}%`;
   const ok = r.savers.filter((s) => s.status === "ok" && total > 0);
-  const measured = ok.filter((s) => s.method === "replayed" && !s.replay?.insufficient).sort((a, b) => b.cost - a.cost);
+  const measured = ok.filter((s) => s.method === "replayed" && !tooLittleData(s)).sort((a, b) => b.cost - a.cost);
   const ceiling = ok.filter((s) => s.method === "upper-bound").sort((a, b) => b.cost - a.cost)[0];
   const cut = (s: (typeof ok)[number]) => (s.cost >= 0 ? `−${pct(s.cost)} (${usd(s.cost)})` : `+${pct(-s.cost)} (costs ${usd(-s.cost)})`);
 
@@ -40,8 +41,8 @@ export function shareText(r: AuditResult): string {
   if (measured.length) {
     const longHead = `I replayed ${days} days of my ${agents} sessions through popular token savers:`;
     const shortHead = `Token savers on my ${agents} sessions:`;
-    // "≈" marks numbers from a quick sample (not every output replayed yet).
-    const approx = (s: (typeof ok)[number]) => (s.replay?.extrapolated ? "≈" : "");
+    // "≈" marks numbers not fully measured (a quick sample, or failed replays).
+    const approx = (s: (typeof ok)[number]) => (isIndicative(s) ? "≈" : "");
     const lines = measured.map((s) => `${short(s.name)} ${approx(s)}${cut(s)}`);
     const totalLine = `of ${usd(total)} API-equivalent spend.`;
     // Compact form: every measured saver with its % only, before falling back to the top 3.

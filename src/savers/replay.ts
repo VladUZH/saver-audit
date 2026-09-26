@@ -27,12 +27,15 @@ export interface ReplayStats {
   total: number;
   /** Outputs still to replay for exact numbers (not cached yet), after this run. */
   pending: number;
-  /** Quick mode ran out of time before enough outputs were replayed to estimate. */
+  /** Nothing measured to show: too few outputs replayed in quick mode, or most replays failed. */
   insufficient?: boolean;
+  /** Why there is no number (set with `insufficient`), e.g. "every replay failed". */
+  reason?: string;
   /** Unique outputs replayed in this run (not from cache). */
   ran: number;
   /** Unique outputs left to extrapolation because of the sample budget. */
   extrapolated: number;
+  /** Unique outputs whose replay failed in this run; counted as unchanged, tried again next run. */
   failed: number;
 }
 
@@ -54,6 +57,7 @@ const QUICK_SECONDS_FOR: Record<string, number> = { rtk: 15, headroom: 0, "cavem
 const quickSeconds = (saver: string) => QUICK_SECONDS_FOR[saver] ?? QUICK_SECONDS;
 /** Fewer replayed outputs than this in quick mode: no number, just "press [e]". */
 export const MIN_QUICK_SAMPLE = 20;
+const QUICK_REASON = "too few outputs replayed in quick mode";
 /** Measured replay throughput on an M-series Mac, outputs per second (tech-notes §8.11). */
 export const RATE: Record<string, number> = { rtk: 800, "caveman-engine": 250, "token-saver": 45, "lean-ctx": 45, headroom: 4 };
 const DEFAULT_RATE = 20;
@@ -210,6 +214,7 @@ for line in sys.stdin:
 /** One long-lived headroom process; the model loads once, as in a running headroom proxy. */
 class HeadroomSidecar {
   private child;
+  private closed = false;
   private buf = "";
   private waiting = new Map<number, (out: string | undefined) => void>();
   private next = 0;
@@ -219,8 +224,12 @@ class HeadroomSidecar {
     this.child = spawn(python, ["-u", "-c", HEADROOM_SIDECAR], { env, stdio: ["pipe", "pipe", "ignore"] });
     let resolveReady: (v: boolean) => void = () => {};
     this.ready = new Promise((r) => (resolveReady = r));
-    this.child.on("error", () => resolveReady(false));
+    this.child.on("error", () => {
+      this.closed = true;
+      resolveReady(false);
+    });
     this.child.on("close", () => {
+      this.closed = true;
       resolveReady(false);
       for (const f of this.waiting.values()) f(undefined);
       this.waiting.clear();
@@ -249,6 +258,7 @@ class HeadroomSidecar {
 
   /** Resolves "timeout" if it takes longer than `ms` (the sidecar is then unusable). */
   compress(tool: string, text: string, ms = Infinity): Promise<string | undefined | "timeout"> {
+    if (this.closed) return Promise.resolve(undefined); // it exited: a failed run, not a hang
     const i = this.next++;
     return new Promise((resolve) => {
       const timer = Number.isFinite(ms) ? setTimeout(() => (this.waiting.delete(i), resolve("timeout")), ms) : undefined;
@@ -305,6 +315,8 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const smallSampled = new Map<string, Set<string>>();
   /** Outputs whose replay failed in this run: counted as unchanged, never cached. */
   const failed = new Set<string>();
+  /** Why a saver's replays failed, when one cause failed them all (e.g. headroom's model). */
+  const failReason = new Map<string, string>();
   const state = mkdtempSync(join(tmpdir(), "saver-audit-"));
   const env = saverEnv(state);
   let dirty = false;
@@ -355,14 +367,17 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       // Cache-only savers in quick mode (budget 0): use what an exact run cached, if anything.
       if (!exact && quickSeconds(saver) === 0) {
         st.extrapolated += todo.length;
-        if (sample.length - todo.length < MIN_QUICK_SAMPLE) st.insufficient = true;
+        if (sample.length - todo.length < MIN_QUICK_SAMPLE) Object.assign(st, { insufficient: true, reason: QUICK_REASON });
         return;
       }
       if (saver === "headroom") {
         const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(state, "headroom") });
         if (!(await side.ready)) {
           side.close();
-          st.failed = todo.length;
+          for (const k of todo) failed.add(k);
+          st.failed += todo.length;
+          st.pending = Math.max(0, st.pending - todo.length);
+          failReason.set(saver, "compression model not cached");
           o.log?.("headroom: its compression model is not cached; skipped (run headroom once online to download it).");
           return;
         }
@@ -393,7 +408,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       // Outputs chosen for the sample but not reached in time are extrapolated.
       st.extrapolated += todo.length - attempted;
       const replayed = sample.length - (todo.length - attempted);
-      if (!exact && st.extrapolated > 0 && replayed < MIN_QUICK_SAMPLE) st.insufficient = true;
+      if (!exact && st.extrapolated > 0 && replayed < MIN_QUICK_SAMPLE) Object.assign(st, { insufficient: true, reason: QUICK_REASON });
   };
   try {
     // One saver at a time, fastest first: in parallel they only compete for the same cores.
@@ -401,6 +416,12 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     for (const [saver, unique] of order) await one(saver, unique);
   } finally {
     rmSync(state, { recursive: true, force: true });
+  }
+  // More failed than measured: a number would be mostly failures counted as unchanged.
+  for (const [saver, st] of stats) {
+    if (!st.failed) continue;
+    const measured = [...sampled.get(saver)!].filter((k) => cache.has(k)).length;
+    if (st.failed > measured) Object.assign(st, { insufficient: true, reason: failReason.get(saver) ?? (measured ? "most replays failed" : "every replay failed") });
   }
   if (dirty && o.cacheFile) saveReplayCache(o.cacheFile, cache);
 

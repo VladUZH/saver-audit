@@ -70,9 +70,10 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
       out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad(cost, 9)} ${lpad(share, 7)}  ${dim(confidence(x))}`);
     }
     const later = r.savers.filter((y) => y.status === "ok" && tooLittleData(y));
-    for (const x of later) out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad("—", 9)} ${lpad("", 7)}  ${dim("exact run needed: press [e]")}`);
+    for (const x of later) out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad("—", 9)} ${lpad("", 7)}  ${dim(noNumber(x, "press [e]"))}`);
     if (!measured.length && !later.length) out.push(dim("  None measured yet: no replayable saver is installed."));
-    if (measured.some(isIndicative) || later.length) out.push(dim(`  "indicative" = from a quick sample; can be off by half. ${bold("Press [e]")} for exact numbers (once; cached).`));
+    if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failed)) out.push(dim(`  "indicative" = from a quick sample; can be off by half. ${bold("Press [e]")} for exact numbers (once; cached).`));
+    if (measured.some((x) => x.replay?.failed)) out.push(dim(`  Some replays failed and count as unchanged, so those numbers are "indicative"; the full report has the counts.`));
     const rest = unmeasuredLine(r);
     if (rest) out.push(dim(`  Not measurable offline: ${rest}.`));
     const missing = r.savers.filter((y) => y.status === "not installed");
@@ -202,21 +203,31 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
 
 const METHOD: Record<string, string> = { replayed: "replayed", modeled: "modeled", "upper-bound": "upper bound" };
 
-/** Quick mode ran out of time before this saver could be estimated. */
+// One rule for replayed savers: no number when too little was measured (tooLittleData);
+// otherwise "indicative" when any output was not measured (extrapolated, or failed and
+// counted as unchanged), else "exact".
+
+/** Too little measured to show a number (quick sample too small, or most replays failed). */
 export function tooLittleData(s: AuditResult["savers"][number]): boolean {
   return s.method === "replayed" && !!s.replay?.insufficient;
 }
 
-/** Whether a replayed number still rests on a quick sample (not every output replayed). */
+/** A shown replayed number that is not fully measured: some outputs extrapolated or failed. */
 export function isIndicative(s: AuditResult["savers"][number]): boolean {
-  return s.method === "replayed" && !!s.replay?.extrapolated;
+  return s.method === "replayed" && !tooLittleData(s) && !!(s.replay?.extrapolated || s.replay?.failed);
 }
 
 /** Short confidence label: how much of the number is measured. */
 export function confidence(s: AuditResult["savers"][number]): string {
   if (s.method === "upper-bound") return "ceiling";
   if (s.method === "modeled") return "assumed";
+  if (tooLittleData(s)) return "not measured";
   return isIndicative(s) ? "indicative" : "exact";
+}
+
+/** What a saver row says instead of a number; `exact` is how to ask for an exact run. */
+function noNumber(s: AuditResult["savers"][number], exact: string): string {
+  return s.replay?.failed ? `not measured: ${s.replay.reason ?? "replays failed"}` : `exact run needed: ${exact}`;
 }
 
 /** The share of outputs replayed, rounded down so a nearly complete replay never reads 100%. */
@@ -235,7 +246,7 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
   const shown = r.savers.filter((s) => s.status === "ok");
   for (const s of shown) {
     if (tooLittleData(s)) {
-      out.push(`  ${pad(s.name, 24)} ${pad(METHOD[s.method]!, 12)} ${lpad("", 7)} ${lpad("", 9)} ${lpad("—", 10)} ${lpad("", 8)}  exact run needed: --exact`);
+      out.push(`  ${pad(s.name, 24)} ${pad(METHOD[s.method]!, 12)} ${lpad("", 7)} ${lpad("", 9)} ${lpad("—", 10)} ${lpad("", 8)}  ${noNumber(s, "--exact")}`);
       continue;
     }
     const le = s.method === "upper-bound" ? "≤ " : "";
@@ -250,7 +261,7 @@ function saverSection(r: AuditResult, o: TerminalOptions, bold: (s: string) => s
     if (s.replay && (s.replay.extrapolated || s.replay.failed)) {
       const parts = [];
       if (s.replay.extrapolated) parts.push(`indicative: ${replayedShare(s)} of its outputs replayed (quick mode), the other ${s.replay.extrapolated.toLocaleString("en-US")} extrapolated; --exact replays all`);
-      if (s.replay.failed) parts.push(`${s.replay.failed.toLocaleString("en-US")} failed`);
+      if (s.replay.failed) parts.push(`${s.replay.failed.toLocaleString("en-US")} ${s.replay.failed === 1 ? "replay" : "replays"} failed and count as unchanged (tried again next run)`);
       notes.push(`${s.name}: ${parts.join("; ")}.`);
     }
     if (s.assumption) notes.push(`${s.name}: ${s.assumption}.`);

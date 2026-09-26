@@ -4,7 +4,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AuditResult } from "../audit.ts";
-import { confidence, fmtTokens, fmtUsd, shortLabel } from "./terminal.ts";
+import { confidence, fmtTokens, fmtUsd, shortLabel, tooLittleData } from "./terminal.ts";
 
 const W = 1200;
 const H = 675;
@@ -78,7 +78,7 @@ export function cardSvg(r: AuditResult): string {
   parts.push(`<rect x="${rx - 16}" y="${top}" width="${rightW + 32}" height="${panelH}" rx="14" fill="${C.panel}"/>`);
   parts.push(text(rx + 4, top + 40, "What token savers would cut", 22, C.text, { bold: true }));
   // Measured savers only; the rest are one muted line (they are not measurements).
-  const savers = r.savers.filter((s) => s.status === "ok" && s.method === "replayed" && !s.replay?.insufficient).sort((a, b) => b.cost - a.cost).slice(0, 5);
+  const savers = r.savers.filter((s) => s.status === "ok" && s.method === "replayed" && !tooLittleData(s)).sort((a, b) => b.cost - a.cost).slice(0, 5);
   if (!savers.length) {
     parts.push(text(rx + 4, top + 88, "No saver measured yet.", 17, C.muted));
     parts.push(text(rx + 4, top + 114, "npx saver-audit --install-savers", 15, C.muted));

@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+// Fake headroom sidecar for replay tests (the JSON-lines protocol of src/savers/replay.ts).
+// Behaviour from environment variables:
+//   FAKE_READY=0         report the compression model as not cached
+//   FAKE_MIN_CHARS=<n>   keep the first quarter of texts of at least n chars (default 0)
+//   FAKE_DIE_AFTER=<n>   exit after answering n requests
+//   FAKE_PIDFILE=<file>  write this process's pid there
+const env = process.env;
+import("node:readline").then(async ({ createInterface }) => {
+  if (env.FAKE_PIDFILE) (await import("node:fs")).writeFileSync(env.FAKE_PIDFILE, String(process.pid));
+  console.log(JSON.stringify({ ready: env.FAKE_READY !== "0" }));
+  let n = 0;
+  const rl = createInterface({ input: process.stdin });
+  rl.on("line", (line) => {
+    const req = JSON.parse(line);
+    const out = req.text.length >= Number(env.FAKE_MIN_CHARS ?? 0) ? req.text.slice(0, Math.floor(req.text.length / 4)) : req.text;
+    console.log(JSON.stringify({ i: req.i, out }));
+    if (++n === Number(env.FAKE_DIE_AFTER)) process.exit(0);
+  });
+  rl.on("close", () => process.exit(0));
+});

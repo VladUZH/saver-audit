@@ -61,3 +61,29 @@ test("replay keys: headroom keeps its cached results; per-process savers drop re
     assert.notEqual(replayKey(s, "Bash", undefined, "out"), legacy(id, s.version), id);
   }
 });
+
+test("headroom without its cached model: every output failed, no number, the reason instead", async () => {
+  const t = tmp();
+  try {
+    const f = synth("headroom", [0, 1, 2].map((i) => ({ key: `h${i}`, input: text(i) })));
+    const st = (await runReplays([f], ["headroom"], { tools: tool("headroom", "fake-headroom", { FAKE_READY: "0" }), cacheFile: t.cacheFile, full: true, concurrency: 1 })).get("headroom")!;
+    assert.deepEqual({ failed: st.failed, pending: st.pending, insufficient: st.insufficient, reason: st.reason }, { failed: 3, pending: 0, insufficient: true, reason: "compression model not cached" });
+    assert.deepEqual(deltas(f), [0, 0, 0]);
+  } finally {
+    t.done();
+  }
+});
+
+test("a sidecar that exits mid-run fails the rest instead of hanging", async () => {
+  const t = tmp();
+  try {
+    const f = synth("headroom", [0, 1, 2, 3, 4].map((i) => ({ key: `h${i}`, input: text(i) })));
+    const st = (await runReplays([f], ["headroom"], { tools: tool("headroom", "fake-headroom", { FAKE_DIE_AFTER: "2" }), cacheFile: t.cacheFile, full: true, concurrency: 1 })).get("headroom")!;
+    assert.equal(st.ran, 5);
+    assert.equal(st.failed, 3);
+    assert.equal(st.insufficient, true, "more failed than measured");
+    assert.equal(st.reason, "most replays failed");
+  } finally {
+    t.done();
+  }
+});
