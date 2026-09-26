@@ -76,3 +76,24 @@ test("--check-saver fails a jsonRatio saver whose output has no counts, as its r
   assert.match(r.stdout, /sample run failed: its output is not JSON with numbers in "original_tokens" and "compressed_tokens" \(jsonRatio\)\n/);
   assert.doesNotMatch(r.stdout, /sample run ok/);
 });
+
+test("the installer's own copy that fails its version probe counts as not installed; a user's own is still used", { skip: process.platform === "win32" ? "needs a script as the program" : false }, async () => {
+  const s = scratch();
+  const bin = join(s.dir, "home", "tools", "bin");
+  const path = join(s.dir, "path");
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(path);
+  const detect = () => withEnv({ TMPDIR: s.temp, HOME: s.dir, SAVER_AUDIT_HOME: join(s.dir, "home"), PATH: path, SAVER_AUDIT_RTK: undefined }, () => detectReplayTools(SAVERS.filter((x) => x.id === "rtk")));
+  const rtk = join(bin, "rtk");
+  // Exits non-zero (e.g. its interpreter is gone), or cannot run at all (truncated, another CPU).
+  for (const body of ["#!/bin/sh\nexit 1\n", "\u0000\u0001\u0002"]) {
+    writeFileSync(rtk, body, { mode: 0o755 });
+    assert.equal((await detect()).has("rtk"), false, JSON.stringify(body));
+  }
+  writeFileSync(rtk, "#!/bin/sh\necho 'rtk 0.50.0'\n", { mode: 0o755 });
+  assert.equal((await detect()).get("rtk")?.version, "0.50.0");
+  // The same failing program on PATH is the user's own install: still found (its replays say why they fail).
+  rmSync(rtk);
+  writeFileSync(join(path, "rtk"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  assert.deepEqual((await detect()).get("rtk"), { saver: "rtk", command: join(path, "rtk"), version: undefined });
+});

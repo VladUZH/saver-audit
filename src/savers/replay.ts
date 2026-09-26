@@ -90,11 +90,17 @@ function onPath(name: string): string | undefined {
   return undefined;
 }
 
-function firstLine(cmd: string, args: string[], env: NodeJS.ProcessEnv | undefined): string | undefined {
-  if (!env) return undefined; // no state folder: not run
+/** A version probe: its first line, and whether the program failed (did not start or exited non-zero; a timeout is not a failure). */
+function runProbe(cmd: string, args: string[], env: NodeJS.ProcessEnv | undefined): { line?: string; failed: boolean } {
+  if (!env) return { failed: false }; // no state folder: not run
   const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 10_000, env });
   const out = `${r.stdout ?? ""}`.trim().split("\n")[0];
-  return r.status === 0 && out ? out : undefined;
+  if (r.status === 0) return { line: out || undefined, failed: false };
+  return { failed: (r.error as NodeJS.ErrnoException | undefined)?.code !== "ETIMEDOUT" };
+}
+
+function firstLine(cmd: string, args: string[], env: NodeJS.ProcessEnv | undefined): string | undefined {
+  return runProbe(cmd, args, env).line;
 }
 
 /** The version number in a version line ("v3.0.0" → "3.0.0", "3.10.3 (official, …)" → "3.10.3"), else the line. */
@@ -151,17 +157,24 @@ function detect(savers: SaverAdapter[], probeEnv: (m?: SaverManifest) => NodeJS.
     const m = s.manifest;
     if (!m || m.method !== "replayed" || !m.binary) continue;
     const name = new RegExp(`^${m.binary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+`); // "trim++ 1.0" → "1.0"
-    const probe = (command: string): ReplayTool => ({ saver: s.id, command, version: m.versionArgs ? versionOf(firstLine(command, m.versionArgs, probeEnv(m))?.replace(name, "")) : undefined });
+    const probe = (command: string): { tool: ReplayTool; failed: boolean } => {
+      const p = m.versionArgs ? runProbe(command, m.versionArgs, probeEnv(m)) : { failed: false };
+      return { tool: { saver: s.id, command, version: versionOf(p.line?.replace(name, "")) }, failed: p.failed };
+    };
     const override = m.binaryEnv ? process.env[m.binaryEnv] : undefined;
     if (override) {
-      found.set(s.id, probe(override));
+      found.set(s.id, probe(override).tool);
       continue;
     }
+    const ours = exists(join(toolsDir(), "bin", m.binary + exe));
     const extra = (m.paths ?? []).map((p) => join(p.replace(/^~(?=\/|$)/, homedir()), m.binary + exe));
-    const candidates = [...new Set([onPath(m.binary + exe), exists(join(toolsDir(), "bin", m.binary + exe)), ...extra.filter((p) => existsSync(p))])].filter((p): p is string => !!p);
+    const candidates = [...new Set([onPath(m.binary + exe), ours, ...extra.filter((p) => existsSync(p))])].filter((p): p is string => !!p);
     let pick: ReplayTool | undefined;
     for (const c of candidates) {
-      const t = probe(c);
+      const { tool: t, failed } = probe(c);
+      // The installer's own copy that does not run (a truncated download, another CPU's
+      // build, its Python gone): not installed, so the installer offers it again.
+      if (failed && c === ours) continue;
       if (!m.versionArgs || (t.version !== undefined && !isOutdated(t.version, m.version))) {
         pick = t;
         break;
