@@ -2,7 +2,7 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,4 +70,20 @@ test("--install-savers offers a saver whose copy on PATH is older than its adapt
   assert.doesNotMatch(r.stdout, /already installed/);
   assert.match(r.stdout, /rtk v0\.50\.0: the 0\.1\.4 found is older than the version saver-audit was written for\./);
   assert.match(r.stdout, /nobody could be asked: rtk v0\.50\.0\./);
+});
+
+test("--install-savers --with-headroom finishes an install whose tokenizer is missing, and says so", { skip: process.platform === "win32" ? "needs sh" : false }, () => {
+  const root = mkdtempSync(join(tmpdir(), "sa-tt-"));
+  temps.push(root);
+  mkdirSync(join(root, "pybin"));
+  copyFileSync(join(FIXTURES, "installer", "fake-python"), join(root, "pybin", "python3"));
+  chmodSync(join(root, "pybin", "python3"), 0o755);
+  const env = { PATH: [join(root, "pybin"), dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter), HOME: root, SAVER_AUDIT_HOME: join(root, "home"), FAKE_PY_LOG: join(root, "calls.log"), XDG_CACHE_HOME: join(root, "cache"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, SAVER_AUDIT_RTK: join(BIN, "rtk"), CAVEMAN_ENGINE_BIN: join(BIN, "caveman-engine"), SAVER_AUDIT_TOKEN_SAVER: join(BIN, "fake-trim"), SAVER_AUDIT_LEAN_CTX: join(BIN, "fake-trim") };
+  const run = () => spawnSync(process.execPath, [CLI, "--install-savers", "--with-headroom", "--yes", "--no-savers", "--since", "2026-09-01", "--until", "2026-09-30"], { env, cwd: root, encoding: "utf8" });
+  assert.equal(run().status, 0);
+  rmSync(join(root, "home", "tools", "tiktoken", "o200k_base"));
+  const r = run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /headroom is installed but its model or tokenizer is missing; finishing the install\./);
+  assert.match(r.stdout, /headroom 0\.38\.0 \+ its model: installed/);
 });

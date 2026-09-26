@@ -328,10 +328,10 @@ async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; 
   const ask = o.ask ?? ((q: string) => askLine(q, out));
   // Without a terminal nobody can answer: say so instead of declining in silence.
   const canAsk = o.assumeYes || !!o.ask || process.stdin.isTTY === true;
-  // Our headroom imports but its model is missing (a download that failed): finish it.
+  // Our headroom imports but its model or tokenizer is missing (a download that failed): finish it.
   if (o.all && have.get("headroom")?.command === toolPaths.headroomPython() && headroomIncomplete()) {
     have.delete("headroom");
-    out.write("\nheadroom is installed but its model is missing; finishing the install.\n");
+    out.write("\nheadroom is installed but its model or tokenizer is missing; finishing the install.\n");
   }
   // One found but older than its adapter (an old rtk on PATH) is offered too: once the
   // current one is in the tools folder, detection takes it. Not headroom: a user's own
