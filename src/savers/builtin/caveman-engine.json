@@ -14,7 +14,8 @@
     "~/.caveman/bin"
   ],
   "env": {
-    "CAVEMAN_HOME": "{state}/caveman"
+    "CAVEMAN_HOME": "{state}/caveman",
+    "CAVEMAN_CCR_DB": "{state}/caveman/ccr.db"
   },
   "routes": [
     {

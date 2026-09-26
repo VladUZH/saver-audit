@@ -6,10 +6,14 @@
 //   FAKE_STATE=1         append the input to $CAVEMAN_HOME/ccr.db (a recovery store),
 //                        before and after the wait
 //   FAKE_LOG=<file>      append one line per run to this file
+//   FAKE_ENV_LOG=<file>  append {cwd, args, env} of each run (version probes too) as a JSON line
+// `--version` prints "fake-saver 1.0.0".
 let s = "";
 process.stdin.on("data", (d) => (s += d)).on("end", async () => {
   const env = process.env;
   const { appendFileSync, mkdirSync } = await import("node:fs");
+  if (env.FAKE_ENV_LOG) appendFileSync(env.FAKE_ENV_LOG, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), env }) + "\n");
+  if (process.argv[2] === "--version") return void process.stdout.write("fake-saver 1.0.0\n");
   const state = () => {
     if (env.FAKE_STATE !== "1") return;
     mkdirSync(env.CAVEMAN_HOME, { recursive: true });

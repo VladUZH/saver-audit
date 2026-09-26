@@ -3,7 +3,7 @@
 // installed is skipped with a note. Every saver runs with telemetry off and its
 // state in a temporary folder.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { countProxy } from "../accounting/tokens.ts";
@@ -162,24 +162,31 @@ function headroomPython(): string | undefined {
   }
 }
 
+/**
+ * The user's own settings for the savers: left out, so a replay runs with default settings
+ * wherever saver-audit is started, and never writes to the user's saver state (e.g.
+ * caveman's recovery store via CAVEMAN_CCR_DB, which holds copies of the input).
+ */
+const OWN_SETTINGS = /^(CAVEMAN|TOKEN_SAVER)_/;
+
 function saverEnv(stateDir: string): NodeJS.ProcessEnv {
   return {
-    ...process.env,
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !OWN_SETTINGS.test(k))),
     DO_NOT_TRACK: "1",
     HEADROOM_BEACON: "off",
     HEADROOM_OFFLINE: "1",
     HF_HUB_OFFLINE: "1",
     TRANSFORMERS_OFFLINE: "1",
-    ...(stateDir ? { CAVEMAN_HOME: join(stateDir, "caveman"), HEADROOM_WORKSPACE_DIR: join(stateDir, "headroom") } : {}),
+    ...(stateDir ? { CAVEMAN_HOME: join(stateDir, "caveman"), CAVEMAN_CCR_DB: join(stateDir, "caveman", "ccr.db"), HEADROOM_WORKSPACE_DIR: join(stateDir, "headroom") } : {}),
   };
 }
 
-/** Runs one saver process; `live` holds it while it runs. */
-function runOnce(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, timeoutMs: number, live: Set<ChildProcess>): Promise<string | undefined> {
+/** Runs one saver process in `cwd`; `live` holds it while it runs. */
+function runOnce(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, cwd: string, timeoutMs: number, live: Set<ChildProcess>): Promise<string | undefined> {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(cmd, args, { env, stdio: ["pipe", "pipe", "ignore"] });
+      child = spawn(cmd, args, { env, cwd, stdio: ["pipe", "pipe", "ignore"] });
     } catch {
       // Refused before starting (e.g. E2BIG: a recorded command over the argument limit).
       return resolve(undefined);
@@ -270,8 +277,8 @@ class HeadroomSidecar {
   private next = 0;
   readonly ready: Promise<boolean>;
 
-  constructor(python: string, env: NodeJS.ProcessEnv) {
-    const child = spawn(python, ["-u", "-c", HEADROOM_SIDECAR], { env, stdio: ["pipe", "pipe", "ignore"] });
+  constructor(python: string, env: NodeJS.ProcessEnv, cwd: string) {
+    const child = spawn(python, ["-u", "-c", HEADROOM_SIDECAR], { env, cwd, stdio: ["pipe", "pipe", "ignore"] });
     this.child = child;
     let resolveReady: (v: boolean) => void = () => {};
     this.ready = new Promise((r) => (resolveReady = r));
@@ -385,6 +392,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     if (state || noState) return state;
     try {
       state = mkdtempSync(join(tmpdir(), "saver-audit-"));
+      mkdirSync(join(state, "empty")); // the savers' working folder: no project settings to pick up
     } catch (err) {
       noState = true;
       warn?.(`cannot create a temporary folder (${(err as NodeJS.ErrnoException).code ?? "error"}); saver replays skipped.`);
@@ -473,7 +481,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       o.log?.(`replaying ${todo.length.toLocaleString("en-US")} new outputs through ${saver} (results are cached for next time)…`);
       const env = saverEnv(dir);
       if (saver === "headroom") {
-        const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(dir, "headroom") });
+        const side = new HeadroomSidecar(tool.command, { ...env, ...tool.env, HEADROOM_WORKSPACE_DIR: join(dir, "headroom") }, join(dir, "empty"));
         live.add(side.child);
         try {
           if (!(await side.ready)) {
@@ -500,7 +508,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         const ratio = m?.jsonRatio;
         await pool(todo, WAIT_BOUND.has(saver) ? o.concurrency * 3 : o.concurrency, async (key) => {
           const j = unique.get(key)!;
-          const out = await runOnce(tool.command, j.args ?? [], j.input, runEnv, 60_000, live);
+          const out = await runOnce(tool.command, j.args ?? [], j.input, runEnv, join(dir, "empty"), 60_000, live);
           if (!ratio || out === undefined) return store(key, out);
           // The program reports its own before/after counts: apply its ratio to our count.
           const r = ratioResult(out, ratio, countProxy(j.input));

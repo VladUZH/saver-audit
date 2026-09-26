@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FileResult } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
@@ -460,6 +460,27 @@ test("headroom's Python never imports code from the folder saver-audit runs in",
     assert.equal(existsSync(marker) ? readFileSync(marker, "utf8") : "", "", "nothing from the current folder was imported");
     assert.equal(r.version, "0.38.0");
     assert.deepEqual({ ran: r.stats?.ran, failed: r.stats?.failed, d: r.d }, { ran: 1, failed: 0, d: [0] }, "the stub compressor changes nothing");
+  } finally {
+    t.done();
+  }
+});
+
+test("savers run in an empty folder, without the user's own saver settings or stores", async () => {
+  const t = tmp();
+  try {
+    const temp = join(realpathSync(t.dir), "tmp");
+    mkdirSync(temp);
+    const log = join(t.dir, "runs.jsonl");
+    const f = synth("caveman-engine", [{ key: "k0", input: text(0) }]);
+    const user = { CAVEMAN_CCR_DB: join(t.dir, "user", "ccr.db"), CAVEMAN_HOME: join(t.dir, "user"), TOKEN_SAVER_MIN_INPUT_LENGTH: "99999999", TMPDIR: temp };
+    await withEnv(user, () => runReplays([f], ["caveman-engine"], { tools: tool("caveman-engine", "fake-saver", { FAKE_ENV_LOG: log }), full: true, concurrency: 1 }));
+    const run = JSON.parse(readFileSync(log, "utf8").trim().split("\n")[0]!);
+    const state = dirname(run.env.CAVEMAN_HOME);
+    assert.equal(dirname(state), temp, "caveman's home is in this run's temporary folder");
+    assert.equal(run.env.CAVEMAN_CCR_DB, join(state, "caveman", "ccr.db"), "so is its recovery store");
+    assert.equal(run.env.TOKEN_SAVER_MIN_INPUT_LENGTH, undefined, "the user's token-saver settings are left out");
+    assert.equal(run.cwd, join(state, "empty"), "not the folder saver-audit runs in (a .token-saver.json there)");
+    assert.deepEqual(readdirSync(temp), [], "removed after the run");
   } finally {
     t.done();
   }
