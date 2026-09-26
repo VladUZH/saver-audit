@@ -61,6 +61,13 @@ test("a fork with a single usage event had no burst and is billed", async () => 
   assert.deepEqual(calls.map((c) => c.billable), [true]);
 });
 
+test("a fork replaying a single parent event: that event is not billed, the fork's own call is", async () => {
+  const ev = await collect(parseCodexFile(join(CODEX_HOME, "cases", "rollout-fork-one-replayed.jsonl")));
+  const calls = ev.flatMap((e) => (e.t === "turn" && e.turn.call ? [e.turn.call] : []));
+  assert.deepEqual(calls.map((c) => c.billable), [false, true]);
+  assert.deepEqual(calls.map((c) => c.usage.input), [100000, 1000]);
+});
+
 test("codexUsage and shellCommand edge cases", () => {
   assert.deepEqual(codexUsage(null).input, 0);
   assert.equal(codexUsage({ input_tokens: 10, cached_input_tokens: 50, output_tokens: 1 }).cacheRead, 10, "cached capped at input");

@@ -32,8 +32,11 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
   // Forked and child threads open with the parent's history re-recorded as a dense
   // burst of token_count events stamped with the fork instant; that usage was billed
   // in the parent. Same rule as ccusage (rust/adapters/codex/src/parser.rs): if the
-  // first two usage events are ≤1 s apart, skip the run of events ≤1 s apart.
+  // first two usage events are ≤1 s apart, skip the run of events ≤1 s apart. A first
+  // event ≤1 s after session_meta is replayed too, even with no second one close by
+  // (a parent with a single call).
   let replay: "none" | "first" | "second" | "burst" = "none";
+  let forkMs = NaN;
   let firstCall: Call | undefined;
   let lastMs = 0;
   let prevTotal = -1;
@@ -65,7 +68,10 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
           isSubagent: typeof p.parent_thread_id === "string",
           started: timestamp,
         };
-        if (child) replay = "first";
+        if (child) {
+          replay = "first";
+          forkMs = timestamp ? Date.parse(timestamp) : NaN;
+        }
         yield { t: "session", session };
         const base = p.base_instructions?.text;
         if (typeof base === "string" && base) {
@@ -102,10 +108,15 @@ export async function* parseCodexFile(file: string): AsyncGenerator<SourceEvent>
           const ms = timestamp ? Date.parse(timestamp) : NaN;
           const inBurst = Number.isFinite(ms) && ms - lastMs >= 0 && ms - lastMs <= BURST_GAP_MS;
           if (replay === "first") {
-            call.billable = false;
-            firstCall = call;
-            replay = Number.isFinite(ms) ? "second" : "none";
-            if (replay === "none") call.billable = true;
+            if (!Number.isFinite(ms)) replay = "none";
+            else if (ms - forkMs >= 0 && ms - forkMs <= BURST_GAP_MS) {
+              call.billable = false;
+              replay = "burst";
+            } else {
+              call.billable = false;
+              firstCall = call;
+              replay = "second";
+            }
           } else if (replay === "second" || replay === "burst") {
             if (inBurst) call.billable = false;
             else {
