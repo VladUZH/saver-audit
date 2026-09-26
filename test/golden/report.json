@@ -87,7 +87,8 @@
     },
     "webSearch": {
       "requests": 2,
-      "cost": 0.02
+      "cost": 0.02,
+      "unpriced": 0
     },
     "total": {
       "tokens": 8705,

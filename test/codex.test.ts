@@ -2,10 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { processFile } from "../src/audit.ts";
+import { processFile, summarize } from "../src/audit.ts";
+import { renderTerminal } from "../src/report/terminal.ts";
 import { codexHome, codexUsage, findCodexFiles, parseCodexFile, shellCommand } from "../src/sources/codex.ts";
 import { shellFamily, toolCategory } from "../src/accounting/categories.ts";
-import { CODEX_HOME, collect } from "./helpers.ts";
+import { CODEX_HOME, collect, fixtureOptions } from "./helpers.ts";
 
 const thr1 = join(CODEX_HOME, "sessions", "2026", "09", "20", "rollout-2026-09-20T10-00-00-thr1.jsonl");
 const thr2 = join(CODEX_HOME, "sessions", "2026", "09", "21", "rollout-2026-09-21T08-00-00-thr2.jsonl");
@@ -89,6 +90,22 @@ test("web_search_call items are counted on the next call and not priced as Claud
   assert.deepEqual(calls.map((c) => c.webSearchCalls), [2, 1, undefined]);
   assert.deepEqual(calls.map((c) => c.usage.webSearches), [0, 0, 0]);
   assert.equal(ev.some((e) => e.t === "turn" && JSON.stringify(e.turn).includes("SECRET-QUERY")), false, "queries are not kept");
+});
+
+test("Codex web searches: billed calls' searches are counted, said to be unpriced, and not in the total", async () => {
+  const opts = fixtureOptions({ sources: ["codex"] });
+  const r = summarize(opts, [await processFile(join(CODEX_HOME, "cases", "rollout-web-search.jsonl"), "codex", 0)]);
+  assert.deepEqual(r.billing.webSearch, { requests: 0, cost: 0, unpriced: 3 });
+  const b = r.billing;
+  assert.equal(b.total.cost, b.input.cost + b.cacheWrite.cost + b.cacheRead.cost + b.output.cost, "no search fee in the total");
+  const text = renderTerminal(r, { showProjects: false, color: false, verbose: false });
+  assert.match(text, /Codex web searches \(3\)\s+not priced \(no OpenAI per-search fee in the price list\)/);
+  assert.match(text, /Codex web search fees are not in the total/);
+  assert.doesNotMatch(text, /SECRET/);
+  // A search in a fork's replayed history was billed in the parent: not counted here.
+  const fork = summarize(opts, [await processFile(join(CODEX_HOME, "cases", "rollout-fork-one-replayed.jsonl"), "codex", 0)]);
+  assert.equal(fork.billing.webSearch.unpriced, 0);
+  assert.doesNotMatch(renderTerminal(fork, { showProjects: false, color: false, verbose: false }), /web search/i);
 });
 
 test("codexUsage and shellCommand edge cases", () => {

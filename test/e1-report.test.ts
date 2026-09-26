@@ -29,7 +29,7 @@ function result(over: Partial<AuditResult> = {}): AuditResult {
     sessions: { main: 40, subagent: 5, bySource: { "claude-code": 25, codex: 15 }, sources: ["claude-code", "codex"] },
     calls: 4000,
     models: [{ model: "claude-opus-5-5", pricedAs: "claude-opus-5-5", calls: 4000, tokens: 3e8, cost: 312.4 }],
-    billing: { input: amt(1e6, 5), cacheWrite: amt(1e7, 50), cacheRead: amt(2.8e8, 140), output: amt(9e6, 117.4), webSearch: { requests: 0, cost: 0 }, total: amt(3e8, 312.4) },
+    billing: { input: amt(1e6, 5), cacheWrite: amt(1e7, 50), cacheRead: amt(2.8e8, 140), output: amt(9e6, 117.4), webSearch: { requests: 0, cost: 0, unpriced: 0 }, total: amt(3e8, 312.4) },
     buckets: [{ key: "tool:Shell", label: "Tool output: Shell", group: "context", tokens: 1e8, cost: 100 }],
     waste: [],
     projects: [],

@@ -32,7 +32,7 @@ function result(savers: SaverRow[]): AuditResult {
     sessions: { main: 4, subagent: 0, bySource: { "claude-code": 4 }, sources: ["claude-code"] },
     calls: 400,
     models: [{ model: "claude-opus-5-5", pricedAs: "claude-opus-5-5", calls: 400, tokens: 1e7, cost: 100 }],
-    billing: { input: amt(1e5, 10), cacheWrite: amt(1e5, 10), cacheRead: amt(9e6, 40), output: amt(8e5, 40), webSearch: { requests: 0, cost: 0 }, total: amt(1e7, 100) },
+    billing: { input: amt(1e5, 10), cacheWrite: amt(1e5, 10), cacheRead: amt(9e6, 40), output: amt(8e5, 40), webSearch: { requests: 0, cost: 0, unpriced: 0 }, total: amt(1e7, 100) },
     buckets: [{ key: "tool:Shell", label: "Tool output: Shell", group: "context", tokens: 1e6, cost: 50 }],
     waste: [],
     projects: [],

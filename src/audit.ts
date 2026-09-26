@@ -120,7 +120,8 @@ export interface AuditResult {
   sessions: { main: number; subagent: number; bySource: Record<string, number>; sources: Source[] };
   calls: number;
   models: ModelRow[];
-  billing: { input: Amount; cacheWrite: Amount; cacheRead: Amount; output: Amount; webSearch: { requests: number; cost: number }; total: Amount };
+  /** webSearch.unpriced: Codex hosted searches, counted but not priced (the price list has no OpenAI per-search fee). */
+  billing: { input: Amount; cacheWrite: Amount; cacheRead: Amount; output: Amount; webSearch: { requests: number; cost: number; unpriced: number }; total: Amount };
   buckets: BucketRow[];
   waste: WasteRow[];
   projects: string[];
@@ -236,7 +237,7 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
   const modelNames = [...new Set(records.map((r) => r.model))].sort();
   const calib = calibrate(pairs, modelNames);
 
-  const billing = { input: amount(), cacheWrite: amount(), cacheRead: amount(), output: amount(), webSearch: { requests: 0, cost: 0 }, total: amount() };
+  const billing = { input: amount(), cacheWrite: amount(), cacheRead: amount(), output: amount(), webSearch: { requests: 0, cost: 0, unpriced: 0 }, total: amount() };
   const buckets = new Map<BucketKey, { tokens: number; cost: number; projects: Set<number> }>();
   const models = new Map<string, ModelRow>();
   const counted = new Set<number>();
@@ -283,6 +284,7 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     billing.cacheRead.tokens += u.cacheRead;
     billing.output.tokens += u.output;
     billing.webSearch.requests += u.webSearches;
+    billing.webSearch.unpriced += rec.call.webSearchCalls ?? 0;
     // Unpriced model: tokens still count (context split, savers), dollars do not.
     const c = priced ? callCost(u, ratesFor(opts.prices.models[priced]!, prompt), rec.call.multiplier) : NO_COST;
     const callTotal = c.input + c.cacheWrite + c.cacheRead + c.output + c.webSearch;

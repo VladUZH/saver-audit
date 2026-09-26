@@ -241,6 +241,7 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   for (const [label, tokens, cost] of billRows) {
     out.push(`  ${pad(label, 26)} ${lpad(tokens ? fmtTokens(tokens) : "", 8)}  ${lpad(fmtUsd(cost), 9)}  ${bar(cost / b.total.cost)}`);
   }
+  if (b.webSearch.unpriced) out.push(`  ${pad(`Codex web searches (${b.webSearch.unpriced.toLocaleString("en-US")})`, 26)} ${lpad("", 8)}  ${dim("not priced (no OpenAI per-search fee in the price list)")}`);
   out.push("");
   out.push(bold("What that context was (estimated)"));
   out.push(dim("  Tokens count every re-read: a 1k-token result read by 50 later calls counts 50k."));
@@ -280,6 +281,7 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
   }
   const unpriced = r.models.filter((m) => !m.pricedAs);
   if (unpriced.length) out.push(`  No price for: ${unpriced.map((m) => m.model).join(", ")} (tokens counted, $0).`);
+  if (r.billing.webSearch.unpriced) out.push("  Codex web search fees are not in the total: the price list has no OpenAI per-search fee.");
   // A model priced as more than one (an alias that changed on a date) lists each with its calls.
   const aliased = new Map<string, AuditResult["models"]>();
   for (const m of r.models) if (m.pricedAs && m.pricedAs !== m.model && !m.model.includes("[")) aliased.set(m.model, [...(aliased.get(m.model) ?? []), m]);
