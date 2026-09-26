@@ -41,3 +41,30 @@ test("a spinner without colour writes no colour codes", () => {
   assert.ok(writes.some((w) => w.includes("Reading logs…")));
   assert.equal(writes.some((w) => /\x1b\[\d+m/.test(w)), false);
 });
+
+test("an error in a menu action is reported and the menu stays usable", async () => {
+  const stdin = process.stdin as NodeJS.ReadStream;
+  const saved = { isTTY: stdin.isTTY, setRawMode: stdin.setRawMode };
+  stdin.isTTY = true;
+  stdin.setRawMode = (() => stdin) as never;
+  const written: string[] = [];
+  const unhandled: unknown[] = [];
+  const onUnhandled = (e: unknown) => unhandled.push(e);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const menu = keyMenu({ write: (s: string) => (written.push(s), true) } as never, () => [{ key: "e", label: "exact", run: async () => { throw new Error("EACCES: permission denied"); } }], false);
+    stdin.emit("data", Buffer.from("e"));
+    await new Promise((r) => setTimeout(r, 20));
+    stdin.emit("data", Buffer.from("q"));
+    await Promise.race([menu, new Promise((_, reject) => setTimeout(() => reject(new Error("the menu no longer takes keys")), 500))]);
+    assert.deepEqual(unhandled, []);
+    const text = written.join("");
+    assert.match(text, /\nsaver-audit: EACCES: permission denied\n/);
+    assert.equal(text.match(/\[q\] quit/g)?.length, 2, "the menu is shown again");
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+    stdin.isTTY = saved.isTTY;
+    stdin.setRawMode = saved.setRawMode;
+    stdin.pause();
+  }
+});

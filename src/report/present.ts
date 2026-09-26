@@ -123,8 +123,15 @@ export async function keyMenu(out: NodeJS.WriteStream, items: () => MenuItem[], 
       const item = items().find((i) => i.key === k);
       if (!item) return;
       busy = true;
-      const close = await item.run(ask);
-      busy = false;
+      let close: boolean | void = false;
+      try {
+        close = await item.run(ask);
+      } catch (err) {
+        // A failed action (a re-run, an install) is reported and the menu stays.
+        out.write(`\nsaver-audit: ${err instanceof Error ? err.message : String(err)}\n`);
+      } finally {
+        busy = false;
+      }
       if (close) return done();
       prompt();
     };
