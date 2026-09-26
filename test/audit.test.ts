@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAudit } from "../src/pool.ts";
 import { renderJson } from "../src/report/json.ts";
-import { FIXTURES, fixtureOptions } from "./helpers.ts";
+import { CLAUDE_ROOT, FAKE_TOOLS, FIXTURES, fixtureOptions } from "./helpers.ts";
 
 // Hand-computed from the fixtures and the bundled prices (USD per 1M tokens):
 //   msg_1 opus-5.5:   3×4 + 1000×8 (1h write) + 50×20            = 9012
@@ -47,4 +48,28 @@ test("worker pool gives the same result as one thread", async () => {
   const one = await runAudit(fixtureOptions(), undefined, 1);
   const many = await runAudit(fixtureOptions(), new URL("../src/cli.ts", import.meta.url), 3);
   assert.deepEqual(many, one);
+});
+
+test("calls on an unpriced model keep their tokens in the context split and in saver counts", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sa-unpriced-"));
+  try {
+    // The Claude fixture with every model renamed to one the price table lacks.
+    const root = join(dir, "projects");
+    cpSync(CLAUDE_ROOT, root, { recursive: true });
+    for (const f of readdirSync(root, { recursive: true, encoding: "utf8" }).filter((x) => x.endsWith(".jsonl"))) {
+      const p = join(root, f);
+      writeFileSync(p, readFileSync(p, "utf8").replace(/"model":"claude-[^"]*"/g, '"model":"claude-zeta-1"'));
+    }
+    const r = await runAudit(fixtureOptions({ sources: ["claude-code"], claudeRoots: [root] }), undefined, 1, { ids: ["rtk"], tools: new Map([["rtk", FAKE_TOOLS.get("rtk")!]]), cacheFile: join(dir, "c.json"), full: true });
+    assert.deepEqual(r.models.map((m) => [m.model, m.pricedAs]), [["claude-zeta-1", undefined]]);
+    assert.equal(r.billing.total.cost, 0);
+    const tokens = r.buckets.reduce((n, b) => n + b.tokens, 0);
+    assert.ok(Math.abs(tokens - r.billing.total.tokens) < 1e-6 * r.billing.total.tokens, `context split ${tokens} of ${r.billing.total.tokens} billed tokens`);
+    assert.ok(r.buckets.some((b) => b.key.startsWith("tool:") && b.tokens > 0), "tool output is in the split");
+    const rtk = r.savers.find((s) => s.id === "rtk")!;
+    assert.ok(rtk.tokens > 0, "rtk's tokens are counted");
+    assert.equal(rtk.cost, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

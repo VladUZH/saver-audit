@@ -1,6 +1,6 @@
 // Orchestration: files → call records → dedupe → calibrate → price → aggregate.
 import { ContextTracker, type BucketKey, type CallRecord } from "./accounting/buckets.ts";
-import { attribute, callCost, contextRates, RESIDUAL } from "./accounting/cost.ts";
+import { attribute, callCost, contextRates, RESIDUAL, type CallCost } from "./accounting/cost.ts";
 import { calibrate, type Calibration } from "./accounting/tokens.ts";
 import { findClaudeFiles, parseClaudeFile } from "./sources/claude-code.ts";
 import { findCodexFiles, parseCodexFile } from "./sources/codex.ts";
@@ -182,6 +182,8 @@ export function wasteLabel(key: BucketKey): string {
   return fam ? `${cat}: ${fam}` : cat!;
 }
 
+const NO_COST: CallCost = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, webSearch: 0 };
+
 function amount(): Amount {
   return { tokens: 0, cost: 0 };
 }
@@ -272,12 +274,8 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     billing.cacheRead.tokens += u.cacheRead;
     billing.output.tokens += u.output;
     billing.webSearch.requests += u.webSearches;
-    if (!priced) {
-      // Unpriced model: tokens still count, dollars do not.
-      addBucket("output", u.output, 0, rec.file);
-      continue;
-    }
-    const c = callCost(u, ratesFor(opts.prices.models[priced]!, prompt), rec.call.multiplier);
+    // Unpriced model: tokens still count (context split, savers), dollars do not.
+    const c = priced ? callCost(u, ratesFor(opts.prices.models[priced]!, prompt), rec.call.multiplier) : NO_COST;
     const callTotal = c.input + c.cacheWrite + c.cacheRead + c.output + c.webSearch;
     row.cost += callTotal;
     billing.input.cost += c.input;
