@@ -2,10 +2,14 @@
 // `[i]` key or --install-savers). This is the second module allowed to use the
 // network (test/offline.test.ts); it says so before downloading anything.
 //
-// - Downloads come from each saver's official GitHub release, pinned to the version
-//   the adapters were written for, and are verified before use: rtk against its
-//   release checksums, the caveman engine against checksums signed with caveman's
-//   public key (the same check caveman's own installer makes).
+// - rtk, the caveman engine, token-saver and lean-ctx come from their official GitHub
+//   releases, pinned to the version the adapters were written for, and are verified
+//   before use: rtk and lean-ctx against their release checksums, the caveman engine
+//   against checksums signed with caveman's public key (the same check caveman's own
+//   installer makes), token-saver against a hash pinned here.
+// - headroom (--with-headroom only) is not verified: pip installs headroom-ai at a
+//   pinned version with whatever dependencies it resolves, and its model comes from
+//   Hugging Face. The installer says so before asking.
 // - Never runs a saver's own init/setup, so Claude Code and Codex settings stay
 //   untouched. Deleting the folder uninstalls everything.
 // - Saver code is downloaded by the user from its authors, never bundled here

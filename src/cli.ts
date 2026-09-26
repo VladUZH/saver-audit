@@ -15,7 +15,7 @@ import type { Source } from "./sources/types.ts";
 import { parsePeriod, parseUntil } from "./period.ts";
 import { normalizeCardArg } from "./args.ts";
 import { exactSeconds } from "./savers/replay.ts";
-import { canOfferInstall, installPlan, toolPaths, toolsDir, type InstallChoice } from "./savers/toolsdir.ts";
+import { canOfferInstall, HEADROOM_VERSION, installPlan, toolPaths, toolsDir, type InstallChoice } from "./savers/toolsdir.ts";
 import { VERSION } from "./version.ts";
 
 
@@ -41,17 +41,19 @@ Usage: saver-audit [options]
   --exact                exact saver numbers: replay every output (can take minutes on a
                          busy month; cached, so later runs are exact too). Default: a
                          quick run whose sampled numbers are marked "indicative"
-  --install-savers        download rtk and the caveman engine from their official
-                         releases into ~/.saver-audit/tools (verified; asks first)
+  --install-savers       download rtk, the caveman engine, token-saver and lean-ctx
+                         from their official GitHub releases into ~/.saver-audit/tools
+                         (pinned and verified; asks before each unless -y)
   --with-headroom        also install headroom + its model (about 1.6 GB, Python 3.10+)
+                         from PyPI and Hugging Face (not verified by saver-audit)
   -y, --yes              don't ask before installing
   --check-saver <file>   validate a saver manifest and try its program (for saver authors)
   --update-prices        fetch a fresh public price list
   --verbose              more detail about skipped records
   -h, --help / -v, --version
 
-Savers: rtk, caveman-engine, headroom (replayed on your installed copies),
-caveman-skill (modeled), codegraph, context-mode (upper bounds).
+Savers: rtk, caveman-engine, token-saver, lean-ctx, headroom (replayed on your
+installed copies), caveman-skill (modeled), codegraph, context-mode (upper bounds).
 
 Reads ~/.claude/projects and ~/.codex/sessions locally. Nothing leaves your machine.
 Network only when you ask: --update-prices, --install-savers / [i], and [s] opens x.com.
@@ -313,8 +315,9 @@ async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; 
   // Nothing here can be installed on this machine: only the reasons, no download banner.
   if (plan.some((c) => c.available)) {
     out.write(`${bold("Install savers so saver-audit can replay your sessions through them")}\n`);
-    out.write(`Downloads from each saver's official release into ${toolsDir()}, verified before use.\n`);
-    out.write("Your Claude Code and Codex settings are not touched. Delete that folder to uninstall.\n");
+    out.write(`Everything goes into ${toolsDir()}; your Claude Code and Codex settings are not touched. Delete that folder to uninstall.\n`);
+    // Only the GitHub release downloads are pinned and verified; headroom's are not (below).
+    if (plan.some((c) => c.available && c.id !== "headroom")) out.write("Downloads from each saver's official GitHub release are pinned and verified before use.\n");
   }
   let installed = 0;
   let failed = 0;
@@ -328,6 +331,7 @@ async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; 
       unasked.push(c.what);
       continue;
     }
+    if (c.id === "headroom") out.write(`  headroom comes from PyPI (headroom-ai ${HEADROOM_VERSION}; pip chooses its dependencies) and its model from Hugging Face. saver-audit does not pin or verify these downloads.\n`);
     const yes = o.assumeYes || (await ask(`  Install ${c.what} (${c.size})? [y/N] `));
     if (!yes) continue;
     const spinner = new Spinner(process.stderr, process.stderr.isTTY === true);

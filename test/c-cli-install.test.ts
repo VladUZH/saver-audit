@@ -82,6 +82,14 @@ test("when nothing missing can be installed here, only the reasons are shown, no
   assert.doesNotMatch(r.stdout, /Downloads from/);
 });
 
+test("headroom's install is not called verified; its sources are named before it starts", { skip: unix }, () => {
+  const r = cli(["--install-savers", "--with-headroom", "--yes"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /verified/, "only headroom is installed here");
+  const caveat = r.stdout.search(/headroom comes from PyPI[^\n]*does not pin or verify/);
+  assert.ok(caveat >= 0 && caveat < r.stdout.indexOf("headroom 0.38.0 + its model: installed"));
+});
+
 test("a failed install still prints the report, then exits 1", { skip: unix }, () => {
   const r = cli(["--install-savers", "--with-headroom", "--yes"], { FAKE_PY_NO_MODEL: "1" });
   assert.equal(r.status, 1);
