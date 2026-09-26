@@ -5,7 +5,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { AuditResult } from "../audit.ts";
-import { isIndicative, loggedDays, measuredCost, onlyHypothetical, plural, tooLittleData, unpricedCalls } from "./terminal.ts";
+import { agentNames, isIndicative, loggedDays, measuredCost, onlyHypothetical, plural, tooLittleData, unpricedCalls } from "./terminal.ts";
 
 export const REPO_URL = "https://github.com/VladUZH/saver-audit";
 
@@ -56,7 +56,7 @@ const short = (name: string) => name.replace(" (proxy engine)", " engine").repla
 export function shareText(r: AuditResult): string {
   const total = r.billing.total.cost;
   const days = plural(loggedDays(r), "day"); // the span the logs cover, not the requested period
-  const agents = Object.keys(r.sessions.bySource).map((s) => (s === "claude-code" ? "Claude Code" : "Codex")).join(" + ");
+  const agents = agentNames(r);
   const pct = (x: number) => `${((100 * x) / total).toFixed(1)}%`;
   const ok = r.savers.filter((s) => s.status === "ok" && total > 0);
   // A hook saver's hypothetical Codex part is left out; a saver with nothing else is dropped.

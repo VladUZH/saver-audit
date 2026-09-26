@@ -116,7 +116,8 @@ export interface AuditResult {
   looked: string[];
   sources: Source[];
   files: number;
-  sessions: { main: number; subagent: number; bySource: Record<string, number> };
+  /** bySource counts main sessions; `sources` has every source with a counted call, subagent runs included. */
+  sessions: { main: number; subagent: number; bySource: Record<string, number>; sources: Source[] };
   calls: number;
   models: ModelRow[];
   billing: { input: Amount; cacheWrite: Amount; cacheRead: Amount; output: Amount; webSearch: { requests: number; cost: number }; total: Amount };
@@ -347,9 +348,12 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
   bucketRows.sort((a, b) => b.cost - a.cost || b.tokens - a.tokens);
   waste.sort((a, b) => b.cost - a.cost || b.tokens - a.tokens);
 
-  const sessions = { main: 0, subagent: 0, bySource: {} as Record<string, number> };
+  const sessions = { main: 0, subagent: 0, bySource: {} as Record<string, number>, sources: [] as Source[] };
   const projects = new Set<string>();
+  const active = new Set<Source>();
   for (const i of counted) {
+    const src = results[i]?.source;
+    if (src) active.add(src);
     const s = results[i]?.session;
     if (!s) continue;
     if (s.isSubagent) sessions.subagent++;
@@ -359,6 +363,7 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     }
     if (s.project) projects.add(s.project);
   }
+  sessions.sources = (["claude-code", "codex"] as Source[]).filter((x) => active.has(x));
 
   const countedModels = new Set([...models.values()].map((m) => m.model));
   return {

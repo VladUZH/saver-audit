@@ -4,7 +4,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AuditResult } from "../audit.ts";
-import { confidence, fmtTokens, fmtUsd, loggedDays, measuredCost, onlyHypothetical, periodDays, plural, shortLabel, tooLittleData, unpricedCalls } from "./terminal.ts";
+import { agentNames, confidence, fmtTokens, fmtUsd, loggedDays, measuredCost, onlyHypothetical, periodDays, plural, sessionCount, shortLabel, tooLittleData, unpricedCalls } from "./terminal.ts";
 
 const W = 1200;
 const H = 675;
@@ -55,9 +55,8 @@ export function cardSvg(r: AuditResult): string {
   const unpriced = unpricedCalls(r);
   if (unpriced) parts.push(text(PAD, 233, `excludes ${unpriced.toLocaleString("en-US")} ${unpriced === 1 ? "call" : "calls"} on unpriced models`, 15, C.accent));
   parts.push(text(W - PAD, 132, `${fmtTokens(r.billing.total.tokens)} tokens`, 26, C.text, { anchor: "end", bold: true }));
-  parts.push(text(W - PAD, 166, `${r.calls.toLocaleString("en-US")} API calls · ${r.sessions.main.toLocaleString("en-US")} sessions`, 18, C.muted, { anchor: "end" }));
-  const sources = Object.keys(r.sessions.bySource).map((s) => (s === "claude-code" ? "Claude Code" : "Codex")).join(" + ");
-  parts.push(text(W - PAD, 196, sources, 18, C.muted, { anchor: "end" }));
+  parts.push(text(W - PAD, 166, `${plural(r.calls, "API call")} · ${sessionCount(r)}`, 18, C.muted, { anchor: "end" }));
+  parts.push(text(W - PAD, 196, agentNames(r), 18, C.muted, { anchor: "end" }));
 
   // Left panel: where it went
   const top = 244;

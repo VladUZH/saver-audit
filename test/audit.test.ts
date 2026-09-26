@@ -27,7 +27,7 @@ test("fixture totals match hand-computed, deduplicated usage", async () => {
   assert.equal(r.skipped.duplicateCalls, 1, "msg_1 repeated in a resumed session");
   assert.equal(r.skipped.notBillable, 3, "forked thread's replayed burst");
   assert.equal(r.skipped.lines, 2);
-  assert.deepEqual(r.sessions, { main: 4, subagent: 1, bySource: { "claude-code": 1, codex: 3 } });
+  assert.deepEqual(r.sessions, { main: 4, subagent: 1, bySource: { "claude-code": 1, codex: 3 }, sources: ["claude-code", "codex"] });
   const bucketCost = r.buckets.reduce((n, b) => n + b.cost, 0);
   assert.ok(Math.abs(bucketCost - r.billing.total.cost) < 1e-12, "buckets add up to the billed total");
 });

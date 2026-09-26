@@ -41,10 +41,9 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
   const total = r.billing.total.cost;
   const pct = (x: number) => (total ? `${Math.round((100 * x) / total)}%` : "—");
   const out: string[] = [];
-  const agents = Object.keys(r.sessions.bySource).map((x) => (x === "claude-code" ? "Claude Code" : "Codex")).join(" + ");
-  out.push(bold(`saver-audit · ${localDay(r.period.since)} → ${localDay(r.period.until)} · ${agents}`));
+  out.push(bold(`saver-audit · ${localDay(r.period.since)} → ${localDay(r.period.until)} · ${agentNames(r)}`));
   const took = o.elapsedMs !== undefined ? ` · ${r.files.toLocaleString("en-US")} log files in ${(o.elapsedMs / 1000).toFixed(1)} s, nothing left your machine` : "";
-  out.push(dim(`${r.sessions.main} sessions · ${r.calls.toLocaleString("en-US")} API calls${took}`));
+  out.push(dim(`${sessionCount(r)} · ${plural(r.calls, "API call")}${took}`));
   out.push("");
   out.push(`${bold(accent(fmtUsd(total)))} ${bold("API-equivalent at list prices")} · ${fmtTokens(r.billing.total.tokens)} tokens`);
   const unpriced = unpricedCalls(r);
@@ -110,6 +109,17 @@ export function loggedDays(r: AuditResult): number {
 }
 
 export const plural = (n: number, word: string) => `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
+
+/** The agents behind the counted calls, subagent runs included: "Claude Code + Codex". */
+export function agentNames(r: AuditResult): string {
+  const list = r.sessions.sources.length ? r.sessions.sources : r.sources;
+  return list.map((s) => (s === "claude-code" ? "Claude Code" : "Codex")).join(" + ");
+}
+
+/** "N sessions", or "N subagent runs" when only subagents made calls in the period. */
+export function sessionCount(r: AuditResult): string {
+  return r.sessions.main || !r.sessions.subagent ? plural(r.sessions.main, "session") : plural(r.sessions.subagent, "subagent run");
+}
 
 /** A saver's number without a hypothetical Codex part (Codex hooks cannot rewrite tool input). */
 export function measuredCost(s: Saver): number {
@@ -179,7 +189,7 @@ export function renderTerminal(r: AuditResult, o: TerminalOptions): string {
     return out.join("\n") + "\n";
   }
   const bySource = Object.entries(r.sessions.bySource).map(([s, n]) => `${n} ${s}`).join(", ");
-  out.push(`${r.sessions.main} sessions (${bySource}) + ${r.sessions.subagent} subagent runs, ${r.calls.toLocaleString("en-US")} API calls, ${r.projects.length} projects`);
+  out.push(`${r.sessions.main} sessions${bySource ? ` (${bySource})` : ""} + ${r.sessions.subagent} subagent runs, ${r.calls.toLocaleString("en-US")} API calls, ${r.projects.length} projects`);
   out.push(`Models: ${[...new Set(r.models.map((m) => m.model))].join(", ")}`);
   out.push("");
   out.push(bold(`Total: ${fmtUsd(r.billing.total.cost)} API-equivalent at list prices`) + ` · ${fmtTokens(r.billing.total.tokens)} tokens`);

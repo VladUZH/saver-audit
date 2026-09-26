@@ -24,7 +24,11 @@
     "bySource": {
       "claude-code": 1,
       "codex": 3
-    }
+    },
+    "sources": [
+      "claude-code",
+      "codex"
+    ]
   },
   "calls": 9,
   "models": [

@@ -26,7 +26,7 @@ function result(over: Partial<AuditResult> = {}): AuditResult {
     looked: [],
     sources: ["claude-code", "codex"],
     files: 40,
-    sessions: { main: 40, subagent: 5, bySource: { "claude-code": 25, codex: 15 } },
+    sessions: { main: 40, subagent: 5, bySource: { "claude-code": 25, codex: 15 }, sources: ["claude-code", "codex"] },
     calls: 4000,
     models: [{ model: "claude-opus-5-5", pricedAs: "claude-opus-5-5", calls: 4000, tokens: 3e8, cost: 312.4 }],
     billing: { input: amt(1e6, 5), cacheWrite: amt(1e7, 50), cacheRead: amt(2.8e8, 140), output: amt(9e6, 117.4), webSearch: { requests: 0, cost: 0 }, total: amt(3e8, 312.4) },
@@ -149,4 +149,18 @@ test("the card and the post state the days the logs cover, not the requested win
   const full = result({ covered: { first: "2026-08-27T13:00:00.000Z", last: "2026-09-26T11:00:00.000Z" }, savers: [saver("rtk", "rtk", 9.87)] });
   assert.match(shareText(full), /^I replayed 30 days of my /);
   assert.match(cardSvg(full), /2026-08-27 → 2026-09-26 · 30 days</);
+});
+
+test("a period with only a subagent's calls names its agent and counts subagent runs, not '0 sessions'", async () => {
+  // In the fixture, only the Claude subagent made a call in these ten seconds.
+  const r = await runAudit(fixtureOptions({ sinceMs: Date.parse("2026-09-20T10:00:20Z"), untilMs: Date.parse("2026-09-20T10:00:30Z") }), undefined, 1);
+  assert.deepEqual(r.sessions, { main: 0, subagent: 1, bySource: {}, sources: ["claude-code"] });
+  const short = renderShort(r, OPTS);
+  assert.match(short, /^saver-audit · \S+ → \S+ · Claude Code\n1 subagent run · 1 API call\n/);
+  assert.doesNotMatch(short, /0 sessions/);
+  const svg = cardSvg(r);
+  assert.match(svg, />1 API call · 1 subagent run</);
+  assert.match(svg, />Claude Code</);
+  assert.match(shareText(r), /^My AI coding agents \(Claude Code\) used /);
+  assert.match(renderTerminal(r, OPTS), /^0 sessions \+ 1 subagent runs, /m);
 });
