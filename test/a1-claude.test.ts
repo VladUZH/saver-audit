@@ -9,6 +9,7 @@ import { processFile, summarize, type FileResult, type SaverConfig } from "../sr
 import { dropsThinking } from "../src/accounting/buckets.ts";
 import { countProxy } from "../src/accounting/tokens.ts";
 import { attachmentText } from "../src/sources/claude-code.ts";
+import { saverIndex } from "../src/savers/registry.ts";
 import { fixtureOptions } from "./helpers.ts";
 
 const env = (uuid: string, ts: string, parentUuid?: string | null) => ({
@@ -176,5 +177,95 @@ test("within a tool loop thinking stays; a logged thinking count drops only that
     ]);
     assert.equal(counted.records[1]!.newReal, 200, "visible part of the earlier output, in recorded tokens");
     assert.equal(counted.records[1]!.newRaw.assistant, undefined);
+  });
+});
+
+const ts = (n: number) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
+const system = (uuid: string, t: string, parentUuid: string) => ({ ...env(uuid, t, parentUuid), type: "system", subtype: "turn_duration", durationMs: 1000 });
+const contextMode = { ids: ["context-mode"], replayable: [] };
+const saved = (r: FileResult) => summarize(fixtureOptions(), [r], { savers: saverIndex(["context-mode"]), tools: new Map(), stats: new Map() }).savers[0]!.tokens;
+const context = (r: FileResult) => r.records.map((x) => ({ key: x.key, oldRaw: x.oldRaw, newRaw: x.newRaw, oldReal: x.oldReal, newReal: x.newReal }));
+
+test("a rewind to the start: the abandoned tool output leaves the context and no saver is credited for it", async () => {
+  await withDir(async (run) => {
+    const before = [
+      prompt("p0", "00:00", "build it", null),
+      assistant("m0", "00:01", "msg_0", [bash("t0", "npm run build")], usage(5000, 0, 50), undefined, "p0"),
+      toolResult("r0", "00:02", "t0", log(300, "build"), "m0"),
+      assistant("m1", "00:03", "msg_1", [text("the build fails")], usage(9000, 5000, 20), undefined, "r0"),
+    ];
+    // Rewound to the first prompt: the new prompt is a chain root again.
+    const after: object[] = [prompt("q0", "01:00", "start over: what does this repo do?", null)];
+    for (let i = 0; i < 20; i++) {
+      after.push(assistant(`n${i}`, ts(61 + 2 * i), `msg_n${i}`, [text(`answer ${i}`)], usage(20, 5000 + 20 * i, 10), undefined, `q${i}`));
+      after.push(prompt(`q${i + 1}`, ts(62 + 2 * i), `follow-up ${i}`, `n${i}`));
+    }
+    const r = await run([...before, ...after], contextMode);
+    const post = r.records.slice(2);
+    assert.equal(post.length, 20);
+    for (const rec of post) {
+      assert.equal(Object.keys({ ...rec.oldRaw, ...rec.newRaw }).some((k) => k.startsWith("tool:")), false, rec.key);
+      assert.ok(rec.range!.ctxStart >= 1, "the abandoned output is outside the saver context");
+    }
+    assert.equal(post[0]!.oldReal + post[0]!.newReal, 0);
+    const cut = await run(before, contextMode);
+    assert.ok(saved(cut) > 0);
+    assert.equal(saved(r), saved(cut), "credited only on the call that saw the build log");
+  });
+});
+
+test("a rewind to an earlier prompt gives the context of the kept conversation", async () => {
+  await withDir(async (run) => {
+    // Also on a model that drops thinking at a prompt, so the thinking state is restored too.
+    for (const [model, reply] of [
+      ["claude-opus-5-5", (c: object) => [c]],
+      ["claude-sonnet-4-5-20250929", (c: object) => [think, c]],
+    ] as const) {
+      const head = [
+        prompt("p0", "00:00", "build it", null),
+        assistant("m0", "00:01", "msg_0", reply(bash("t0", "npm run build")), usage(5000, 0, 50), model, "p0"),
+        toolResult("r0", "00:02", "t0", log(40, "build"), "m0"),
+        assistant("m1", "00:03", "msg_1", reply(text("fixed it")), usage(900, 5000, 20), model, "r0"),
+      ];
+      const abandoned = [
+        prompt("p1", "00:04", "now run the tests", "m1"),
+        assistant("m2", "00:05", "msg_2", reply(bash("t2", "npm test")), usage(30, 5900, 40), model, "p1"),
+        toolResult("r2", "00:06", "t2", log(200, "tests"), "m2"),
+        assistant("m3", "00:07", "msg_3", reply(text("tests fail")), usage(3000, 5930, 20), model, "r2"),
+      ];
+      // p1 is rewound and replaced: p2 takes p1's parent.
+      const tail = [
+        prompt("p2", "00:08", "instead, update the changelog", "m1"),
+        assistant("m4", "00:09", "msg_4", reply(text("done")), usage(40, 5900, 10), model, "p2"),
+        prompt("p3", "00:10", "thanks", "m4"),
+        assistant("m5", "00:11", "msg_5", reply(text("ok")), usage(20, 5950, 5), model, "p3"),
+      ];
+      const branched = await run([...head, ...abandoned, ...tail]);
+      const linear = await run([...head, ...tail]);
+      assert.deepEqual(context(branched).slice(4), context(linear).slice(2), model);
+      assert.equal(branched.records[4]!.prev, undefined, "no calibration pair across the branch");
+    }
+  });
+});
+
+test("an ordinary parentUuid chain, with parallel tool results, is not a rewind", async () => {
+  await withDir(async (run) => {
+    const rows = (withParents: boolean) => {
+      const p = (x: string | null) => (withParents ? x : undefined);
+      return [
+        prompt("p0", "00:00", "check both", p(null)),
+        assistant("a0", "00:01", "msg_0", [bash("t0", "npm test")], usage(5000, 0, 1), undefined, p("p0")),
+        assistant("a1", "00:02", "msg_0", [bash("t1", "npm run lint")], usage(5000, 0, 60), undefined, p("a0")),
+        toolResult("r0", "00:03", "t0", log(30, "t"), p("a0")),
+        toolResult("r1", "00:04", "t1", log(30, "l"), p("a1")),
+        assistant("m1", "00:05", "msg_1", [text("both fail")], usage(900, 5000, 20), undefined, p("r1")),
+        system("s1", "00:06", "m1"),
+        prompt("p1", "00:07", "fix them", p("s1")),
+        assistant("m2", "00:08", "msg_2", [text("fixed")], usage(30, 5900, 10), undefined, p("p1")),
+        prompt("p2", "00:09", "and commit", p("m2")),
+        assistant("m3", "00:10", "msg_3", [text("committed")], usage(30, 5940, 10), undefined, p("p2")),
+      ];
+    };
+    assert.deepEqual(view(await run(rows(true), contextMode)), view(await run(rows(false), contextMode)));
   });
 });

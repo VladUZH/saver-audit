@@ -92,6 +92,8 @@ export function blockBucket(block: Block, userKind: UserKind | undefined): Bucke
 export class ContextTracker {
   readonly records: CallRecord[] = [];
   private timelines = new Map<string, Timeline>();
+  /** Thinking state right after a call (think, thinkVis, pendThink, pendVis), when any. */
+  private thinkAfter = new Map<string, [number, number, number, number]>();
   private file: number;
   private source: Source;
   private savers?: SaverTracker;
@@ -113,7 +115,28 @@ export class ContextTracker {
     this.savers?.compact(timeline);
   }
 
+  /**
+   * The context goes back to what it was right after call `key` (null: the start).
+   * User-side content logged between that call and the prompt is not restored. Saver
+   * blocks cannot be restored this way, so savers restart their context as after a compaction.
+   */
+  private rewind(timeline: string, key: string | null): void {
+    const t = fresh();
+    const rec = key === null ? undefined : this.records.findLast((r) => r.key === key);
+    if (rec) {
+      t.ctxRaw = { ...rec.oldRaw };
+      add(t.ctxRaw, rec.newRaw);
+      t.ctxReal = rec.oldReal + rec.newReal;
+      t.pendReal = rec.call.usage.output;
+      const th = this.thinkAfter.get(rec.key);
+      if (th) [t.think, t.thinkVis, t.pendThink, t.pendVis] = th;
+    }
+    this.timelines.set(timeline, t);
+    this.savers?.compact(timeline);
+  }
+
   turn(turn: Turn): void {
+    if (turn.rewind !== undefined) this.rewind(turn.timeline, turn.rewind);
     const t = this.tl(turn.timeline);
     if (turn.role === "user") {
       if (turn.userKind === "prompt" && (t.think || t.pendThink)) {
@@ -177,6 +200,7 @@ export class ContextTracker {
       t.pendThink = call.usage.reasoning || call.usage.output;
       t.pendVis = call.usage.reasoning ? 0 : visibleTokens(turn);
     }
+    if (t.think || t.pendThink) this.thinkAfter.set(call.key, [t.think, t.thinkVis, t.pendThink, t.pendVis]);
     t.prev = rec;
   }
 }

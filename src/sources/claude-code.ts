@@ -30,6 +30,34 @@ export function findClaudeFiles(roots: string[], sinceMs: number): string[] {
 interface OpenCall { key: string; turn: Turn; held: Turn[] }
 interface ToolMeta { tool: string; family: string; command?: string }
 
+/** Position in one timeline's conversation, to spot a prompt that goes back to an earlier point. */
+interface Chain {
+  /** Keys of the responses so far, in file order. */
+  keys: string[];
+  /** The last line (uuid), and how many responses had started by then. */
+  tip?: string;
+  tipAt: number;
+  /** Parent line of each earlier prompt → responses started by then. */
+  parents: Map<string, number>;
+}
+
+/**
+ * For a real prompt: undefined when it continues from the last line. A rewind or an
+ * edited prompt continues from an earlier point (its parentUuid) and the abandoned lines
+ * stay in the file: then the key of the last response it keeps, or null for none. Only a
+ * null parent or a parent shared with an earlier prompt is recognised.
+ */
+function rewindTo(chain: Chain, parent: unknown): string | null | undefined {
+  let at: number | undefined;
+  if (parent === null) at = 0;
+  else if (typeof parent === "string") {
+    if (parent === chain.tip) chain.parents.set(parent, chain.tipAt);
+    else at = chain.parents.get(parent);
+  }
+  if (at === undefined || at >= chain.keys.length) return undefined;
+  return at ? chain.keys[at - 1]! : null;
+}
+
 export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent> {
   const isSubagentFile = file.includes(`${sep}subagents${sep}`);
   const tools = new Map<string, ToolMeta>();
@@ -56,7 +84,16 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
     else yield { t: "turn", turn };
   }
 
+  const chains = new Map<string, Chain>();
+  let last: { chain: Chain; uuid: string } | undefined;
+
   for await (const line of readLines(file)) {
+    // The previous line is fully processed: it is now the tip of its chain.
+    if (last) {
+      last.chain.tip = last.uuid;
+      last.chain.tipAt = last.chain.keys.length;
+      last = undefined;
+    }
     let o: any;
     try {
       o = JSON.parse(line);
@@ -81,6 +118,9 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
     }
     const timeline = o.isSidechain === true && !isSubagentFile ? `side:${o.agentId ?? ""}` : "main";
     const timestamp = typeof o.timestamp === "string" ? o.timestamp : undefined;
+    let chain = chains.get(timeline);
+    if (!chain) chains.set(timeline, (chain = { keys: [], tipAt: 0, parents: new Map() }));
+    if (typeof o.uuid === "string") last = { chain, uuid: o.uuid };
 
     if (type === "attachment") {
       // Reminders, hook context and attached files are rendered into the next prompt
@@ -94,6 +134,9 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
       if (o.subtype === "compact_boundary") {
         yield* flush(timeline);
         yield { t: "compact", timeline };
+        // No going back across a compaction: its context is not restored.
+        chain.keys.length = 0;
+        chain.parents.clear();
       }
       continue;
     }
@@ -125,6 +168,7 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
       yield* flush(timeline);
       const call: Call = { key, model, usage, multiplier: claudeMultiplier(msg.usage), billable: true };
       calls.set(key, call);
+      chain.keys.push(key);
       const turn: Turn = { index: index++, role: "assistant", timeline, timestamp, blocks, call };
       if (thinking) turn.thinking = true;
       open.set(timeline, { key, turn, held: [] });
@@ -151,7 +195,12 @@ export async function* parseClaudeFile(file: string): AsyncGenerator<SourceEvent
     }
     if (blocks.length === 0) continue;
     const userKind = blocks.every((b) => b.kind === "tool_result") ? "tool-results" : kind === "prompt" && isInjectedText(blocks) ? "injected" : kind;
-    yield* user({ index: index++, role: "user", timeline, timestamp, blocks, userKind });
+    const turn: Turn = { index: index++, role: "user", timeline, timestamp, blocks, userKind };
+    if (userKind === "prompt") {
+      const rewind = rewindTo(chain, o.parentUuid);
+      if (rewind !== undefined) turn.rewind = rewind;
+    }
+    yield* user(turn);
   }
   for (const timeline of [...open.keys()]) yield* flush(timeline);
 }
