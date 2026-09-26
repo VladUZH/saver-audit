@@ -126,7 +126,9 @@ export function installPlan(platform: string = process.platform, arch: string = 
     { id: "rtk", what: `rtk ${RTK_TAG}`, size: "about 4 MB, seconds", ...build(rtkAsset(platform, arch)) },
     { id: "caveman-engine", what: `caveman engine ${CAVEMAN_BIN_TAG}`, size: "about 28 MB; its first measurement then takes about a minute, cached after", ...build(cavemanAsset(platform, arch)) },
     { id: "token-saver", what: `token-saver ${TOKEN_SAVER_TAG}`, size: "under 1 MB, seconds; needs Python 3.10+; its first measurement takes a few minutes on a busy month, cached after", available: !!py && platform !== "win32", why: platform === "win32" ? "installer supports macOS and Linux" : py ? undefined : "needs Python 3.10+", python: true },
-    { id: "lean-ctx", what: `lean-ctx ${LEAN_CTX_TAG}`, size: "about 23 MB; its first measurement takes a few minutes on a busy month, cached after", ...build(leanCtxAsset(platform, arch)) },
+    // On Windows a program can find the real profile folder whatever the environment says,
+    // so lean-ctx's replays could read the user's settings and write into their profile.
+    { id: "lean-ctx", what: `lean-ctx ${LEAN_CTX_TAG}`, size: "about 23 MB; its first measurement takes a few minutes on a busy month, cached after", ...(platform === "win32" ? { available: false, why: "its settings cannot be kept apart from yours on Windows" } : build(leanCtxAsset(platform, arch))) },
     { id: "headroom", what: `headroom ${HEADROOM_VERSION} + its model`, size: "about 1.6 GB, a few minutes", available: venv, why: !py ? "needs Python 3.10+" : venv ? undefined : "needs Python's venv module; on Debian or Ubuntu: sudo apt install python3-venv", python: true },
   ];
 }
