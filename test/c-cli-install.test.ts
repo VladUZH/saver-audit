@@ -74,6 +74,14 @@ test("without a terminal and without --yes, nothing is installed and it says how
   assert.equal(existsSync(r.venv), false);
 });
 
+test("when nothing missing can be installed here, only the reasons are shown, no download banner", { skip: unix }, () => {
+  // token-saver is missing, and the only Python is 3.9.
+  const r = cli(["--install-savers", "--yes"], { SAVER_AUDIT_TOKEN_SAVER: "", FAKE_PY_VERSION: "3.9" }, true);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /token-saver v3\.0\.0: skipped \(needs Python 3\.10\+\)/);
+  assert.doesNotMatch(r.stdout, /Downloads from/);
+});
+
 test("a failed install still prints the report, then exits 1", { skip: unix }, () => {
   const r = cli(["--install-savers", "--with-headroom", "--yes"], { FAKE_PY_NO_MODEL: "1" });
   assert.equal(r.status, 1);

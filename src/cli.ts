@@ -15,6 +15,7 @@ import type { Source } from "./sources/types.ts";
 import { parsePeriod, parseUntil } from "./period.ts";
 import { normalizeCardArg } from "./args.ts";
 import { exactSeconds } from "./savers/replay.ts";
+import { canOfferInstall, installPlan, toolPaths, toolsDir, type InstallChoice } from "./savers/toolsdir.ts";
 import { VERSION } from "./version.ts";
 
 
@@ -188,7 +189,9 @@ async function main(argv: string[]): Promise<number> {
     return code;
   }
   const { copyImage, intentUrl, openExternal, shareText } = await import("./report/share.ts");
-  const missing = () => result.savers.some((x) => x.status === "not installed" && x.id !== "headroom");
+  // [i] only when a missing saver can be installed here (token-saver needs Python 3.10+).
+  let withPython: InstallChoice[] | undefined;
+  const missing = () => canOfferInstall(result.savers, (python) => (python ? (withPython ??= installPlan()) : installPlan(process.platform, process.arch, null)));
   const exactWork = () => exactSeconds(new Map(result.savers.filter((x) => x.replay).map((x) => [x.id, x.replay!])));
   await keyMenu(
     process.stdout,
@@ -287,9 +290,8 @@ interface InstallFlowOptions {
 
 /** Explains, asks, then installs the missing savers. Counts what was installed and what failed. */
 async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; failed: number }> {
-  const { headroomIncomplete, install, installPlan } = await import("./savers/install.ts");
+  const { headroomIncomplete, install } = await import("./savers/install.ts");
   const { detectReplayTools } = await import("./savers/replay.ts");
-  const { toolPaths, toolsDir } = await import("./savers/toolsdir.ts");
   const have = detectReplayTools();
   const out = o.out;
   const bold = (x: string) => (o.color ? `\x1b[1m${x}\x1b[0m` : x);
@@ -307,9 +309,13 @@ async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; 
     out.write(have.has("headroom") || o.all ? "\nAll replayed savers are already installed.\n" : "\nThe quick savers are installed. headroom (1.6 GB, minutes): saver-audit --install-savers --with-headroom\n");
     return { installed: 0, failed: 0 };
   }
-  out.write(`\n${bold("Install savers so saver-audit can replay your sessions through them")}\n`);
-  out.write(`Downloads from each saver's official release into ${toolsDir()}, verified before use.\n`);
-  out.write("Your Claude Code and Codex settings are not touched. Delete that folder to uninstall.\n");
+  out.write("\n");
+  // Nothing here can be installed on this machine: only the reasons, no download banner.
+  if (plan.some((c) => c.available)) {
+    out.write(`${bold("Install savers so saver-audit can replay your sessions through them")}\n`);
+    out.write(`Downloads from each saver's official release into ${toolsDir()}, verified before use.\n`);
+    out.write("Your Claude Code and Codex settings are not touched. Delete that folder to uninstall.\n");
+  }
   let installed = 0;
   let failed = 0;
   const unasked: string[] = [];
