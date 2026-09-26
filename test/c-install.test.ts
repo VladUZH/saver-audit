@@ -5,9 +5,10 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { download, installLeanCtx, installRtk, leanCtxAsset, rtkAsset } from "../src/savers/install.ts";
 import { toolPaths, toolsDir } from "../src/savers/toolsdir.ts";
+import { withEnv } from "./env.ts";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const quiet = () => {};
@@ -95,4 +96,29 @@ test("a downloaded program that does not run on this machine is not installed", 
   await assert.rejects(installRtk(quiet), /rtk: the downloaded program does not run on this machine/);
   await assert.rejects(installLeanCtx(quiet), /lean-ctx: the downloaded program does not run on this machine/);
   assert.deepEqual(binFiles(), []);
+});
+
+test("the downloaded program's check runs like a replay: telemetry off, no network, lean-ctx in a temporary home", { skip: unix || !rtkAsset() || !leanCtxAsset() }, async () => {
+  freshHome();
+  const log = join(temp("sa-probe-"), "probe.log");
+  // Each fake logs what its --version run was given.
+  const fake = (name: string) =>
+    `#!/bin/sh\nprintf '%s|%s|%s|%s|%s|%s\\n' ${name} "$1" "\${RTK_TELEMETRY_DISABLED:-}" "\${HTTPS_PROXY:-}" "$HOME" "$(pwd -P)" >> ${JSON.stringify(log)}\necho '${name} 1.0'\n`;
+  const rtk = tarball("rtk", fake("rtk"));
+  const lean = tarball("lean-ctx", fake("lean-ctx"));
+  serve({ [rtkAsset()!]: rtk, "checksums.txt": `${sha(rtk)}  ${rtkAsset()}\n`, [leanCtxAsset()!]: lean, SHA256SUMS: `${sha(lean)}  ${leanCtxAsset()}\n` });
+  await withEnv({ RTK_TELEMETRY_DISABLED: undefined, HTTPS_PROXY: undefined }, async () => {
+    await installRtk(quiet);
+    await installLeanCtx(quiet);
+  });
+  const runs = readFileSync(log, "utf8").trim().split("\n").map((l) => l.split("|"));
+  assert.deepEqual(runs.map(([name, arg]) => `${name} ${arg}`), ["rtk --version", "lean-ctx --version"]);
+  for (const [name, , telemetry, proxy, home, cwd] of runs) {
+    assert.equal(telemetry, "1", `${name}: rtk's telemetry is off`);
+    assert.equal(proxy, "http://127.0.0.1:9", `${name}: no network`);
+    assert.equal(basename(cwd!), "empty", `${name}: runs in an empty folder, not ${cwd}`);
+    assert.equal(existsSync(dirname(cwd!)), false, `${name}: its state folder is removed`);
+    // The state folder is gone, so compare names (the working folder's path is the real one).
+    if (name === "lean-ctx") assert.deepEqual([basename(dirname(home!)), basename(home!)], [basename(dirname(cwd!)), "lean-ctx-home"], "lean-ctx's home is in the state folder");
+  }
 });

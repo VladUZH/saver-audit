@@ -19,7 +19,9 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, win32 } from "node:path";
-import { NO_CWD, NO_NETWORK } from "./replay.ts";
+import type { SaverManifest } from "./manifest.ts";
+import { SAVERS } from "./registry.ts";
+import { makeStateDir, NO_CWD, NO_NETWORK, saverRunEnv } from "./replay.ts";
 import { CAVEMAN_BIN_TAG, cavemanAsset, findPython, HEADROOM_VERSION, LEAN_CTX_TAG, leanCtxAsset, RTK_TAG, rtkAsset, TOKEN_SAVER_TAG, toolPaths, toolsDir } from "./toolsdir.ts";
 import type { InstallChoice } from "./toolsdir.ts";
 
@@ -109,39 +111,50 @@ function untar(what: string, args: string[]): void {
   if (r.status !== 0) throw new Error(`${what}: could not unpack the archive (tar: ${why ?? `exit ${r.status ?? r.signal}`})`);
 }
 
-/** `--version` succeeds: the program is not for another CPU, truncated or corrupt. */
-function runsHere(file: string): boolean {
-  const r = spawnSync(file, ["--version"], { input: "", stdio: ["pipe", "ignore", "ignore"], timeout: 30_000 });
-  if (r.error) return (r.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
-  return r.status === 0;
+/**
+ * `--version` succeeds: the program is not for another CPU, truncated or corrupt. It
+ * runs as a replay does (saverRunEnv: telemetry off, no network, the manifest's own
+ * environment such as lean-ctx's temporary home), in an empty folder: rtk sends its
+ * telemetry before it reads its arguments, --version included.
+ */
+function runsHere(file: string, m: SaverManifest | undefined): boolean {
+  const state = makeStateDir();
+  try {
+    const r = spawnSync(file, ["--version"], { input: "", stdio: ["pipe", "ignore", "ignore"], timeout: 30_000, env: saverRunEnv(m, state), cwd: join(state, "empty") });
+    if (r.error) return (r.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
+    return r.status === 0;
+  } finally {
+    rmSync(state, { recursive: true, force: true, maxRetries: 3 });
+  }
 }
 
 /**
  * Puts a program into the tools folder in one step: written next to its target,
- * checked, then renamed. A failed install leaves nothing that detection would find.
+ * checked (`check`: the saver it is, when it has a --version to check it with), then
+ * renamed. A failed install leaves nothing that detection would find.
  */
-function place(what: string, data: Buffer, target: string, check: boolean): void {
+function place(what: string, data: Buffer, target: string, check?: string): void {
   mkdirSync(dirname(target), { recursive: true });
   const part = join(dirname(target), `.partial-${process.pid}-${basename(target)}`);
   try {
     writeFileSync(part, data, { mode: 0o755 });
     chmodSync(part, 0o755);
-    if (check && !runsHere(part)) throw new Error(`${what}: the downloaded program does not run on this machine (${process.platform}/${process.arch}), not installed`);
+    if (check && !runsHere(part, SAVERS.find((s) => s.id === check)?.manifest)) throw new Error(`${what}: the downloaded program does not run on this machine (${process.platform}/${process.arch}), not installed`);
     renameSync(part, target);
   } finally {
     rmSync(part, { force: true });
   }
 }
 
-/** Extracts one program from a downloaded archive, then places it (above). */
-function unpack(what: string, archive: Buffer, name: string, member: string, target: string): void {
+/** Extracts saver `id`'s program from a downloaded archive, then places it (above). */
+function unpack(id: "rtk" | "lean-ctx", archive: Buffer, name: string, member: string, target: string): void {
   const tmp = mkdtempSync(join(tmpdir(), "saver-audit-dl-"));
   try {
     const file = join(tmp, name);
     writeFileSync(file, archive);
-    untar(what, ["-xf", file, "-C", tmp, member]);
-    if (!existsSync(join(tmp, member))) throw new Error(`${what}: ${member} is missing from ${name}`);
-    place(what, readFileSync(join(tmp, member)), target, true);
+    untar(id, ["-xf", file, "-C", tmp, member]);
+    if (!existsSync(join(tmp, member))) throw new Error(`${id}: ${member} is missing from ${name}`);
+    place(id, readFileSync(join(tmp, member)), target, id);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -169,7 +182,7 @@ export async function installCaveman(say: Say): Promise<string> {
   if (!cavemanSignatureValid(sums, sig.toString("utf8"))) throw new Error("caveman engine: checksum signature invalid, not installed");
   const want = checksumFor(sums.toString("utf8"), asset) ?? checksumFor(sums.toString("utf8"), name);
   if (!want || want !== sha256(bin)) throw new Error("caveman engine: checksum mismatch, not installed");
-  place("caveman engine", bin, paths.caveman(), false); // no --version to check it with
+  place("caveman engine", bin, paths.caveman()); // no --version to check it with
   return paths.caveman();
 }
 
@@ -211,7 +224,7 @@ export async function installTokenSaver(say: Say): Promise<string> {
     rmSync(part, { recursive: true, force: true });
   }
   const wrapper = join(toolsDir(), "bin", "token-saver");
-  place("token-saver", Buffer.from(tokenSaverWrapper(py, join(dir, "bin", "token-saver"))), wrapper, false);
+  place("token-saver", Buffer.from(tokenSaverWrapper(py, join(dir, "bin", "token-saver"))), wrapper);
   return wrapper;
 }
 
