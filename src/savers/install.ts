@@ -19,6 +19,7 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, win32 } from "node:path";
+import { NO_CWD } from "./replay.ts";
 import { CAVEMAN_BIN_TAG, cavemanAsset, findPython, HEADROOM_VERSION, LEAN_CTX_TAG, leanCtxAsset, RTK_TAG, rtkAsset, TOKEN_SAVER_TAG, toolPaths, toolsDir } from "./toolsdir.ts";
 import type { InstallChoice } from "./toolsdir.ts";
 
@@ -220,10 +221,14 @@ export function tokenSaverWrapper(python: string, script: string): string {
   return `#!/bin/sh\nexec ${q(python)} ${q(script)} "$@"\n`;
 }
 
-/** Runs a step of the headroom install. A failure's error keeps the last lines of output (`output`: all that was kept). */
+/**
+ * Runs a step of the headroom install, in the tools folder: Python puts the current
+ * folder first on sys.path, so a venv.py or json.py where saver-audit runs would be
+ * imported. A failure's error keeps the last lines of output (`output`: all that was kept).
+ */
 function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, onLine: Say): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(cmd, args, { env, cwd: toolsDir(), stdio: ["ignore", "pipe", "pipe"] });
     let tail = "";
     const feed = (b: Buffer) => {
       const lines = b.toString("utf8").split(/\r?\n/).filter((l) => l.trim());
@@ -242,6 +247,7 @@ function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, onLine: Say): 
 }
 
 const PREFETCH = `
+${NO_CWD}
 from headroom.transforms.kompress_compressor import prefetch_kompress_artifacts, _load_kompress
 from huggingface_hub import snapshot_download
 prefetch_kompress_artifacts()
@@ -250,7 +256,8 @@ _load_kompress(allow_download=False)
 print("ready")
 `;
 
-const headroomEnv = (): NodeJS.ProcessEnv => ({ ...process.env, DO_NOT_TRACK: "1", HEADROOM_BEACON: "off", HF_HOME: paths.hfHome(), HEADROOM_WORKSPACE_DIR: paths.headroomState(), PIP_DISABLE_PIP_VERSION_CHECK: "1" });
+// PYTHONSAFEPATH (Python 3.11+): `-m pip` and `-m venv` do not import from the current folder either.
+const headroomEnv = (): NodeJS.ProcessEnv => ({ ...process.env, DO_NOT_TRACK: "1", HEADROOM_BEACON: "off", HF_HOME: paths.hfHome(), HEADROOM_WORKSPACE_DIR: paths.headroomState(), PIP_DISABLE_PIP_VERSION_CHECK: "1", PYTHONSAFEPATH: "1" });
 
 /**
  * The tools folder's headroom imports but cannot load its model offline (the check the
@@ -258,9 +265,9 @@ const headroomEnv = (): NodeJS.ProcessEnv => ({ ...process.env, DO_NOT_TRACK: "1
  */
 export function headroomIncomplete(): boolean {
   if (!existsSync(paths.headroomPython())) return false;
-  const ready = "from headroom.transforms.kompress_compressor import _load_kompress; _load_kompress(allow_download=False)";
+  const ready = `${NO_CWD}; from headroom.transforms.kompress_compressor import _load_kompress; _load_kompress(allow_download=False)`;
   const env = { ...headroomEnv(), HEADROOM_OFFLINE: "1", HF_HUB_OFFLINE: "1", TRANSFORMERS_OFFLINE: "1" };
-  return spawnSync(paths.headroomPython(), ["-c", ready], { env, stdio: "ignore", timeout: 120_000 }).status !== 0;
+  return spawnSync(paths.headroomPython(), ["-c", ready], { env, cwd: toolsDir(), stdio: "ignore", timeout: 120_000 }).status !== 0;
 }
 
 /**
@@ -277,7 +284,7 @@ export async function installHeadroom(say: Say): Promise<string> {
   mkdirSync(toolsDir(), { recursive: true });
   // A venv whose Python no longer runs (its base Python was removed) is rebuilt:
   // `python -m venv` over it would keep the dangling link.
-  if (spawnSync(paths.headroomPython(), ["-c", ""], { stdio: "ignore" }).status !== 0) {
+  if (spawnSync(paths.headroomPython(), ["-c", ""], { cwd: toolsDir(), stdio: "ignore" }).status !== 0) {
     rmSync(venv, { recursive: true, force: true });
     say("creating a Python environment for headroom…");
     try {

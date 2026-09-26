@@ -119,8 +119,9 @@ export interface InstallChoice {
 
 /** What can be installed on this machine, for the confirmation prompt and the [i] key. `py`: null for none. */
 export function installPlan(platform: string = process.platform, arch: string = process.arch, py: string | null | undefined = findPython()): InstallChoice[] {
-  // Debian and Ubuntu ship Python without its venv module (package python3-venv).
-  const venv = !!py && spawnSync(py, ["-c", "import ensurepip, venv"], { stdio: "ignore" }).status === 0;
+  // Debian and Ubuntu ship Python without its venv module (package python3-venv). -I:
+  // never an ensurepip.py or venv.py from the current folder.
+  const venv = !!py && spawnSync(py, ["-I", "-c", "import ensurepip, venv"], { stdio: "ignore" }).status === 0;
   const build = (asset: string | undefined) => ({ available: !!asset, why: asset ? undefined : "no build for this platform" });
   return [
     { id: "rtk", what: `rtk ${RTK_TAG}`, size: "about 4 MB, seconds", ...build(rtkAsset(platform, arch)) },

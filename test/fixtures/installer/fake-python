@@ -3,9 +3,12 @@
 # create headroom's venv, pip-install it and fetch its model, without a network.
 # Each call is logged to $FAKE_PY_LOG. FAKE_PY_NO_VENV=1: no venv module (as on
 # Debian without python3-venv). FAKE_PY_NO_MODEL=1: the model download fails.
-# FAKE_PY_VERSION: the version it reports (default 3.12).
+# FAKE_PY_VERSION: the version it reports (default 3.12). FAKE_PY_CWD_LOG: each call's
+# first arguments, folder and PYTHONSAFEPATH are logged there. -I (isolated) is accepted.
 self="$0"
 venv="${self%/*}/.."
+[ "$1" = "-I" ] && shift
+[ -n "$FAKE_PY_CWD_LOG" ] && printf '%s %s|%s|%s\n' "$1" "$(printf %s "$2" | tr '\n' ' ' | cut -c1-300)" "$(pwd -P)" "${PYTHONSAFEPATH:-}" >> "$FAKE_PY_CWD_LOG"
 case "$1" in
   -c)
     case "$2" in

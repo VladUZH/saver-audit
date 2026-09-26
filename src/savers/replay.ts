@@ -289,7 +289,7 @@ async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<void>, until
  * First in every Python program run here: `python -c` puts the current folder first on
  * sys.path, so a headroom/ or json.py where saver-audit is run would be imported.
  */
-const NO_CWD = "import sys; sys.path[:] = [p for p in sys.path if p]";
+export const NO_CWD = "import sys; sys.path[:] = [p for p in sys.path if p]";
 
 const HEADROOM_SIDECAR = String.raw`
 ${NO_CWD}
