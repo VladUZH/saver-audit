@@ -12,7 +12,7 @@ import { exactPending, menuKeys, renderShort, renderTerminal } from "../src/repo
 import { exactSeconds } from "../src/savers/replay.ts";
 import { installOffer, installPlan } from "../src/savers/toolsdir.ts";
 import { CLAUDE_ROOT, CODEX_HOME, FAKE_TOOLS, FIXTURES, fixtureOptions } from "./helpers.ts";
-import { inTerminalUntil, noTerminal } from "./pty.ts";
+import { inTerminal, inTerminalUntil, noTerminal } from "./pty.ts";
 
 const OPTS = { showProjects: false, verbose: false, color: false };
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -144,7 +144,7 @@ test("in a terminal, the menu offers the keys the short view names, and only tho
   assert.doesNotMatch(none, /\[i\]/);
 });
 
-test("--short and a run without a terminal on input name no keys", () => {
+test("--short names no keys", () => {
   const dir = mkdtempSync(join(tmpdir(), "sa-e2r-"));
   temps.push(dir);
   const bin = join(FIXTURES, "bin");
@@ -153,6 +153,20 @@ test("--short and a run without a terminal on input name no keys", () => {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /caveman engine\s+—\s+exact run needed: --exact/);
   assert.doesNotMatch(r.stdout, /\[e\]|\[i\]/);
+});
+
+test("in a terminal whose input is not one, no menu follows, so the short view names no keys", { skip: noTerminal }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "sa-e2r-"));
+  temps.push(dir);
+  const bin = join(FIXTURES, "bin");
+  // lean-ctx is nowhere; node is on PATH for the fake savers.
+  const env = { PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter), HOME: dir, XDG_CACHE_HOME: join(dir, "cache"), SAVER_AUDIT_HOME: join(dir, "home"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, NO_COLOR: "1", SAVER_AUDIT_RTK: join(bin, "rtk"), CAVEMAN_ENGINE_BIN: join(bin, "caveman-engine") };
+  const out = inTerminal([CLI, "--since", "2026-09-01", "--until", "2026-09-30", "--savers", "rtk,caveman-engine,lean-ctx", "--no-card", "--no-animation"], { env, cwd: dir, noInput: true })!;
+  assert.match(out, /Full report: npx saver-audit --full/, "the short view, in a terminal");
+  assert.match(out, /caveman engine\s+—\s+exact run needed: --exact/);
+  assert.match(out, /For exact numbers \(once; cached\): npx saver-audit --exact/);
+  assert.match(out, /Not installed: lean-ctx\. To install and measure it: npx saver-audit --install-savers/);
+  assert.doesNotMatch(out, /\[e\]|\[i\]|\[q\] quit/);
 });
 
 test("install hints give the command that works under npx", async () => {

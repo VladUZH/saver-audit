@@ -2,19 +2,26 @@
 // spinner and colours behave as in a real terminal.
 import { spawn, spawnSync } from "node:child_process";
 
-/** `script`'s arguments to run node with `args` in a pseudo-terminal; undefined where there is none. */
-function scriptArgs(args: string[]): string[] | undefined {
+/**
+ * `script`'s arguments to run node with `args` in a pseudo-terminal; undefined where there
+ * is none. With `noInput`, its input is /dev/null instead of the terminal.
+ */
+function scriptArgs(args: string[], noInput = false): string[] | undefined {
   const cmd = [process.execPath, ...args];
   const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
-  return process.platform === "darwin" ? ["-q", "/dev/null", ...cmd] : process.platform === "linux" ? ["-qfec", cmd.map(q).join(" "), "/dev/null"] : undefined;
+  const line = cmd.map(q).join(" ") + (noInput ? " < /dev/null" : "");
+  // Linux's script runs a shell command; macOS's a program, here sh for the redirect.
+  if (process.platform === "darwin") return ["-q", "/dev/null", ...(noInput ? ["/bin/sh", "-c", `exec ${line}`] : cmd)];
+  return process.platform === "linux" ? ["-qfec", line, "/dev/null"] : undefined;
 }
 
 /**
  * Runs node with `args` in a pseudo-terminal (its input is empty) and returns what it
  * printed, stdout and stderr together; undefined when there is no usable `script` here.
+ * With `noInput`, only its output is the terminal: its input is /dev/null.
  */
-export function inTerminal(args: string[], o: { env: NodeJS.ProcessEnv; cwd?: string }): string | undefined {
-  const argv = scriptArgs(args);
+export function inTerminal(args: string[], o: { env: NodeJS.ProcessEnv; cwd?: string; noInput?: boolean }): string | undefined {
+  const argv = scriptArgs(args, o.noInput);
   if (!argv) return undefined;
   // macOS's script needs a terminal or a file as its input, not a pipe.
   const r = spawnSync("script", argv, { env: o.env, cwd: o.cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", timeout: 60_000 });
