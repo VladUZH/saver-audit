@@ -40,10 +40,12 @@ interface Timeline {
   thinkVis: number;
   pendThink: number;
   pendVis: number;
+  /** o200k counts of content sent with every request, which a compaction keeps. */
+  resent: Record<BucketKey, number>;
 }
 
 function fresh(): Timeline {
-  return { ctxRaw: {}, ctxReal: 0, pendRaw: {}, pendReal: 0, think: 0, thinkVis: 0, pendThink: 0, pendVis: 0 };
+  return { ctxRaw: {}, ctxReal: 0, pendRaw: {}, pendReal: 0, think: 0, thinkVis: 0, pendThink: 0, pendVis: 0, resent: {} };
 }
 
 function add(into: Record<string, number>, from: Record<string, number>): void {
@@ -111,7 +113,12 @@ export class ContextTracker {
   }
 
   compact(timeline: string): void {
-    this.timelines.set(timeline, fresh());
+    const t = fresh();
+    // Content sent with every request is still there after it, as a cached prefix.
+    const resent = this.timelines.get(timeline)?.resent ?? {};
+    add(t.ctxRaw, resent);
+    add(t.resent, resent);
+    this.timelines.set(timeline, t);
     this.savers?.compact(timeline);
   }
 
@@ -153,6 +160,7 @@ export class ContextTracker {
         if (!bucket) continue;
         const n = countProxy(b.kind === "text" || b.kind === "tool_result" ? b.text : "");
         if (n) t.pendRaw[bucket] = (t.pendRaw[bucket] ?? 0) + n;
+        if (n && turn.resent) t.resent[bucket] = (t.resent[bucket] ?? 0) + n;
         if (this.savers && b.kind === "tool_result" && b.text) {
           this.savers.output(turn.timeline, turn.timestamp, {
             source: this.source,
