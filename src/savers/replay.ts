@@ -534,7 +534,6 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const sampled = new Map<string, Set<string>>();
   /** Per saver: the outputs extrapolation ratios come from (the stratum, or all when there are no small outputs). */
   const ratioKeys = new Map<string, Set<string> | "all">();
-  const smallKeys = new Map<string, string[]>();
   /** Outputs whose replay failed in this run: counted as unchanged, never cached. */
   const failed = new Set<string>();
   /** Why a saver's replays failed, when one cause failed them all (e.g. headroom's model). */
@@ -591,7 +590,6 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
       const sample = exact ? [...large, ...small] : [...large, ...small.filter((k, n) => n < stratum.length || (!strict && cache.has(k)))];
       sampled.set(saver, new Set(sample));
       ratioKeys.set(saver, small.length ? new Set(stratum) : "all");
-      smallKeys.set(saver, small);
       const uncached = keys.filter((k) => !cache.has(k) && unique.get(k)!.input).length;
       const st: ReplayStats = { total: keys.length, pending: uncached, ran: 0, extrapolated: 0, failed: 0 };
       stats.set(saver, st);
@@ -736,17 +734,20 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     const a = ratios.get(`${j.saver}|${j.cls}`) ?? ratios.get(`${j.saver}|*`);
     return a && a.base > 0 ? a.saved / a.base : undefined;
   };
-  // Measured smaller outputs that are exactly the larger ones (a cache left by an exact run
-  // from an earlier release, stopped part-way: it went largest first) are not a sample.
+  // Measured outputs that set the ratio but are exactly the larger ones of them (a cache left
+  // by an exact run from an earlier release, stopped part-way: it went largest first) are not
+  // a sample. Only the outputs a ratio comes from count: the quick sample leaves the other
+  // smaller outputs unmeasured on purpose, whatever their size.
   const sizeCut = (saver: string) => {
     const unique = bySaver.get(saver)!;
+    const from = ratioKeys.get(saver);
     let measured = Infinity;
     let rest = -Infinity;
-    for (const k of smallKeys.get(saver) ?? []) {
-      if (failed.has(k)) continue;
-      const b = unique.get(k)!.baseline;
-      if (sampled.get(saver)!.has(k) && cache.has(k)) measured = Math.min(measured, b);
-      else rest = Math.max(rest, b);
+    for (const k of from === "all" ? [] : (from ?? [])) {
+      const j = unique.get(k)!;
+      if (failed.has(k) || j.persistedHeader !== undefined) continue;
+      if (cache.has(k)) measured = Math.min(measured, j.baseline);
+      else rest = Math.max(rest, j.baseline);
     }
     return measured !== Infinity && rest !== -Infinity && measured > rest;
   };

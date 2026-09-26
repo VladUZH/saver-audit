@@ -420,6 +420,23 @@ test("quick mode does not extrapolate from a cache that holds only the larger ou
   }
 });
 
+test("a fully measured quick sample is not taken for a size cut when the outputs outside it happen to be the smallest", async () => {
+  const t = tmp();
+  try {
+    // Budget + 1 outputs: the 50 largest, a stratum of the first 50 smaller ones in key order,
+    // and one more smaller output (k050), the smallest of all, left out of the sample.
+    const large = Array.from({ length: 50 }, (_, i) => ({ key: `a${String(i).padStart(3, "0")}`, input: text(i, 6000) }));
+    const small = Array.from({ length: 51 }, (_, i) => ({ key: `k${String(i).padStart(3, "0")}`, input: text(i, i === 50 ? 1000 : 2000 + ((i * 37) % 2000)) }));
+    await exactRun(synth("headroom", [...large, ...small.slice(0, 50)]), t.cacheFile); // exactly the quick sample
+    const f = synth("headroom", [...large, ...small]);
+    const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
+    assert.deepEqual({ insufficient: st.insufficient, reason: st.reason, extrapolated: st.extrapolated }, { insufficient: undefined, reason: undefined, extrapolated: 1 });
+    assert.ok(deltas(f).at(-1)! > 0, "the one unmeasured output gets the stratum's ratio");
+  } finally {
+    t.done();
+  }
+});
+
 test("quick mode's extrapolation reads each output a bounded number of times, not once per unmeasured output", async () => {
   const t = tmp();
   try {
