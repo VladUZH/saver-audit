@@ -72,7 +72,7 @@ test("headroom without its cached model: every output failed, no number, the rea
   try {
     const f = synth("headroom", [0, 1, 2].map((i) => ({ key: `h${i}`, input: text(i) })));
     const st = (await runReplays([f], ["headroom"], { tools: tool("headroom", "fake-headroom", { FAKE_READY: "0" }), cacheFile: t.cacheFile, full: true, concurrency: 1 })).get("headroom")!;
-    assert.deepEqual({ failed: st.failed, pending: st.pending, insufficient: st.insufficient, reason: st.reason }, { failed: 3, pending: 0, insufficient: true, reason: "compression model not cached" });
+    assert.deepEqual({ failed: st.failed, pending: st.pending, insufficient: st.insufficient, failedOut: st.failedOut, reason: st.reason }, { failed: 3, pending: 0, insufficient: true, failedOut: true, reason: "compression model not cached" });
     assert.deepEqual(deltas(f), [0, 0, 0]);
   } finally {
     t.done();
@@ -106,6 +106,7 @@ test("a sidecar that exits mid-run fails the rest instead of hanging", async () 
     assert.equal(st.failed, 3);
     assert.equal(st.insufficient, true, "more failed than measured");
     assert.equal(st.reason, "most replays failed");
+    assert.equal(st.failedOut, true, "the failures are why there is no number");
   } finally {
     t.done();
   }
@@ -304,7 +305,7 @@ test("quick mode: no measured small output means no number, not zeros for the re
     await exactRun(synth("headroom", specs.slice(0, 50)), t.cacheFile); // only the 50 largest were ever replayed
     const f = synth("headroom", specs);
     const st = (await quickRun(f, t.cacheFile)).get("headroom")!;
-    assert.deepEqual({ insufficient: st.insufficient, reason: st.reason, extrapolated: st.extrapolated }, { insufficient: true, reason: "too few outputs replayed in quick mode", extrapolated: 0 });
+    assert.deepEqual({ insufficient: st.insufficient, reason: st.reason, extrapolated: st.extrapolated, failedOut: st.failedOut }, { insufficient: true, reason: "too few outputs replayed in quick mode", extrapolated: 0, failedOut: undefined });
   } finally {
     t.done();
   }

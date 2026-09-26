@@ -95,7 +95,7 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
     // Nothing measured: every replayed saver here is missing, or --savers picked none.
     if (!measured.length && !later.length) out.push(dim(r.savers.some((y) => y.method === "replayed") ? "  None measured yet: none of the replayed savers in this run is installed." : "  None measured: none of the selected savers is replayed (--savers)."));
     const exact = keys.exact ? `${bold("Press [e]")} for exact numbers (once; cached).` : "For exact numbers (once; cached): npx saver-audit --exact";
-    if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failed)) out.push(dim(`  "indicative" = from a quick sample; can be off by half. ${exact}`));
+    if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failedOut)) out.push(dim(`  "indicative" = from a quick sample; can be off by half. ${exact}`));
     if (measured.some((x) => x.replay?.failed)) out.push(dim(`  Some replays failed and count as unchanged, so those numbers are "indicative"; the full report has the counts.`));
     const hypo = measured.filter(hypotheticalCodex);
     if (hypo.length) out.push(dim(`  The Codex part is left out above (${hypo.map((x) => `${x.name.replace(" (proxy engine)", " engine")} about ${signedUsd(x.codexCost)}`).join(", ")}): it is hypothetical, since Codex hooks cannot rewrite tool input.`));
@@ -323,9 +323,13 @@ export function confidence(s: AuditResult["savers"][number]): string {
   return isIndicative(s) ? "indicative" : "exact";
 }
 
-/** What a saver row says instead of a number; `exact` is how to ask for an exact run. */
+/**
+ * What a saver row says instead of a number; `exact` is how to ask for an exact run.
+ * Failed replays are the cause only when they outnumber the measured ones (failedOut):
+ * a few failures in a quick sample that was too small still need an exact run.
+ */
 function noNumber(s: AuditResult["savers"][number], exact: string): string {
-  return s.replay?.failed ? `not measured: ${s.replay.reason ?? "replays failed"}` : `exact run needed: ${exact}`;
+  return s.replay?.failedOut ? `not measured: ${s.replay.reason ?? "replays failed"}` : `exact run needed: ${exact}`;
 }
 
 /** The share of outputs replayed, rounded down so a nearly complete replay never reads 100%. */

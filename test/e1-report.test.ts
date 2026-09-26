@@ -196,7 +196,30 @@ test("with no saver measured, the short view and card say why, and offer an inst
   assert.doesNotMatch(card([pending, missing]), /--install-savers/);
   assert.match(card([missing]), /npx saver-audit --install-savers/);
   assert.match(card([saver("token-saver", "token-saver", 5, { codexCost: 5, codexHypothetical: true })]), /Only hypothetical savings, on Codex\./);
-  const failed = saver("caveman-engine", "caveman (proxy engine)", 0, { replay: { total: 50, pending: 0, ran: 50, extrapolated: 0, failed: 50, insufficient: true, reason: "every replay failed" } });
+  const failed = saver("caveman-engine", "caveman (proxy engine)", 0, { replay: { total: 50, pending: 0, ran: 50, extrapolated: 0, failed: 50, insufficient: true, failedOut: true, reason: "every replay failed" } });
   assert.match(card([failed]), /No saver measured: replays failed\./);
   assert.doesNotMatch(card([failed]), /npx saver-audit --/);
+});
+
+test("a quick sample too small, with a few failed replays, asks for an exact run everywhere; failures are not blamed", () => {
+  // Two of the largest outputs failed, then the quick deadline passed before any smaller one was replayed.
+  const quick = saver("token-saver", "token-saver", 0, { replay: { total: 200, pending: 116, ran: 84, extrapolated: 0, failed: 2, insufficient: true, reason: "too few outputs replayed in quick mode" } });
+  const r = result({ savers: [quick] });
+  const svg = cardSvg(r);
+  assert.doesNotMatch(svg, /replays failed/);
+  assert.match(svg, /No saver measured yet\./);
+  assert.match(svg, /exact numbers: npx saver-audit --exact/);
+  const short = renderShort(r, OPTS);
+  assert.match(short, /token-saver\s+—\s+exact run needed: --exact/);
+  assert.match(short, /For exact numbers \(once; cached\): npx saver-audit --exact/);
+  const menu = renderShort(r, { ...OPTS, menu: true });
+  assert.match(menu, /token-saver\s+—\s+exact run needed: press \[e\]/);
+  assert.match(menu, /Press \[e\] for exact numbers/);
+  assert.match(renderTerminal(r, OPTS), /token-saver[^\n]*—\s+exact run needed: --exact/);
+  // When the failures are the cause, the row gives the reason instead.
+  const failedOut = saver("token-saver", "token-saver", 0, { replay: { total: 200, pending: 0, ran: 200, extrapolated: 0, failed: 150, insufficient: true, failedOut: true, reason: "most replays failed" } });
+  const bad = result({ savers: [failedOut] });
+  assert.match(renderShort(bad, OPTS), /token-saver\s+—\s+not measured: most replays failed/);
+  assert.doesNotMatch(renderShort(bad, OPTS), /--exact/);
+  assert.match(cardSvg(bad), /No saver measured: replays failed\./);
 });

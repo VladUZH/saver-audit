@@ -62,7 +62,7 @@ export function fitList(head: string, items: string[], max: number): string {
 function noSaverLines(r: AuditResult): [string, string?] {
   const replayed = r.savers.filter((s) => s.method === "replayed");
   if (!replayed.length) return ["No saver replayed in this run."];
-  if (replayed.some((s) => s.status === "ok" && tooLittleData(s) && !s.replay?.failed)) return ["No saver measured yet.", "exact numbers: npx saver-audit --exact"];
+  if (replayed.some((s) => s.status === "ok" && tooLittleData(s) && !s.replay?.failedOut)) return ["No saver measured yet.", "exact numbers: npx saver-audit --exact"];
   if (replayed.some((s) => s.status === "not installed")) return ["No saver measured yet.", "npx saver-audit --install-savers"];
   if (replayed.some((s) => s.status === "ok" && !tooLittleData(s))) return ["Only hypothetical savings, on Codex.", "Codex hooks cannot rewrite tool input."];
   return ["No saver measured: replays failed."];

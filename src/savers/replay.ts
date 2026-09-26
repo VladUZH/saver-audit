@@ -32,6 +32,8 @@ export interface ReplayStats {
   insufficient?: boolean;
   /** Why there is no number (set with `insufficient`), e.g. "every replay failed". */
   reason?: string;
+  /** Set with `insufficient` when failed replays are the cause (more failed than were measured), not a quick sample too small. */
+  failedOut?: boolean;
   /** Unique outputs replayed in this run (not from cache). */
   ran: number;
   /** Unique outputs whose saving was extrapolated, not measured (0 when insufficient: nothing is). */
@@ -706,7 +708,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   for (const [saver, st] of stats) {
     if (!st.failed) continue;
     const measured = [...sampled.get(saver)!].filter((k) => cache.has(k)).length;
-    if (st.failed > measured) Object.assign(st, { insufficient: true, reason: failReason.get(saver) ?? (measured ? "most replays failed" : "every replay failed") });
+    if (st.failed > measured) Object.assign(st, { insufficient: true, failedOut: true, reason: failReason.get(saver) ?? (measured ? "most replays failed" : "every replay failed") });
   }
   if (dirty) save();
 
