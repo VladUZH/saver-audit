@@ -109,7 +109,8 @@ export async function keyMenu(out: NodeJS.WriteStream, items: () => MenuItem[], 
     };
     const onKey = async (buf: Buffer) => {
       const k = buf.toString("utf8").toLowerCase();
-      if (k === "\u0003") {
+      // Keys pressed while the program is busy arrive in one read: a Ctrl+C among them counts.
+      if (k.includes("\u0003")) {
         if (!busy) return done();
         // Raw mode turns Ctrl+C into a key. During an action (an exact replay) stop as a
         // real Ctrl+C would: the SIGINT handlers run (the replay's stops its savers and

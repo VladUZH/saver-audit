@@ -79,6 +79,40 @@ test("Ctrl+C in the menu during an exact replay removes the savers' state where 
   }
 });
 
+test("a Ctrl+C read together with other keys still interrupts an action, and still quits the menu", async () => {
+  const stdin = process.stdin as NodeJS.ReadStream;
+  const saved = { isTTY: stdin.isTTY, setRawMode: stdin.setRawMode, kill: process.kill };
+  const signals: unknown[] = [];
+  let finish: () => void = () => {};
+  stdin.isTTY = true;
+  stdin.setRawMode = (() => stdin) as never;
+  process.kill = ((_pid: number, sig?: string | number) => (signals.push(sig), true)) as typeof process.kill;
+  const tick = () => new Promise((r) => setTimeout(r, 20));
+  try {
+    // Two presses (or a key, then Ctrl+C) while the program was busy come in one read.
+    const menu = keyMenu({ write: () => true } as never, () => [{ key: "e", label: "exact", run: () => new Promise<void>((r) => (finish = r)) }], false);
+    stdin.emit("data", Buffer.from("e"));
+    stdin.emit("data", Buffer.from("\u0003\u0003"));
+    await tick();
+    assert.deepEqual(signals, ["SIGINT"]);
+    stdin.emit("data", Buffer.from("x\u0003"));
+    await tick();
+    assert.deepEqual(signals, ["SIGINT", "SIGINT"]);
+    finish();
+    await tick();
+    let closed = false;
+    void menu.then(() => (closed = true));
+    stdin.emit("data", Buffer.from("x\u0003"));
+    await tick();
+    assert.equal(closed, true, "the idle menu quits");
+  } finally {
+    stdin.isTTY = saved.isTTY;
+    stdin.setRawMode = saved.setRawMode;
+    process.kill = saved.kill;
+    stdin.pause();
+  }
+});
+
 test("a spinner without colour writes no colour codes", () => {
   const writes: string[] = [];
   const out = { write: (s: string) => (writes.push(s), true), columns: 80 } as never;
