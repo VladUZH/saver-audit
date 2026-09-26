@@ -58,6 +58,16 @@ export function fitList(head: string, items: string[], max: number): string {
   return line;
 }
 
+/** Why the card has no saver row, and what would give one. */
+function noSaverLines(r: AuditResult): [string, string?] {
+  const replayed = r.savers.filter((s) => s.method === "replayed");
+  if (!replayed.length) return ["No saver replayed in this run."];
+  if (replayed.some((s) => s.status === "ok" && tooLittleData(s) && !s.replay?.failed)) return ["No saver measured yet.", "exact numbers: npx saver-audit --exact"];
+  if (replayed.some((s) => s.status === "not installed")) return ["No saver measured yet.", "npx saver-audit --install-savers"];
+  if (replayed.some((s) => s.status === "ok" && !tooLittleData(s))) return ["Only hypothetical savings, on Codex.", "Codex hooks cannot rewrite tool input."];
+  return ["No saver measured: replays failed."];
+}
+
 export function cardSvg(r: AuditResult): string {
   const total = r.billing.total.cost;
   // Logs can cover less than the period (Claude Code keeps 30 days by default); say so.
@@ -105,8 +115,9 @@ export function cardSvg(r: AuditResult): string {
   // A hook saver's hypothetical Codex part is left out; a saver with nothing else is dropped.
   const savers = r.savers.filter((s) => s.status === "ok" && s.method === "replayed" && !tooLittleData(s) && !onlyHypothetical(s)).sort((a, b) => measuredCost(b) - measuredCost(a)).slice(0, 5);
   if (!savers.length) {
-    parts.push(text(rx + 4, top + 88, "No saver measured yet.", 17, C.muted));
-    parts.push(text(rx + 4, top + 114, "npx saver-audit --install-savers", 15, C.muted));
+    const [why, hint] = noSaverLines(r);
+    parts.push(text(rx + 4, top + 88, why, 17, C.muted));
+    if (hint) parts.push(text(rx + 4, top + 114, hint, 15, C.muted));
   }
   const bounds = r.savers.filter((s) => s.status === "ok" && s.method === "upper-bound").sort((a, b) => b.cost - a.cost);
   if (bounds.length && total) {

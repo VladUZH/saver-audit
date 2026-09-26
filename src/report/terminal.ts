@@ -72,7 +72,8 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
     }
     const later = r.savers.filter((y) => y.status === "ok" && tooLittleData(y));
     for (const x of later) out.push(`  ${pad(x.name.replace(" (proxy engine)", " engine"), 18)} ${lpad("—", 9)} ${lpad("", 7)}  ${dim(noNumber(x, "press [e]"))}`);
-    if (!measured.length && !later.length) out.push(dim("  None measured yet: no replayable saver is installed."));
+    // Nothing measured: every replayed saver here is missing, or --savers picked none.
+    if (!measured.length && !later.length) out.push(dim(r.savers.some((y) => y.method === "replayed") ? "  None measured yet: none of the replayed savers in this run is installed." : "  None measured: none of the selected savers is replayed (--savers)."));
     if (measured.some((x) => x.replay?.extrapolated) || later.some((x) => !x.replay?.failed)) out.push(dim(`  "indicative" = from a quick sample; can be off by half. ${bold("Press [e]")} for exact numbers (once; cached).`));
     if (measured.some((x) => x.replay?.failed)) out.push(dim(`  Some replays failed and count as unchanged, so those numbers are "indicative"; the full report has the counts.`));
     const hypo = measured.filter(hypotheticalCodex);

@@ -177,3 +177,26 @@ test("the card's best-case line stays inside its panel with any number of ceilin
   assert.equal(fitList("head:", ["a-very-long-community-saver-name ≤ 12%", "b ≤ 1%"], 30), "head: a-very-long-c… · +1 more", "30 characters");
   assert.equal(fitList("head:", ["aa", "bb", "cc"], 40), "head: aa · bb · cc");
 });
+
+test("with no saver measured, the short view and card say why, and offer an install only when one is missing", () => {
+  const bound = (id: string) => saver(id, id, 40, { method: "upper-bound" });
+  const missing = saver("rtk", "rtk", 0, { status: "not installed" });
+  const ceilingsOnly = result({ savers: [bound("codegraph"), bound("context-mode")] });
+  assert.match(renderShort(ceilingsOnly, OPTS), /None measured: none of the selected savers is replayed \(--savers\)\./);
+  assert.doesNotMatch(renderShort(ceilingsOnly, OPTS), /is installed/);
+  assert.match(renderShort(result({ savers: [missing, bound("codegraph")] }), OPTS), /None measured yet: none of the replayed savers in this run is installed\./);
+
+  const card = (savers: SaverRow[]) => cardSvg(result({ savers }));
+  for (const svg of [card([]), card([bound("codegraph"), bound("context-mode")])]) {
+    assert.match(svg, /No saver replayed in this run\./);
+    assert.doesNotMatch(svg, /--install-savers/);
+  }
+  const pending = saver("caveman-engine", "caveman (proxy engine)", 0, { replay: { total: 50, pending: 50, ran: 0, extrapolated: 0, failed: 0, insufficient: true } });
+  assert.match(card([pending, missing]), /exact numbers: npx saver-audit --exact/);
+  assert.doesNotMatch(card([pending, missing]), /--install-savers/);
+  assert.match(card([missing]), /npx saver-audit --install-savers/);
+  assert.match(card([saver("token-saver", "token-saver", 5, { codexCost: 5, codexHypothetical: true })]), /Only hypothetical savings, on Codex\./);
+  const failed = saver("caveman-engine", "caveman (proxy engine)", 0, { replay: { total: 50, pending: 0, ran: 50, extrapolated: 0, failed: 50, insufficient: true, reason: "every replay failed" } });
+  assert.match(card([failed]), /No saver measured: replays failed\./);
+  assert.doesNotMatch(card([failed]), /npx saver-audit --/);
+});
