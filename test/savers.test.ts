@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { summarize, type FileResult } from "../src/audit.ts";
+import { findFiles, saverBlockWeights, summarize, type FileResult } from "../src/audit.ts";
 import type { CallRecord } from "../src/accounting/buckets.ts";
-import { runAudit } from "../src/pool.ts";
+import { processAll, runAudit } from "../src/pool.ts";
+import { runReplays } from "../src/savers/replay.ts";
 import { rtkFilter, SAVERS, saverIndex, splitCodexHeader } from "../src/savers/registry.ts";
 import { persistedHeader, presentedTokens, SaverTracker } from "../src/savers/tracker.ts";
 import { countProxy } from "../src/accounting/tokens.ts";
@@ -266,6 +267,30 @@ test("quick mode: rtk exact; cache-only savers wait for an exact run, which then
     assert.equal(after.get("caveman-engine")!.replay!.extrapolated, 0, "exact results are reused by quick runs");
     assert.ok(after.get("caveman-engine")!.cost > 0);
     assert.equal(after.get("headroom")!.replay!.insufficient, true, "only the savers asked for were made exact");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("block weights price a saved token as the report does: Σ d × weight is each replayed saver's dollars", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sa-weights-"));
+  try {
+    const opts = fixtureOptions();
+    const ids = ["rtk", "caveman-engine", "headroom"];
+    const savers = saverIndex(ids);
+    const config = { ids, replayable: ids, cacheFile: join(dir, "c.json"), until: new Date(opts.untilMs).toISOString(), versions: { rtk: "0.50.0", headroom: "0.38.0" } };
+    const results = await processAll(findFiles(opts), undefined, 1, config);
+    const w = saverBlockWeights(opts, results); // before replay: it needs no saving
+    assert.ok(w.size > 0);
+    const stats = await runReplays(results, ids, { tools: FAKE_TOOLS, cacheFile: config.cacheFile, full: true, concurrency: 1 });
+    const report = summarize(opts, results, { savers, tools: FAKE_TOOLS, stats });
+    ids.forEach((id, i) => {
+      let usd = 0;
+      for (const [block, weight] of w) usd += block.d[i]! * weight;
+      const cost = report.savers.find((s) => s.id === id)!.cost;
+      assert.ok(Math.abs(usd - cost) <= 1e-9 * Math.max(1, Math.abs(cost)), `${id}: ${usd} vs ${cost}`);
+    });
+    assert.ok(report.savers.some((s) => s.cost > 0));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

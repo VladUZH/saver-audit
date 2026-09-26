@@ -203,7 +203,23 @@ function prefixes(blocks: SaverBlock[], n: number): number[][] {
   return pd;
 }
 
-export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: SaverRun): AuditResult {
+/** Unique calls (deduplicated across and within files), the period test and the calibration. */
+interface Prepared {
+  records: CallRecord[];
+  duplicateCalls: number;
+  since: string;
+  until: string;
+  inPeriod: (rec: CallRecord) => boolean;
+  modelNames: string[];
+  calib: Map<string, Calibration>;
+}
+
+// Saver replay weights and the summary need the same calls and fit: made once per run.
+const prepared = new WeakMap<FileResult[], { opts: AuditOptions; p: Prepared }>();
+
+function prepare(opts: AuditOptions, results: FileResult[]): Prepared {
+  const hit = prepared.get(results);
+  if (hit && hit.opts === opts) return hit.p;
   // Dedupe calls across and within files; keep the copy with the largest totals.
   const byKey = new Map<string, CallRecord>();
   let duplicateCalls = 0;
@@ -233,7 +249,60 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     pairs.push({ model: rec.model, appended, proxy: rec.proxyAppended });
   }
   const modelNames = [...new Set(records.map((r) => r.model))].sort();
-  const calib = calibrate(pairs, modelNames);
+  const p = { records, duplicateCalls, since, until, inPeriod, modelNames, calib: calibrate(pairs, modelNames) };
+  prepared.set(results, { opts, p });
+  return p;
+}
+
+/** The price of a call (NO_COST on an unpriced model). */
+function priceOf(opts: AuditOptions, rec: CallRecord): { priced: string | undefined; c: CallCost } {
+  const priced = resolveModel(opts.prices, rec.model, rec.timestamp);
+  return { priced, c: priced ? callCost(rec.call.usage, ratesFor(opts.prices.models[priced]!, promptTokens(rec.call.usage)), rec.call.multiplier) : NO_COST };
+}
+
+/**
+ * What one o200k token saved in each saver block is worth in dollars over the period, as
+ * summarize() prices it: a cache write (or input) in the call that first sends it, then a
+ * cache read in every later call in the period until a compaction, ×k. A block appended
+ * again by a rewind is the same object, so its weight sums every place it appears. Blocks
+ * no call in the period reads are worth 0. Known before replay, so quick mode can sample
+ * and estimate in dollars.
+ */
+export function saverBlockWeights(opts: AuditOptions, results: FileResult[]): Map<SaverBlock, number> {
+  const { records, inPeriod, calib } = prepare(opts, results);
+  // Per timeline, a difference array over block indices.
+  const diff = new Map<string, Float64Array>();
+  for (const rec of records) {
+    if (!rec.call.billable || !inPeriod(rec) || !rec.range) continue;
+    const fs = results[rec.file]?.savers;
+    const tl = fs?.timelines[rec.range.tl];
+    if (!tl) continue;
+    const { c } = priceOf(opts, rec);
+    const k = calib.get(rec.model)!.k;
+    const rates = contextRates(rec, k, c);
+    const pk = `${rec.file}\0${rec.range.tl}`;
+    let a = diff.get(pk);
+    if (!a) diff.set(pk, (a = new Float64Array(tl.blocks.length + 1)));
+    const { ctxStart, newStart, newEnd } = rec.range;
+    a[ctxStart]! += k * rates.oldCost;
+    a[newStart]! += k * (rates.newCost - rates.oldCost);
+    a[newEnd]! -= k * rates.newCost;
+  }
+  const w = new Map<SaverBlock, number>();
+  for (const [pk, a] of diff) {
+    const [file, tl] = pk.split("\0") as [string, string];
+    const blocks = results[Number(file)]!.savers!.timelines[tl]!.blocks;
+    let run = 0;
+    for (let b = 0; b < blocks.length; b++) {
+      run += a[b]!;
+      if (run !== 0) w.set(blocks[b]!, (w.get(blocks[b]!) ?? 0) + run);
+    }
+  }
+  return w;
+}
+
+export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: SaverRun): AuditResult {
+  const { records, duplicateCalls, since, until, inPeriod, modelNames, calib } = prepare(opts, results);
 
   const billing = { input: amount(), cacheWrite: amount(), cacheRead: amount(), output: amount(), webSearch: { requests: 0, cost: 0, unpriced: 0 }, total: amount() };
   const buckets = new Map<BucketKey, { tokens: number; cost: number; projects: Set<number> }>();
@@ -269,7 +338,7 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     if (rec.timestamp && rec.timestamp > last) last = rec.timestamp;
     const u = rec.call.usage;
     const prompt = promptTokens(u);
-    const priced = resolveModel(opts.prices, rec.model, rec.timestamp);
+    const { priced, c } = priceOf(opts, rec);
     // One row per model and price: an alias split by date (codex-auto-review) can be priced as two models.
     const mk = `${rec.model}\0${priced ?? ""}`;
     let row = models.get(mk);
@@ -284,8 +353,7 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
     billing.output.tokens += u.output;
     billing.webSearch.requests += u.webSearches;
     billing.webSearch.unpriced += rec.call.webSearchCalls ?? 0;
-    // Unpriced model: tokens still count (context split, savers), dollars do not.
-    const c = priced ? callCost(u, ratesFor(opts.prices.models[priced]!, prompt), rec.call.multiplier) : NO_COST;
+    // Unpriced model (NO_COST): tokens still count (context split, savers), dollars do not.
     const callTotal = c.input + c.cacheWrite + c.cacheRead + c.output + c.webSearch;
     row.cost += callTotal;
     billing.input.cost += c.input;
