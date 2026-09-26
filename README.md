@@ -22,8 +22,10 @@ Nothing leaves your machine. The network is used only when you ask: `--update-pr
 - **Keys:**
   - `f` shows the full report;
   - `o` opens the card;
-  - `s` opens a post on X with your savings filled in and puts the card on your clipboard, so you paste it (⌘V / Ctrl+V) and post. X links can't attach images, so the card goes via the clipboard. saver-audit uploads nothing; your browser opens x.com only when you press `s`.
-  - `i` appears when a saver isn't installed yet. It installs the savers so you get measured numbers instead of estimates (see below), then re-runs.
+  - `s` opens a post on X with your savings filled in and puts the card on your clipboard, so you paste it (⌘V / Ctrl+V) and post. X links can't attach images, so the card goes via the clipboard. saver-audit uploads nothing; your browser opens x.com only when you press `s`. If no browser opens, it prints the link instead.
+  - `e` appears when some outputs are not measured yet. It gives exact numbers (see below).
+  - `i` appears when a saver is missing and can be installed on this machine. It installs the savers so you get measured numbers instead of estimates (see below), then re-runs.
+- **Without the key menu** (with `--short`, or when input is not a terminal), the short view names the flags instead: `--exact` and `--install-savers`.
 
 ![saver-audit running on the author's logs](https://raw.githubusercontent.com/VladUZH/saver-audit/main/assets/demo.gif)
 
@@ -79,12 +81,15 @@ The headroom number is a lower estimate (see below). On Codex alone, where shell
   - For example, Claude Code cuts large Bash output down to a preview, so that preview is the baseline.
   - **Quick by default:**
     - A normal run gives each saver a few seconds; the first run on a busy month takes about 20 s, later runs a few seconds.
-    - rtk always finishes, so its number is **exact**.
-    - token-saver and lean-ctx are estimated from a sample and marked **indicative**. They can be off by up to half on a small period.
+    - rtk replays up to about 12,000 distinct outputs in its 15 s (the author's month had 5,513), so its number is usually **exact**. Past that, or on a machine too slow to finish in 15 s, the rest is estimated and marked **indicative**.
+    - token-saver and lean-ctx are estimated from a sample and marked **indicative**. They can be off by up to half on a small period. With fewer than 20 measured outputs to estimate from, they show no number until you ask for exact numbers.
     - The caveman engine and headroom show "—" until you ask for exact numbers: a quick sample was too far off for them.
+    - A replay that fails counts as unchanged, is not cached, and is tried again next run. A number with failed replays is marked **indicative**. When most replays fail, the saver shows "not measured" and why, for example headroom without its model.
   - **Exact on request:** press `e` or pass `--exact`.
     - It replays every output above each saver's size floor: caveman 500 tokens, token-saver and lean-ctx 1,000, headroom 200.
-    - It first shows how long that will take on your logs. headroom can take hours on a busy month, so it is asked about separately.
+    - `e` first shows how long that will take on your logs. headroom can take hours on a busy month, so `e` asks about it separately.
+    - `--exact` asks nothing: it replays every saver, headroom included. To leave headroom out, list the others with `--savers`.
+    - The largest outputs go first. Results are saved as it goes, so you can stop with Ctrl+C and the next run carries on.
     - Results are cached, so later quick runs are exact too.
     - The floors make caveman about 5%, token-saver about 10% and lean-ctx about 4% low, and the report says so.
 - **modeled.** An estimate from a published measurement, with the assumption printed next to it.
@@ -94,17 +99,28 @@ Offline replay can't show whether a saver changes how the agent behaves: extra t
 
 ## How the dollars are computed
 
-- **Recorded usage is the truth.** Claude usage is deduplicated per API response (`message.id` + `requestId`, max per field). Codex `token_count` events are deduplicated, and history replayed into forked threads is skipped. Both match [ccusage](https://github.com/ccusage/ccusage) to the token on the author's logs.
+- **Recorded usage is the truth.** Claude usage is deduplicated per API response (`message.id` + `requestId`, max per field). Codex `token_count` events are deduplicated, and history replayed into forked threads is skipped. Both match [ccusage](https://github.com/ccusage/ccusage) to the token on the author's logs. One rule goes further than ccusage: in a forked Codex thread, a lone usage event within 1 s of the thread's start is the parent's call replayed, so it is not billed again.
+- **Rewinds.** When you rewind or edit an earlier prompt in Claude Code, the calls after it start from the conversation you kept. The abandoned branch is still billed, but it no longer counts as context, and savers get no credit for it.
 - **Cache-aware savings.** A token removed from a tool output is priced as a cache write when it is first sent. It is then priced as a cache read on every later call until the next compaction, using each call's recorded cache pattern.
 - **Token counts.** Per-block token counts use `o200k_base`, calibrated per Claude model against the usage in your own logs. Claude 4.7+ comes out at about 1.5× o200k on the author's logs, and the fit quality is printed. For OpenAI models, o200k is the tokenizer itself.
-- **Prices.** Prices are a bundled, dated snapshot of [models.dev](https://models.dev) (1-hour cache writes at 2× input). `--update-prices` fetches a fresh one.
+  - Claude 3.x models share the calibration of the older Claude tokenizer (4.6 and earlier). A Claude model saver-audit doesn't know is fitted on its own, or shown as uncalibrated.
+  - Older Claude models (Opus 4.1, Sonnet 4.5, Haiku 4.5 and earlier) drop earlier thinking at each new prompt, so there it stops counting as re-read context.
+- **Prices.** Prices are a bundled, dated snapshot of [models.dev](https://models.dev) (1-hour cache writes at 2× input). LiteLLM fills in the models models.dev lacks, such as retired ones, and the >200k-token rates of Sonnet 4.5 and 4. `--update-prices` fetches a fresh list and lays it over the bundled one, so a model missing from the update keeps its bundled price.
+  - Fast mode is priced per model: 6× on Opus 4.6 and 4.7, 2× on Opus 4.8, 5 and 5.5. A fast call on a model with no published fast price gets the standard rate, and the full report says so.
+  - A dated model id such as `gpt-5-2025-08-07` is priced as its base model.
+  - A model with no price counts its tokens at $0, and the total says how many calls that leaves out.
+  - Codex web searches are not in the total: the price list has no OpenAI per-search fee. The full report counts them.
 
 ## Privacy
 
 - **The report:** it never prints prompts, code, file contents, commands or tool output. Shell commands are reduced to fixed labels ("tests", "git"…), and project names are hidden unless you pass `--show-projects`.
-- **The share card (`--card`):** it holds numbers, model names and dates only.
-- **The replay cache** (`~/.cache/saver-audit/replay-v1.json`): it stores content hashes and token counts, never text.
-- **Savers:** they run with their telemetry off and their state in a temporary folder.
+- **The share card (`--card`):** it holds numbers, model names and dates only. It replaces any file or link at its path; it never writes through a link.
+- **The replay cache** (`~/.cache/saver-audit/replay-v1.json`, or under `$XDG_CACHE_HOME` when that is an absolute path): it stores content hashes and token counts, never text.
+- **Savers:**
+  - They run with their telemetry off and in an empty working folder. Their state goes to a temporary folder, which is removed at the end, and on Ctrl+C.
+  - Your own `CAVEMAN_*` and `TOKEN_SAVER_*` settings are left out, and token-saver and lean-ctx get a temporary home.
+  - They can't reach the network: web requests go to a local port where nothing listens.
+  - On Windows, lean-ctx can still find your real profile folder, so the installer doesn't offer it there. A lean-ctx you installed yourself is still replayed.
 
 ## Options
 
@@ -113,31 +129,38 @@ saver-audit [--last 30d | --since 2026-09-01] [--until 2026-09-25] [--source cla
             [--exact] [--full | --short | --json] [--card [path] | --no-card] [--no-animation]
             [--install-savers [--with-headroom] [--yes]] [--check-saver <manifest.json>]
             [--show-projects] [--update-prices]
-            [--savers rtk,caveman-engine,headroom,caveman-skill,codegraph,context-mode]
-            [--no-savers] [--full-replay] [--verbose]
+            [--savers rtk,caveman-engine,token-saver,lean-ctx,headroom,caveman-skill,codegraph,context-mode]
+            [--no-savers] [--verbose]
 ```
 
 In a terminal the default is the short view with the key menu, plus a card. When piped (or in CI) you get the full report and no card unless you pass `--card`.
+
+**The period** ends at `--until`, or now. A date means the end of that day, which is included. `--last` counts back from that end, so `--last 7d --until 2026-09-22` is the 7 days up to the end of 22 September. `--since` replaces `--last`. Dates are `YYYY-MM-DD` (leading zeros optional) or a date with a time, such as `2026-09-20T10:00`, in local time. A `--since` after `--until` is an error.
 
 ## Installing the savers (one command)
 
 To get *measured* numbers for rtk, the caveman engine, token-saver, lean-ctx and headroom, they have to be on your machine: saver-audit runs your copy and never bundles saver code (caveman's engine is BSL-1.1).
 
 ```
-npx saver-audit --install-savers                  # rtk, caveman engine, token-saver, lean-ctx: ~56 MB, seconds
-npx saver-audit --install-savers --with-headroom  # + headroom and its model: ~1.6 GB, minutes, Python 3.10+
+npx saver-audit --install-savers                  # rtk, caveman engine, token-saver, lean-ctx: ~56 MB
+npx saver-audit --install-savers --with-headroom  # + headroom, its model and tokenizer: ~1.6 GB, minutes, Python 3.10+ with venv
 ```
 
 Or press `i` in the short view.
-- **Where from:** each saver's official GitHub release, pinned to the version the adapters were written for, and verified before use: rtk against its release checksums, the caveman engine against checksums signed with caveman's key.
+- **Where from:**
+  - rtk, the caveman engine, token-saver and lean-ctx: each saver's official GitHub release, pinned to the version the adapters were written for, and verified before use. rtk and lean-ctx are checked against their release checksums, the caveman engine against checksums signed with caveman's key, and token-saver against a hash pinned in saver-audit.
+  - headroom: `headroom-ai` 0.38.0 from PyPI (pip chooses its dependencies), its model from Hugging Face, and its tokenizer through tiktoken. saver-audit does not pin or verify these downloads, and says so before it asks.
 - **Where to:** `~/.saver-audit/tools`. No saver's own setup runs, so your Claude Code and Codex settings stay as they are. Delete the folder to uninstall.
-- **What it asks:** before each download, unless you pass `--yes`.
+- **What it asks:** before each download, unless you pass `--yes`. Without a terminal and without `--yes`, it installs nothing and says so. The report follows either way; the exit code is 1 only if an install failed.
+- **Where it can't:** token-saver needs Python 3.10+, and its installer supports macOS and Linux; lean-ctx is not offered on Windows (see Privacy). rtk and lean-ctx are installed on x64 and arm64 CPUs only. A download that does not run on your machine is not installed.
+- **Older copies:** if the copy found is older than the version saver-audit was written for, the installer offers the current one.
 
-If you already have a saver installed yourself (on your `PATH`), saver-audit uses that.
+If you already have a saver installed yourself, saver-audit uses that. For rtk, the caveman engine, token-saver and lean-ctx it takes the first copy that is not older than the version its adapter was written for: on your `PATH`, then in `~/.saver-audit/tools/bin`, then in the saver's usual folder (or the first one found, if none is current). An override variable always wins.
 
-- **rtk:** `rtk` on your `PATH`.
+- **rtk:** `rtk` on your `PATH`, or set `SAVER_AUDIT_RTK`.
 - **caveman engine:** `caveman-engine` on your `PATH` or in `~/.caveman/bin`, or set `CAVEMAN_ENGINE_BIN`.
-- **headroom:** a `headroom` install with the `[ml]` extra and its Kompress model downloaded, or set `SAVER_AUDIT_HEADROOM_PYTHON`. headroom leaves Read/Grep/Glob/Edit/Write/web output alone while it is recent and compresses it as it ages. saver-audit replays each output as the newest message, so its headroom number is a lower estimate.
+- **token-saver, lean-ctx:** on your `PATH`, or set `SAVER_AUDIT_TOKEN_SAVER` / `SAVER_AUDIT_LEAN_CTX`.
+- **headroom:** a `headroom` install with the `[ml]` extra, its Kompress model and tiktoken's `o200k_base` downloaded (run headroom once online), or set `SAVER_AUDIT_HEADROOM_PYTHON`. An audit never downloads them. On Windows, saver-audit follows pip's `headroom.exe` launcher to its Python; if that fails, set `SAVER_AUDIT_HEADROOM_PYTHON`. headroom leaves Read/Grep/Glob/Edit/Write/web output alone while it is recent and compresses it as it ages. saver-audit replays each output as the newest message, so its headroom number is a lower estimate.
 
 ## Add your saver
 

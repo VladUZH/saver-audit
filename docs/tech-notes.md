@@ -53,8 +53,8 @@ Both builds are newer than most users', so parsers must tolerate missing and unk
 | Spilled tool output | `<project>/<session>/tool-results/<name>.txt`; "Large tool outputs spilled to separate files" | [claude-directory](https://code.claude.com/docs/en/claude-directory#application-data) |
 | Possible duplicate transcripts | `<session>.orphaned-<ts>-<suffix>.jsonl` and `<session>.jsonl.superseded-<ts>`: earlier transcripts set aside. Skip them or dedupe | same |
 | Retention | `cleanupPeriodDays`, default 30, minimum 1. Desktop/Cowork sessions are kept unless `desktopSessionCleanupPeriodDays` is set (v2.1.248+) | [settings-reference](https://code.claude.com/docs/en/settings-reference#cleanupperioddays), [data-usage](https://code.claude.com/docs/en/data-usage) |
-| Config dir override | `CLAUDE_CONFIG_DIR` (default `~/.claude`) | [env-vars](https://code.claude.com/docs/en/env-vars) |
-| Legacy path | ccusage also scans `~/.config/claude/projects/`. The official docs do not mention it | [ccusage adapter README](https://github.com/ccusage/ccusage/blob/main/rust/adapters/claude/src/README.md) |
+| Config dir override | `CLAUDE_CONFIG_DIR` (default `~/.claude`). saver-audit treats an empty value as unset and resolves a relative one | [env-vars](https://code.claude.com/docs/en/env-vars) |
+| Legacy path | ccusage also scans `~/.config/claude/projects/`. The official docs do not mention it. saver-audit reads it too, and a folder reached twice (a symlink, or `CLAUDE_CONFIG_DIR` pointing there) only once; symlinked folders and files are followed | [ccusage adapter README](https://github.com/ccusage/ccusage/blob/main/rust/adapters/claude/src/README.md) |
 | Sessions never written | `--no-session-persistence`, `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1` | [sessions](https://code.claude.com/docs/en/sessions) |
 | Official alternatives | `/export`, `claude -p --output-format json`, hook `transcript_path`, Agent SDK | same |
 
@@ -182,7 +182,7 @@ Both builds are newer than most users', so parsers must tolerate missing and unk
 
 | Item | Value | Source |
 |---|---|---|
-| Home | `CODEX_HOME`, default `~/.codex` | [home-dir/lib.rs](https://github.com/openai/codex/blob/main/codex-rs/utils/home-dir/src/lib.rs), [env vars doc](https://learn.chatgpt.com/docs/config-file/environment-variables) |
+| Home | `CODEX_HOME`, default `~/.codex`. saver-audit treats an empty value as unset and resolves a relative one | [home-dir/lib.rs](https://github.com/openai/codex/blob/main/codex-rs/utils/home-dir/src/lib.rs), [env vars doc](https://learn.chatgpt.com/docs/config-file/environment-variables) |
 | Rollouts | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<YYYY-MM-DDThh-mm-ss>-<thread_id>.jsonl`, in local time. Reverted threads get the suffix `_<rollout_id>`. (local) confirmed | [recorder.rs](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/recorder.rs), [rollout_file_name.rs](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/rollout_file_name.rs) |
 | Archived | `$CODEX_HOME/archived_sessions/rollout-*.jsonl`, a flat directory. (local) confirmed. If a file is in both places, the `sessions/` copy wins | [rollout/lib.rs](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/lib.rs), [ccusage codex README](https://github.com/ccusage/ccusage/blob/main/rust/adapters/codex/src/README.md) |
 | Compressed rollouts (coming) | `.jsonl.zst` for rollouts older than 7 days, behind feature `local_thread_store_compression` (under development, off by default). Support zstd anyway | [compression.rs](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/compression.rs), [features/lib.rs](https://github.com/openai/codex/blob/main/codex-rs/features/src/lib.rs) |
@@ -216,6 +216,7 @@ Model enum source: [protocol/models.rs](https://github.com/openai/codex/blob/mai
   - 3,767 events repeated the previous cumulative total unchanged.
 - **Deduplication rule (ccusage).** Use `last_token_usage` only when `total_token_usage` changed since the previous event. Otherwise use the delta of the cumulative totals, and skip all-zero events. Re-emitted events had inflated usage by about 30–67% ([ccusage#1288](https://github.com/ccusage/ccusage/issues/1288), [#884](https://github.com/ccusage/ccusage/issues/884), [parser](https://github.com/ccusage/ccusage/blob/main/rust/adapters/codex/src/README.md)). On v0.153+, prefer `token_usage_record` (keyed by `response_id`).
 - **Subagent and forked rollouts** replay the parent's history first. Exclude usage before the `task_started` / `inter_agent_communication_metadata{trigger_turn:true}` marker (ccusage README).
+  - saver-audit, like ccusage's parser, skips a first run of usage events ≤1 s apart. It also skips a lone first event ≤1 s after the thread's `session_meta`: a parent with a single call replays just one event, which ccusage bills again (§8.12).
 - **Model fallback.** If there is no `turn_context`, ccusage falls back to `gpt-5` and flags it.
 - **`codex-auto-review` has no public price.** ccusage maps it by date: `gpt-5.4` until 2026-07-29, then `gpt-5.6-luna`. (local) This is the most frequent model name on this machine.
 - **Overflow events** (source reading, unverified): `fill_to_context_window` can write `total_tokens` = context window with the other fields zero ([context_manager/history.rs](https://github.com/openai/codex/blob/main/codex-rs/core/src/context_manager/history.rs)). Don't trust `total_tokens` on its own.
@@ -294,7 +295,7 @@ Sources: [mcp](https://code.claude.com/docs/en/mcp#scale-with-mcp-tool-search), 
 **Facts that drive accuracy:**
 - **OpenAI.** gpt-5.x maps to o200k_base in tiktoken's model map, so Codex counts should be close to exact. For gpt-6-*, no official tokenizer statement was found ([gpt-6-sol page](https://developers.openai.com/api/docs/models/gpt-6-sol)), so treat it as o200k_base and calibrate.
 - **Claude has two tokenizer generations:**
-  - ≤4.6 (Opus 4.6 and earlier, Sonnet 4.6 and earlier, Haiku 4.5);
+  - ≤4.6 (Opus 4.6 and earlier, Sonnet 4.6 and earlier, Haiku 4.5; saver-audit puts Claude 3.x here too, and an unknown Claude id in neither family);
   - 4.7+ (Opus 4.7/4.8/5/5.5, Sonnet 5, Fable, Mythos).
   - The newer one gives "approximately 30% more tokens for the same text" ([pricing](https://platform.claude.com/docs/en/about-claude/pricing)); Anthropic's Opus 4.7 announcement says 1.0–1.35× ([news](https://www.anthropic.com/news/claude-opus-4-7)).
   - Simon Willison measured 1.46× on a system prompt and 1.08× on a PDF ([blog](https://simonwillison.net/2026/Apr/20/claude-token-counts/)).
@@ -338,9 +339,9 @@ Sources: [mcp](https://code.claude.com/docs/en/mcp#scale-with-mcp-tool-search), 
 | Claude Haiku 4.5 | 1 | 1.25 | 2 | 0.10 | 5 |
 
 - **Sonnet 5's $2/$10 is now the standard price;** the planned increase will not happen.
-- **Fast mode:** Opus 5.5 is $8/$40; Opus 5 and 4.8 are $10/$50.
+- **Fast mode:** Opus 5.5 is $8/$40; Opus 5 and 4.8 are $10/$50. Opus 4.6 and 4.7 were 6× the standard rate while they had fast mode (LiteLLM `provider_specific_entry.fast`, archived commit bae04591). saver-audit prices fast mode per model from these; a model with no published fast price gets the standard rate, flagged in the full report.
 - **Data residency:** `inference_geo: "us"` costs 1.1×.
-- **Long context:** Claude 4.6+ has no >200k premium (full 1M window at standard price). LiteLLM still lists the old premium for Sonnet 4.5: $6 / $22.50.
+- **Long context:** Claude 4.6+ has no >200k premium (full 1M window at standard price). LiteLLM still lists the old premium for Sonnet 4.5: $6 / $22.50. saver-audit applies it, from LiteLLM, to Sonnet 4.5 and Sonnet 4 calls whose prompt is over 200,000 tokens.
 
 ### 5.2 OpenAI ([pricing](https://developers.openai.com/api/docs/pricing))
 
@@ -361,6 +362,8 @@ Sources: [mcp](https://code.claude.com/docs/en/mcp#scale-with-mcp-tool-search), 
 - **OpenAI now charges for cache writes on GPT-5.6 and later,** at 1.25× input ([prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)). GPT-5.5 and earlier have no write charge.
 - **Priority/fast tier costs 2×.** Batch and flex cost 0.5×.
 - **Retired Codex models need archived prices:** gpt-5-codex, gpt-5.1-codex(-max/-mini) and gpt-5.2-codex were shut down 2026-07-23 ([deprecations](https://developers.openai.com/api/docs/deprecations)). LiteLLM still carries their prices.
+- **Dated snapshot ids** (`gpt-5-2025-08-07`, `o3-2025-04-16`) are priced as their base model, unless the snapshot has its own listed price.
+- **Hosted web search** (`web_search_call`) has no per-search fee in the price list. saver-audit counts the searches and leaves them out of the total.
 
 ### 5.3 Machine-readable price lists
 
@@ -374,6 +377,7 @@ Sources: [mcp](https://code.claude.com/docs/en/mcp#scale-with-mcp-tool-search), 
   - Keeps retired models.
   - ccusage embeds snapshots of both and prices 1h writes at 2× input ([pricing.rs](https://github.com/ccusage/ccusage/blob/main/rust/crates/ccusage-core/src/pricing.rs)).
 - **Recommendation.** Ship a dated snapshot of models.dev with LiteLLM as a fallback for retired models. Print the snapshot date in every report. Fetch fresh prices only with an explicit flag.
+- **As built (2026-09-26):** LiteLLM supplies the models models.dev lacks and Claude's >200k-token rates. Claude 4/4.1 prices come from an archived LiteLLM file (commit bae04591), because the current one has dropped them. `--update-prices` lays the fresh table over the bundled one, so a model the update lacks keeps its bundled price, and aliases always come from the installed version.
 
 ---
 
@@ -528,7 +532,7 @@ context-mode `e80601e`. File/line references below are at those commits.
   - MIT: `skills/`, `packages/cli/`, SDKs, `evals/`.
   - BSL-1.1: `engine/`, `proxy/`, `shrink/`, `mcp/`, `rewriter/`, `browse/`, `mem/`, `shared/platform/`. These convert to Apache-2.0 on 2030-06-21 or on a version's fourth anniversary.
 - **Engine usage:** `caveman-engine compress [--type <content-type>]` reads stdin (64 MiB cap) and writes the result to stdout. It writes a JSON report with `TokensBefore`/`TokensAfter` to stderr. `engine/` imports no networking (`engine/cmd/caveman-engine/main.go`).
-- **Side effect:** the engine creates `~/.caveman/ccr.db`. Run it with `CAVEMAN_HOME` (or `CAVEMAN_CCR_DB`) set to a temp dir.
+- **Side effect:** the engine creates `~/.caveman/ccr.db`. Run it with `CAVEMAN_HOME` (or `CAVEMAN_CCR_DB`) set to a temp dir. saver-audit sets both, and leaves out the user's own `CAVEMAN_*` variables.
 - **Install and lookup:** installed with `npm i -g @caveman-ai/cli && caveman setup --install`. The binary is looked up via `CAVEMAN_ENGINE_BIN`, then PATH, then `~/.caveman/bin`.
 - **Skill numbers:** `docs/HONEST-NUMBERS.md` now says the skill's output reduction is "Not published" and its input cost "Not measured here". The "~1–1.5k tokens per turn" line was removed on 2026-09-08, and the 65% output claim was withdrawn on 2026-08-16. `skills/caveman/SKILL.md` is 7,061 bytes.
 - **Correction to §3:** the "adds about 1k input tokens" figure is no longer caveman's own. Model the overhead from the SKILL.md size (tokenized) and state that assumption. The output reduction to model is JetBrains' −8.5% (§3), the only independent figure.
@@ -583,7 +587,7 @@ Aggregates only; no content was read by a person.
     - c ≈ 565 tokens per step for Opus 5.5 and about 10–110 for the others.
   - Haiku 4.5 (old tokenizer) had only 12 pairs, with a ratio of about 1.3.
   - So Claude 4.7+ uses about 1.5× the o200k count, consistent with "about 30% more than the previous Claude tokenizer" if the old one was about 1.2× o200k (inference).
-- **Claude thinking is re-sent:** assuming earlier output tokens (including thinking) stay in the next prompt gave tighter fits than assuming thinking is dropped. The report therefore treats earlier output, including thinking, as re-read context.
+- **Claude thinking is re-sent:** assuming earlier output tokens (including thinking) stay in the next prompt gave tighter fits than assuming thinking is dropped. The report therefore treats earlier output, including thinking, as re-read context on keep-all-thinking models (§4.2). On older models (Opus 4/4.1, Sonnet 4/4.5, Haiku 4.5 and earlier, Claude 3.x), earlier thinking leaves the context at each new user prompt and stays within a tool loop (§8.12).
 - **Codex (open question 3):** per-pair deltas are unusable for gpt-5.6-sol. About half the pairs show the prompt growing only by the previous output plus about 28 tokens, while about 930 tokens of shell output were logged in between. The output then turns up one call later: Codex sometimes writes `token_count` after the next tool output. Attribution is cumulative, so this only shifts content by one call. OpenAI models use k = 1 (o200k_base is their tokenizer; assumed for gpt-6). `codex-auto-review` pairs gave exactly 1.00.
 - **Attachments:** Claude Code `attachment` records carry reminders, skill listings, CLAUDE.md, deferred-tool lists and attached files. They are sized from their string fields. Three types are excluded as not new prompt text (an assumption, unverified):
   - `prompt_snapshot`: about 33k chars each, 29% of attachment text, presumably a system-prompt snapshot;
@@ -613,7 +617,7 @@ Installed in `~/.saver-audit-tools` (see STATUS). Behaviour seen while building 
     - `onnxruntime>=1.24` is not pulled in by `headroom-ai[ml]`, so without it headroom falls back to PyTorch weights that are not cached.
     - On a cold start the model loads in the background and requests skip it. The sidecar therefore loads it synchronously (`_load_kompress(allow_download=False)`, about 5 s), like a warm proxy.
   - **Speed:** about 1 s per large output with Kompress on CPU, so the default run replays a 300-output sample.
-- **Sampling:** by default, each replayed saver runs on a deterministic sample: the first N unique outputs in hash order, drawn from *all* applicable outputs. The rest are extrapolated per (category, family) class. `--full-replay` replays everything. Results are cached by content hash, and the cache holds hashes and counts only.
+- **Sampling:** by default, each replayed saver runs on a deterministic sample: the first N unique outputs in hash order, drawn from *all* applicable outputs. The rest are extrapolated per (category, family) class. `--full-replay` replays everything (since 0.6.0 `--exact`; `--full-replay` still works as an alias). Results are cached by content hash, and the cache holds hashes and counts only.
 - **Reproducibility:** calibration is now fit only on calls inside the period. Fitting on everything let calls newer than `--until` shift k between runs. Two runs over the same window now give identical saver numbers.
 - **fast-jev-compaction:** not modeled. It acts only at compaction (46 compactions, 10 automatic, in all local history), and its keep/truncate/drop decisions need the hosted Jev API. Keeping even truncated tool pairs leaves more context than the built-in summary, so its effect on tokens is probably negative, and any number would be mostly assumption.
 
@@ -703,7 +707,7 @@ Ground truth: full replays of every output (window 2026-08-26 → 2026-09-25T13:
 | All five in parallel | 198 s (1,141 s of CPU: they only compete) |
 
 **Quick mode (default):**
-- Savers run one at a time, fastest first, each against a wall-clock budget of about 6 s. rtk gets 15 s, enough to finish every output, so it is always exact.
+- Savers run one at a time, fastest first, each against a wall-clock budget of about 6 s. rtk gets 15 s, enough to finish every output on the founder's month, so it is exact there. Its sample is capped at about 12,000 unique outputs (800/s × 15 s); past that, or on a machine too slow to finish in 15 s, the rest is extrapolated and marked "indicative".
 - What was not replayed in time is extrapolated and labelled "indicative".
 - **Cache-only savers.** caveman engine and headroom only use results cached by an exact run, and otherwise show "—, exact run needed":
   - caveman: a quick sample was off by −35% to −73% (rare, spiky savings);
@@ -722,5 +726,31 @@ Ground truth: full replays of every output (window 2026-08-26 → 2026-09-25T13:
 **Exact mode** (`--exact`, `[e]`):
 - Replays every output above the floors.
 - `[e]` estimates the time from the outputs not yet cached and measured throughput (rtk 800/s, caveman 250/s, token-saver and lean-ctx 45/s, headroom 4/s plus 6 s start-up).
-- It asks separately about headroom when headroom alone would take over 10 minutes.
+- It asks separately about headroom when headroom alone would take over 10 minutes. `--exact` has no estimate and no question: it replays every saver, headroom included (`--savers` can leave headroom out).
 - Results are cached, so quick runs afterwards are exact.
+
+### 8.12 Bug-hunt fixes (2026-09-26)
+
+A bug hunt after 0.6.0 changed the method in the places below. Each fix has a regression test on synthetic fixtures. The numbers in §8.6–8.11 and in the README come from before these fixes; STATUS.md lists what needs a re-run.
+
+**Parsing and context:**
+- **Split Claude responses.** Tool results and attachments logged while a response is still open are held until it closes, so later calls re-read its final `output_tokens`, not the placeholder on its first line.
+- **Attached images and PDFs.** Their base64 is no longer counted as attachment text; the media tokens stay under "Not in logs", like images inside tool results.
+- **Rewinds and edited prompts.** A real prompt whose `parentUuid` is null after responses, or points at the parent of an earlier prompt with responses since, starts from the context right after the last kept call. The abandoned calls are billed but are not context, and savers keep crediting the kept conversation. Rewinds across a `compact_boundary` are not followed. That rewinds append to the same file (§1.2) is not verified on real logs.
+- **Thinking on older models** (§8.6). At a new prompt, earlier thinking leaves the context: `output_tokens` minus `thinking_tokens` when logged, otherwise the o200k count of the text and `tool_use` input, times k. Calibration pairs across such a prompt are skipped.
+- **Codex.** Base instructions stay in context after a compaction. `shell_command` is a shell tool. A fork's lone replayed event is skipped (§2.3). `web_search_call` items are counted and not priced (§5.2).
+- **Shell commands.** Families and saver command routes look past wrappers and their options (`sudo -u`, `nice -n`, `timeout -s KILL 60`, `xargs -n`, `env -u`), subshells and `{ }` groups, and join continued lines. Package runners (`npx X`, `pnpm exec X`, `uv run X`) are classified by `X`.
+- **Log discovery.** Symlinked folders and files are followed, a folder reached twice is read once, and a broken link counts as an unreadable file.
+- **Unpriced models.** Their calls keep their tokens in the context split and in saver token counts, at $0.
+
+**Replay:**
+- **Failures.** A failed replay counts as unchanged in its run and is never cached. Cache keys for rtk, the caveman engine, token-saver, lean-ctx and community savers changed once, because older caches could not tell failures from real results. When the installed version differs from the adapter's, it is part of the key.
+- **Confidence.** "exact" only when every output was measured; "indicative" when any was extrapolated or failed; no number ("not measured", with a reason) when more replays failed than were measured, or the sample is too small.
+- **Quick mode.** Extrapolation ratios come only from the hash-order sample of smaller outputs (or from every measured output when all are among the largest). Fewer than 20 usable outputs gives no number. Persisted-output previews are always measured first but never set a ratio.
+- **Exact mode.** The quick sample's largest outputs go first, then the rest in hash order, so a stopped run leaves a sample quick mode can use.
+- **Previews and floors.** Tool-stage savers (rtk, token-saver, lean-ctx) get the full output behind a `<persisted-output>` preview, and tool-stage size floors (context-mode's 5,000 bytes included) are checked on that full output. A route that passes `{command}` applies only to outputs with a recorded command.
+- **Isolation.** Every saver process, version probes included, gets the telemetry and offline flags and the manifest's `env`; web requests go to a dead local proxy, the user's `CAVEMAN_*` and `TOKEN_SAVER_*` variables are removed, and token-saver and lean-ctx get a temporary home. Replays run in an empty working folder inside the run's temporary folder. On macOS and Linux each replay runs in its own process group, and a timeout or Ctrl+C kills the group. The temporary folder is removed at the end and on Ctrl+C.
+- **headroom.** The sidecar checks that tiktoken's `o200k_base` loads offline; if not, headroom is "not measured: tokenizer not cached" (an audit used to download it). On Windows, requests are ASCII-escaped JSON, so non-ASCII output reaches headroom intact.
+- **Broken installs.** A copy in `~/.saver-audit/tools/bin` whose version check fails counts as not installed, so the installer offers it again.
+
+**Period:** `--last` counts back from `--until` (the end of that day), not from now. Dates are read the same way for `--since` and `--until`.

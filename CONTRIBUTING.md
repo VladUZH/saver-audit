@@ -14,7 +14,13 @@ saver-audit measures token savers on people's own Claude Code and Codex logs. A 
 - **offline:** no network while filtering;
 - **fast:** it runs once per output, and a month of logs has tens of thousands.
 
-It runs with `DO_NOT_TRACK=1`, a 60-second timeout per output, and a throwaway state folder if you ask for one.
+It runs with `DO_NOT_TRACK=1`, a 60-second timeout per output, and a throwaway state folder if you ask for one. It also runs:
+- in an empty working folder, so a config file where saver-audit is started has no effect;
+- without the network: web requests go to a proxy on a local port where nothing listens;
+- without the user's own `CAVEMAN_*` and `TOKEN_SAVER_*` settings;
+- on macOS and Linux, in its own process group: on a timeout it is stopped together with anything it started.
+
+A run that fails (non-zero exit, timeout, output that can't be read) counts as unchanged for that run. It is not cached, so it is tried again next time. When most runs fail, the report shows "not measured" instead of a number.
 
 **If it only works live**, for example it wraps and re-runs the command or needs a model API, it can't be replayed from logs. You can still add it as an **upper bound** (below), or add a stdin mode first. That is usually a small change.
 
@@ -53,19 +59,21 @@ Put it in `src/savers/builtin/<id>.json` for a pull request, and register it in 
 
 | Field | Meaning |
 |---|---|
-| `id` | Lowercase letters, digits and dashes. Must not clash with an existing saver. |
+| `id` | Lowercase letters, digits and dashes. Must not clash with an existing saver; `headroom` and `caveman-skill` are taken too. |
 | `name`, `repo`, `version`, `licence`, `covers` | Shown in the report. `version` is the version your manifest was written for. |
 | `method` | `replayed` (your program filters recorded output) or `upper-bound` (your tool changes how the agent works, so only a ceiling can be given). |
 | `assumption` | Required for `upper-bound`: say what the ceiling assumes. Optional note for `replayed`. |
-| `stage` | `tool` if your saver acts before the agent sees the output (a hook): it gets the full raw output, even where Claude Code showed the agent only a preview. `request` if it acts on what is sent to the model (a proxy). Default `request`. |
-| `binary` | Your program, looked up on `PATH`, in `~/.saver-audit/tools/bin`, and in `paths`. |
-| `binaryEnv`, `paths`, `versionArgs`, `env` | Optional. An override variable, extra folders (`~` = home), arguments that print the version, and extra environment (`{state}` = a temporary folder). |
-| `routes` | The first route whose `match` fits the output is used; no match means your saver does not apply. `args` are passed to your program; `{command}` in an argument becomes the recorded shell command (e.g. `["compress", "{command}"]`), for filters that pick their rules by command. `name` becomes part of the cache key. |
-| `match` | Any of: `tools` (e.g. `["Bash", "exec_command"]`), `categories` (`Shell`, `File reads`, `File edits`, `Search`, `Web fetch`, `Web search`, `Subagents`, `MCP tools`, `Other tools`), `families` (for shell: `tests`, `git`, `build & lint`, `search`, `file reading`, `listing & find`, `http`, `installs`, `scripts`, …), `command` (a regular expression over the shell command's last real segment), `excludeTools`, `minBytes`. |
+| `stage` | `tool` if your saver acts before the agent sees the output (a hook): it gets the full raw output, even where Claude Code showed the agent only a preview, and `minBytes` and `minTokens` are checked against that full output. `request` if it acts on what is sent to the model (a proxy): it gets, and is sized by, what was sent. Default `request`. |
+| `binary` | Your program, looked up on `PATH`, then in `~/.saver-audit/tools/bin`, then in `paths`. The first copy whose version is not older than `version` is used, or the first one found if none is. |
+| `binaryEnv`, `paths`, `versionArgs`, `env` | Optional. An override variable (it always wins; empty counts as unset), extra folders (`~` = home), arguments that print the version, and extra environment (`{state}` = a temporary folder). The version is the number in the first line your program prints (`my-saver v1.2.0` gives `1.2.0`), and the version check runs with `env` too. A copy in `~/.saver-audit/tools/bin` whose version check fails counts as not installed. When the installed version differs from `version`, cached results are measured again. |
+| `routes` | The first route whose `match` fits the output is used; no match means your saver does not apply. `args` are passed to your program; `{command}` in an argument becomes the recorded shell command, exactly as recorded (e.g. `["compress", "{command}"]`), for filters that pick their rules by command. A route that uses `{command}` fits only outputs with a recorded command; for the others, later routes are tried. `name` becomes part of the cache key. |
+| `match` | Any of: `tools` (e.g. `["Bash", "exec_command"]`), `categories` (`Shell`, `File reads`, `File edits`, `Search`, `Web fetch`, `Web search`, `Subagents`, `MCP tools`, `Other tools`), `families` (for shell: `tests`, `git`, `build & lint`, `search`, `file reading`, `listing & find`, `http`, `installs`, `scripts`, …), `command`, `excludeTools`, `minBytes`. `command` is a regular expression over the shell command's last real segment. Continued lines are joined first. Env assignments, wrappers (`sudo`, `time`, `env`, `timeout`, `nice`, `xargs`, `exec`, `command`, `nohup`) with their options, and subshell `( )` or `{ }` are skipped, so `timeout -s KILL 60 cargo test` is matched as `cargo test`. |
 | `minTokens` | Outputs smaller than this are counted as unchanged without running your program (saves time when small outputs are never touched). |
 | `codexHypothetical` | `true` if your saver works through Claude Code hooks: Codex hooks cannot rewrite tool input, so its Codex numbers are marked hypothetical. |
 | `install` | How to install it, shown when it is missing. |
 | `jsonRatio` | Only if your program prints counts instead of the filtered text, as JSON: `{ "before": "<field>", "after": "<field>", "afterBytes": "<field>" }`. saver-audit applies your before/after ratio to its own token count of the same output, and says so in the report. Printing the text is preferred. |
+
+saver-audit checks the type of every field it uses. A manifest with a problem is skipped, and the problem is listed (`--verbose`, `--check-saver`).
 
 **"Modeled" savers are not accepted as manifests.** These change the model's output style or rest on an estimate, and need a cited measurement, so they go through code review as code.
 
@@ -74,8 +82,15 @@ Put it in `src/savers/builtin/<id>.json` for a pull request, and register it in 
 ```
 npx saver-audit --check-saver my-saver.json   # validates, finds your program, runs it on a sample
 cp my-saver.json ~/.saver-audit/savers/
-npx saver-audit --savers my-saver --full-replay
+npx saver-audit --savers my-saver --exact
 ```
+
+`--check-saver` runs your first route the way a replay does:
+- `{command}` becomes `pytest -q`;
+- it uses your `env`, with `{state}` set to a temporary folder that is removed afterwards;
+- it uses saver-audit's replay environment (telemetry off, no network, the user's `CAVEMAN_*` and `TOKEN_SAVER_*` settings left out) and an empty working folder.
+
+With `jsonRatio`, the check fails when your program's output lacks the before and after numbers.
 
 ## Pull request checklist
 
