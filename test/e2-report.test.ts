@@ -4,12 +4,13 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AuditResult, SaverRow } from "../src/audit.ts";
 import { runAudit } from "../src/pool.ts";
 import { exactPending, menuKeys, renderShort, renderTerminal } from "../src/report/terminal.ts";
 import { exactSeconds } from "../src/savers/replay.ts";
+import { installOffer, installPlan } from "../src/savers/toolsdir.ts";
 import { CLAUDE_ROOT, CODEX_HOME, FAKE_TOOLS, FIXTURES, fixtureOptions } from "./helpers.ts";
 
 const OPTS = { showProjects: false, verbose: false, color: false };
@@ -93,6 +94,31 @@ test("[i] is promised only for savers the installer can add here; the others say
   assert.doesNotMatch(short, /\[i\]|--install-savers/);
   const some = renderShort(result([rtk, community]), { ...OPTS, menu: true, install: { ids: ["rtk"], why: new Map() } });
   assert.match(some, /Not installed: rtk\. Press \[i\] to install and measure it\.\n\s+Also not installed: my-saver \(pip install my-saver\)\./);
+});
+
+test("the full report gives the installer's reason for a saver it cannot add here, as the short view does", () => {
+  // On Windows the installer adds rtk but not lean-ctx; both manifests name --install-savers.
+  const rtk = saver("rtk", "rtk", 0, { status: "not installed", install: "npx saver-audit --install-savers (or: brew install rtk)" });
+  const lean = saver("lean-ctx", "lean-ctx", 0, { status: "not installed", install: "npx saver-audit --install-savers" });
+  const r = result([rtk, lean]);
+  const install = installOffer(r.savers, installPlan("win32", "x64", null));
+  assert.deepEqual(install.ids, ["rtk"]);
+  assert.match(renderShort(r, { ...OPTS, install }), /Also not installed: lean-ctx \(its settings cannot be kept apart from yours on Windows\)\./);
+  const full = renderTerminal(r, { ...OPTS, install });
+  assert.match(full, /Not installed, so not replayed: rtk \(npx saver-audit --install-savers \(or: brew install rtk\)\), lean-ctx \(its settings cannot be kept apart from yours on Windows\)\./);
+  assert.doesNotMatch(full, /lean-ctx \(npx saver-audit --install-savers\)/);
+  // Without an offer (nothing looked at), the manifests' commands.
+  assert.match(renderTerminal(r, OPTS), /lean-ctx \(npx saver-audit --install-savers\)/);
+});
+
+test("the CLI's full report is given the install offer", { skip: process.platform === "win32" ? "the reason differs on Windows" : false }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "sa-e2r-"));
+  temps.push(dir);
+  // No token-saver anywhere: its Python is not looked for, so the report says what decides.
+  const env = { PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter), HOME: dir, XDG_CACHE_HOME: join(dir, "cache"), SAVER_AUDIT_HOME: join(dir, "home"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, NO_COLOR: "1" };
+  const r = spawnSync(process.execPath, [CLI, "--full", "--no-card", "--since", "2026-09-01", "--until", "2026-09-30", "--savers", "token-saver"], { env, cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Not installed, so not replayed: token-saver \(needs Python 3\.10\+; to install: npx saver-audit --install-savers\)\./);
 });
 
 test("--short and a run without a terminal on input name no keys", () => {

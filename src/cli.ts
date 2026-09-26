@@ -190,12 +190,14 @@ async function main(argv: string[]): Promise<number> {
   const install = () => installOffer(result.savers);
   // The short view names a key only when the menu that follows offers it (menuKeys).
   const shortView = (menu: boolean) => renderShort(result, { ...opts, menu, install: install() });
+  // The full report gives the same reasons for savers the installer cannot add here.
+  const fullReport = () => renderTerminal(result, { ...opts, install: install() });
   if (values.short) {
     await reveal(process.stdout, shortView(false), animate);
     return code;
   }
   if (!interactive || values.full || result.calls === 0) {
-    await reveal(process.stdout, renderTerminal(result, opts), animate);
+    await reveal(process.stdout, fullReport(), animate);
     if (opts.cardPath) log(`share card written to ${opts.cardPath} (numbers, model names and dates only)`);
     return code;
   }
@@ -216,7 +218,7 @@ async function main(argv: string[]): Promise<number> {
         label: "full report",
         run: async () => {
           process.stdout.write("\n");
-          await reveal(process.stdout, renderTerminal(result, opts), animate);
+          await reveal(process.stdout, fullReport(), animate);
         },
       },
       {
