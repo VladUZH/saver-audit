@@ -20,21 +20,21 @@ $4,209 API-equivalent (I don't pay that, it's list price). The biggest line wasn
 **2/**
 Then I replayed the same sessions through the popular token savers, using my installed copies, offline:
 
-rtk: $47 (1.1%)
-caveman engine: $13 (0.3%)
 headroom: $151 (3.6%)
-lean-ctx: $122 (2.9%)
-token-saver: $65 (1.5%)
-caveman skill (modeled): $95 (2.3%)
+lean-ctx: $126 (3.0%)
+token-saver: $66 (1.6%)
+rtk: $21 (0.5%, a lower bound: its hook also rewrites commands that can't be replayed)
+caveman engine: $13 (0.3%)
+caveman skill (modeled): $96 (2.3%)
 
 **3/**
 Every number carries a label:
 - replayed = the saver ran over the recorded text
 - modeled = a published measurement + a stated assumption
-- ceiling = the tool changes agent behaviour, so only a best case (codegraph ≤ 13.8%, context-mode ≤ 16.7%)
+- ceiling = the tool changes agent behaviour, so only a best case (codegraph ≤ 13.7%, context-mode ≤ 16.7%)
 
 **4/**
-Where a saver does help: on Codex, shell output is 44% of the cost. headroom would cut 10.4% of that bill and rtk 4.1%, the biggest measured cuts in the run.
+Where a saver does help: on Codex, shell output is 44% of the cost. headroom would cut 10.4% of that bill, the biggest measured cut in the run.
 
 **5/**
 What offline replay can't show: whether a saver changes how the agent behaves (extra turns, retries, answer quality). The report says that every time.

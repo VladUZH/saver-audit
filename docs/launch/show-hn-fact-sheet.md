@@ -36,23 +36,23 @@ rtk, the caveman engine and headroom were all fully replayed.
 
 | Content | Cost | Share |
 |---|---|---|
-| Earlier assistant turns re-read, thinking included | $1,090 | 26% |
-| Shell tool output | $711 | 17% |
-| System prompt and tool definitions (not in the logs) | $687 | 16% |
-| Reminders, attachments, command output | $546 | 13% |
+| Earlier assistant turns re-read, thinking included | $1,097 | 26% |
+| Shell tool output | $710 | 17% |
+| System prompt and tool definitions (not in the logs) | $698 | 17% |
+| Reminders, attachments, command output | $526 | 12% |
 | Web fetch output | $202 | 5% |
 
 ### What each saver would have cut, same sessions
 
 | Saver | Method | Could touch | Saved | Of the bill |
 |---|---|---|---|---|
-| rtk 0.50.0 | replayed, all 5,513 outputs | 15% of tool output | $47 | 1.1% |
+| rtk 0.50.0 | replayed, all 3,291 outputs; a lower bound (its hook also rewrites commands with no offline filter) | 6% of tool output | $21 | 0.5% |
 | caveman proxy engine | replayed, every output of 500+ tokens | all tool output | $13 | 0.3% |
-| headroom 0.38.0 | replayed, all ~30k outputs; a lower estimate | 56% | $151 | 3.6% |
-| lean-ctx 3.10.3 | replayed, every output of 1,000+ tokens (~4% low) | 67% | $122 | 2.9% |
-| token-saver 3.0.0 | replayed, every output of 1,000+ tokens (~10% low) | 51% | $65 | 1.5% |
-| caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $95 | 2.3% |
-| codegraph | upper bound (it changes agent behaviour) | 43% | ≤ $579 | ≤ 13.8% |
+| headroom 0.38.0 | replayed, every output of 200+ tokens; a lower estimate | 56% | $151 | 3.6% |
+| lean-ctx 3.10.3 | replayed, every output of 500+ tokens (~1% low) | 64% | $126 | 3.0% |
+| token-saver 3.0.0 | replayed, every output of 500+ tokens (~9% low) | 48% | $66 | 1.6% |
+| caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $96 | 2.3% |
+| codegraph | upper bound (it changes agent behaviour) | 43% | ≤ $578 | ≤ 13.7% |
 | context-mode | upper bound (it changes agent behaviour) | 61% | ≤ $704 | ≤ 16.7% |
 
 ### The Codex-only cut (same window)
@@ -63,10 +63,10 @@ rtk, the caveman engine and headroom were all fully replayed.
 | API calls | 792 |
 | Cost | $125 |
 | Largest content bucket | Shell output, $55 (44%) |
-| headroom | $13.05 (10.4% of the Codex bill) |
-| lean-ctx | $9.66 (7.7%, hypothetical on Codex) |
-| token-saver | $15.00 (12.0%, hypothetical on Codex: it works through Claude Code hooks) |
-| rtk | $5.20 (4.1% of the Codex bill) |
+| headroom | $13.06 (10.4% of the Codex bill) |
+| lean-ctx | $9.81 (7.8%, hypothetical on Codex) |
+| token-saver | $15.51 (12.4%, hypothetical on Codex: it works through Claude Code hooks) |
+| rtk | $2.59 (2.1% of the Codex bill; a lower bound) |
 | caveman engine | $0.59 |
 | codegraph ceiling | ≤ $19.51 |
 | context-mode ceiling | ≤ $48.40 |
@@ -76,8 +76,8 @@ Caveman and context-mode can only *deny* on Codex, not rewrite, so their Codex n
 ### Candidate surprises (pick one; only what the data shows)
 
 - About a quarter of the cost is **earlier turns being re-read from cache**, thinking included. No tool-output saver touches that.
-- **Measured savers cut 0.3–3.6% of the bill** (headroom 3.6%, caveman skill 2.3% modeled, rtk 1.1%, caveman engine 0.3%). Ceilings for the behaviour-changing tools are ~14–17%, but those are best cases, not measurements.
-- **On Codex, shell output is 44% of the cost**: headroom would cut 10.4% of the Codex bill and rtk 4.1%. On Claude Code, shell output is 16%, and headroom cuts 3.4%.
+- **Measured savers cut 0.3–3.6% of the bill** (headroom 3.6%, lean-ctx 3.0%, token-saver 1.6%, rtk at least 0.5%, caveman engine 0.3%; caveman skill 2.3% modeled). Ceilings for the behaviour-changing tools are ~14–17%, but those are best cases, not measurements.
+- **On Codex, shell output is 44% of the cost**: headroom would cut 10.4% of the Codex bill and rtk at least 2.1%. On Claude Code, shell output is 16%, and headroom cuts 3.4%.
 - **Cache writes are about a third of the cost.** (Inference, not measured: a saver that removes tokens saves most when it removes them *before* the first cache write.)
 
 ## Method, in one breath each

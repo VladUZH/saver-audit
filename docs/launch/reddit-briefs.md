@@ -33,13 +33,13 @@ Avoid:
   - 16% system prompt and tool definitions;
   - 16% shell output.
 - **Saver numbers (Claude Code only):**
-  - rtk $41.88 (1.0%);
-  - caveman engine $12.72 (0.3%);
-  - lean-ctx $111.95 (2.7%);
-  - token-saver $50.21 (1.2%);
-  - caveman skill $94.71 (2.3%, modeled);
-  - headroom $137.77 (3.4%, a lower estimate);
-  - ceilings: codegraph ≤ $560 (13.7%), context-mode ≤ $655 (16.0%).
+  - headroom $138 (3.4%, a lower estimate);
+  - lean-ctx $116 (2.8%);
+  - token-saver $50.32 (1.2%);
+  - rtk $18.90 (0.5%, a lower bound);
+  - caveman engine $12.74 (0.3%);
+  - caveman skill $95.24 (2.3%, modeled);
+  - ceilings: codegraph ≤ $559 (13.7%), context-mode ≤ $656 (16.1%).
 - **The "what I learned" part:**
   - the dedupe bug the ccusage cross-check caught;
   - that o200k needed about 1.5× calibration for Claude 4.7+;
@@ -52,15 +52,15 @@ Avoid:
 - **Flair:** Comparison, or Showcase.
 - **Angle:** Codex-specific.
   - Shell output is 44% of the Codex cost.
-  - headroom would cut 10.4% of the Codex bill (`headroom wrap codex` exists), the largest measured cut in the run; rtk 4.1%.
+  - headroom would cut 10.4% of the Codex bill (`headroom wrap codex` exists), the largest measured cut in the run; rtk at least 2.1%.
   - Codex hooks can't rewrite tool input, so the caveman and context-mode numbers are hypothetical.
   - Cached tokens are a subset of input on Codex, unlike Claude.
   - Say what that means for forked threads (the double-count bug).
 - **Lead numbers:**
   - 20 sessions, 792 calls, $125, split into gpt-5.6-sol $68.70 and gpt-6-astra $56.26;
   - cache reads 63%;
-  - headroom $13.05 (10.4%);
-  - rtk $5.20 (4.1%);
+  - headroom $13.06 (10.4%);
+  - rtk $2.59 (2.1%, a lower bound);
   - caveman engine $0.59;
   - codegraph ≤ $19.51;
   - context-mode ≤ $48.40.
