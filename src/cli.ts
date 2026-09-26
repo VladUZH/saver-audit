@@ -118,10 +118,12 @@ async function main(argv: string[]): Promise<number> {
   const showProjects = values["show-projects"];
   const wanted = values["no-card"] ? undefined : values.card ?? (interactive ? "saver-audit.png" : undefined);
 
-  // Optional, explicit install of the replayed savers (downloads; says so first).
+  // Optional, explicit install of the replayed savers (downloads; says so first). The
+  // report follows either way, on what is installed; a failed install exits 1 after it.
+  let code = 0;
   if (values["install-savers"]) {
-    const ok = await installFlow({ all: values["with-headroom"], assumeYes: values.yes, color });
-    if (!ok) return 1;
+    const { failed } = await installFlow({ all: values["with-headroom"], assumeYes: values.yes, color, out: values.json ? process.stderr : process.stdout });
+    if (failed) code = 1;
   }
 
   /** One full audit: logs → report data → share card. Re-run after an install. */
@@ -168,22 +170,22 @@ async function main(argv: string[]): Promise<number> {
   if (values.json) {
     if (opts.cardPath) log(`share card written to ${opts.cardPath} (numbers, model names and dates only)`);
     process.stdout.write(renderJson(result, { showProjects, version: VERSION }));
-    return 0;
+    return code;
   }
   const animate = canAnimate(process.stdout, values["no-animation"]);
   if (values.short) {
     await reveal(process.stdout, renderShort(result, opts), animate);
-    return 0;
+    return code;
   }
   if (!interactive || values.full || result.calls === 0) {
     await reveal(process.stdout, renderTerminal(result, opts), animate);
     if (opts.cardPath) log(`share card written to ${opts.cardPath} (numbers, model names and dates only)`);
-    return 0;
+    return code;
   }
   await reveal(process.stdout, renderShort(result, opts), animate);
   if (!process.stdin.isTTY) {
     process.stdout.write("\nFull report: saver-audit --full\n");
-    return 0;
+    return code;
   }
   const { copyImage, intentUrl, openExternal, shareText } = await import("./report/share.ts");
   const missing = () => result.savers.some((x) => x.status === "not installed" && x.id !== "headroom");
@@ -245,8 +247,8 @@ async function main(argv: string[]): Promise<number> {
               key: "i",
               label: "install savers",
               run: async (ask: (q: string) => Promise<boolean>) => {
-                const ok = await installFlow({ all: false, assumeYes: false, color, ask });
-                if (!ok) return;
+                const { installed } = await installFlow({ all: false, assumeYes: false, color, ask, out: process.stdout });
+                if (!installed) return;
                 ({ result, opts } = await audit());
                 process.stdout.write("\n");
                 await reveal(process.stdout, renderShort(result, opts), animate);
@@ -257,7 +259,7 @@ async function main(argv: string[]): Promise<number> {
     ],
     color,
   );
-  return 0;
+  return code;
 }
 
 if (!isMainThread && workerData?.[WORKER_FLAG]) {
@@ -279,17 +281,21 @@ interface InstallFlowOptions {
   color: boolean;
   /** Yes/no question; defaults to a line-based prompt on stdin. */
   ask?: (q: string) => Promise<boolean>;
+  /** Where the installer talks: stderr under --json, so stdout stays JSON. */
+  out: NodeJS.WriteStream;
 }
 
-/** Explains, asks, then installs the missing savers. Returns false if nothing was installed. */
-async function installFlow(o: InstallFlowOptions): Promise<boolean> {
+/** Explains, asks, then installs the missing savers. Counts what was installed and what failed. */
+async function installFlow(o: InstallFlowOptions): Promise<{ installed: number; failed: number }> {
   const { headroomIncomplete, install, installPlan } = await import("./savers/install.ts");
   const { detectReplayTools } = await import("./savers/replay.ts");
   const { toolPaths, toolsDir } = await import("./savers/toolsdir.ts");
   const have = detectReplayTools();
-  const out = process.stdout;
+  const out = o.out;
   const bold = (x: string) => (o.color ? `\x1b[1m${x}\x1b[0m` : x);
-  const ask = o.ask ?? askLine;
+  const ask = o.ask ?? ((q: string) => askLine(q, out));
+  // Without a terminal nobody can answer: say so instead of declining in silence.
+  const canAsk = o.assumeYes || !!o.ask || process.stdin.isTTY === true;
   // Our headroom imports but its model is missing (a download that failed): finish it.
   if (o.all && have.get("headroom")?.command === toolPaths.headroomPython() && headroomIncomplete()) {
     have.delete("headroom");
@@ -299,15 +305,21 @@ async function installFlow(o: InstallFlowOptions): Promise<boolean> {
   const plan = installPlan().filter((c) => !have.has(c.id) && (c.id !== "headroom" || o.all));
   if (!plan.length) {
     out.write(have.has("headroom") || o.all ? "\nAll replayed savers are already installed.\n" : "\nThe quick savers are installed. headroom (1.6 GB, minutes): saver-audit --install-savers --with-headroom\n");
-    return false;
+    return { installed: 0, failed: 0 };
   }
   out.write(`\n${bold("Install savers so saver-audit can replay your sessions through them")}\n`);
   out.write(`Downloads from each saver's official release into ${toolsDir()}, verified before use.\n`);
   out.write("Your Claude Code and Codex settings are not touched. Delete that folder to uninstall.\n");
   let installed = 0;
+  let failed = 0;
+  const unasked: string[] = [];
   for (const c of plan) {
     if (!c.available) {
       out.write(`  ${c.what}: skipped (${c.why})\n`);
+      continue;
+    }
+    if (!canAsk) {
+      unasked.push(c.what);
       continue;
     }
     const yes = o.assumeYes || (await ask(`  Install ${c.what} (${c.size})? [y/N] `));
@@ -321,15 +333,17 @@ async function installFlow(o: InstallFlowOptions): Promise<boolean> {
     } catch (err) {
       spinner.stop();
       out.write(`  ${c.what}: not installed (${err instanceof Error ? err.message : String(err)})\n`);
+      failed++;
     }
   }
-  return installed > 0;
+  if (unasked.length) out.write(`  Not installed, since input is not a terminal and nobody could be asked: ${unasked.join(", ")}. Run again with --yes to install ${unasked.length === 1 ? "it" : "them"}.\n`);
+  return { installed, failed };
 }
 
-async function askLine(q: string): Promise<boolean> {
+async function askLine(q: string, out: NodeJS.WriteStream): Promise<boolean> {
   if (!process.stdin.isTTY) return false;
   const { createInterface } = await import("node:readline/promises");
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const rl = createInterface({ input: process.stdin, output: out });
   const a = await rl.question(q);
   rl.close();
   return /^y(es)?$/i.test(a.trim());
