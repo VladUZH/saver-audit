@@ -75,6 +75,24 @@ test("a Claude preview does not hide the full output from tool-stage size rules"
   assert.equal(routeMatches({ minBytes: 5000 }, o, "tool"), true);
 });
 
+test("an output without a recorded command is not covered by a saver route that passes one", () => {
+  const byId = new Map(SAVERS.map((s) => [s.id, s]));
+  const ids = ["token-saver", "lean-ctx"];
+  const log = "server listening on :3000\n".repeat(400);
+  const views: OutputView[] = [
+    { source: "claude-code", tool: "BashOutput", category: "Shell", family: "", text: log, tokens: countProxy(log) },
+    { source: "codex", tool: "write_stdin", category: "Shell", family: "", text: log, tokens: countProxy(log) },
+  ];
+  const t = new SaverTracker(ids.map((id) => byId.get(id)!), new Set(ids), () => undefined);
+  for (const v of views) {
+    for (const id of ids) assert.equal(byId.get(id)!.appliesTo(v), false, `${id} on ${v.tool}`);
+    t.output("main", undefined, v);
+  }
+  assert.deepEqual(t.covered, [0, 0], "never replayed, so not in coverage");
+  t.output("main", undefined, { ...views[0]!, tool: "Bash", command: "npm run dev" });
+  assert.deepEqual(t.jobs.map((j) => j.saver), ids);
+});
+
 test("saver notes state method caveats only: no sampling claim, no retired flag", () => {
   // Quick mode never samples headroom (cache only) and --exact replays every output.
   const headroom = SAVERS.find((s) => s.id === "headroom")!;

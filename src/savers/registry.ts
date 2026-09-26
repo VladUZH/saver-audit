@@ -3,7 +3,7 @@
 // (a Python sidecar) and the caveman skill (modeled from a cited measurement).
 // Mechanisms: tech-notes §8.5.
 import type { OutputView, SaverInfo } from "./types.ts";
-import { findRoute, loadManifests, type SaverManifest } from "./manifest.ts";
+import { findRoute, loadManifests, usesCommand, type SaverManifest } from "./manifest.ts";
 import rtk from "./builtin/rtk.json" with { type: "json" };
 import cavemanEngine from "./builtin/caveman-engine.json" with { type: "json" };
 import codegraph from "./builtin/codegraph.json" with { type: "json" };
@@ -79,10 +79,8 @@ export function manifestAdapter(m: SaverManifest): SaverAdapter {
       if (!route) return undefined;
       // "{command}" passes the recorded shell command (some filters pick their rules by
       // it); it then becomes part of the cache key.
-      const usesCommand = (route.args ?? []).some((a) => a.includes("{command}"));
-      if (usesCommand && !o.command) return undefined;
       const args = (route.args ?? []).map((a) => a.replaceAll("{command}", o.command ?? ""));
-      const arg = usesCommand ? `${route.name ?? ""}\0${o.command}` : route.name;
+      const arg = usesCommand(route) ? `${route.name ?? ""}\0${o.command}` : route.name;
       return { input: inputFor(m.stage, o), arg, args };
     },
   };

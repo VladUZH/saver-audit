@@ -136,8 +136,14 @@ export function routeMatches(match: RouteMatch | undefined, o: OutputView, stage
   return true;
 }
 
+/** Does the route pass the recorded shell command to the program ("{command}" in its args)? */
+export function usesCommand(r: Route): boolean {
+  return (r.args ?? []).some((a) => a.includes("{command}"));
+}
+
+/** The first matching route; one that passes "{command}" only matches outputs with a recorded command. */
 export function findRoute(m: SaverManifest, o: OutputView): Route | undefined {
-  return m.routes.find((r) => routeMatches(r.match, o, m.stage));
+  return m.routes.find((r) => routeMatches(r.match, o, m.stage) && (!!o.command || !usesCommand(r)));
 }
 
 export interface LoadedManifests {
