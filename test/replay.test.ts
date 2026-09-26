@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -421,6 +421,45 @@ test("an older saver earlier on PATH does not hide the current one in the tools 
     rmSync(ours);
     assert.deepEqual(await detect("old"), { saver: "rtk", command: old, version: "0.1.4" }, "the only one is used (the report notes its version)");
     assert.deepEqual([isOutdated("0.1.4", "0.50.0"), isOutdated("0.50.0", "0.50.0"), isOutdated("v1.2", "0.50.0"), isOutdated("unknown", "0.50.0")], [true, false, false, false]);
+  } finally {
+    t.done();
+  }
+});
+
+/** A Python 3 interpreter for the tests that run headroom's real sidecar code on a stub package (skipped without one). */
+const PYTHON = spawnSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).stdout?.trim() || undefined;
+const PY_STUBS = fileURLToPath(new URL("./fixtures/python/", import.meta.url));
+const REPLAY = new URL("../src/savers/replay.ts", import.meta.url).href;
+
+/** Detects headroom (the stub) and replays `texts` through it, in a separate process started in `cwd`. */
+function stubHeadroom(cwd: string, texts: string[], env: Record<string, string> = {}): { version?: string; stats?: Record<string, number>; d: number[] } {
+  const script = `
+    import { detectReplayTools, runReplays } from ${JSON.stringify(REPLAY)};
+    import { countProxy } from ${JSON.stringify(new URL("../src/accounting/tokens.ts", import.meta.url).href)};
+    const texts = ${JSON.stringify(texts)};
+    const jobs = texts.map((input, i) => ({ saver: "headroom", key: "k" + i, tool: "Bash", cls: "Shell|tests", baseline: countProxy(input), headerTokens: 0, addTokens: 0, timeline: "main", block: i, input }));
+    const f = { file: "f", source: "claude-code", records: [], skippedLines: 0, savers: { timelines: { main: { blocks: jobs.map(() => ({ d: [0], r: [0] })) } }, jobs, covered: [0], toolTokens: 0 } };
+    const tools = detectReplayTools([]);
+    const stats = tools.has("headroom") ? (await runReplays([f], ["headroom"], { tools, full: true, concurrency: 1 })).get("headroom") : undefined;
+    console.log(JSON.stringify({ version: tools.get("headroom")?.version, stats, d: f.savers.timelines.main.blocks.map((b) => b.d[0]) }));`;
+  const out = execFileSync(process.execPath, ["--input-type=module", "-e", script], { cwd, env: { ...process.env, SAVER_AUDIT_HEADROOM_PYTHON: PYTHON!, PYTHONPATH: PY_STUBS, SAVER_AUDIT_HOME: join(cwd, "..", "home"), ...env }, encoding: "utf8" });
+  return JSON.parse(out);
+}
+
+test("headroom's Python never imports code from the folder saver-audit runs in", async (c) => {
+  if (!PYTHON) return c.skip("no python3");
+  const t = tmp();
+  try {
+    const repo = join(t.dir, "repo");
+    mkdirSync(join(repo, "headroom"), { recursive: true });
+    const marker = join(t.dir, "imported");
+    const plant = `open(${JSON.stringify(marker)}, "a").write(__name__ + "\\n")\n`;
+    writeFileSync(join(repo, "headroom", "__init__.py"), `${plant}__version__ = "planted"\n`);
+    writeFileSync(join(repo, "json.py"), plant);
+    const r = stubHeadroom(repo, [text(0)]);
+    assert.equal(existsSync(marker) ? readFileSync(marker, "utf8") : "", "", "nothing from the current folder was imported");
+    assert.equal(r.version, "0.38.0");
+    assert.deepEqual({ ran: r.stats?.ran, failed: r.stats?.failed, d: r.d }, { ran: 1, failed: 0, d: [0] }, "the stub compressor changes nothing");
   } finally {
     t.done();
   }

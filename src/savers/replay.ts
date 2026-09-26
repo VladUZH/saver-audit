@@ -142,7 +142,7 @@ export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): 
   const ours = own ? undefined : exists(toolPaths.headroomPython());
   const py = own ?? ours;
   if (py) {
-    const v = firstLine(py, ["-c", "import headroom; print(getattr(headroom, '__version__', 'unknown'))"]);
+    const v = firstLine(py, ["-c", `${NO_CWD}; import headroom; print(getattr(headroom, '__version__', 'unknown'))`]);
     const env = ours ? { HF_HOME: toolPaths.hfHome() } : undefined;
     if (v) found.set("headroom", { saver: "headroom", command: py, version: v, env });
   }
@@ -223,8 +223,15 @@ async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<void>, until
   return i;
 }
 
+/**
+ * First in every Python program run here: `python -c` puts the current folder first on
+ * sys.path, so a headroom/ or json.py where saver-audit is run would be imported.
+ */
+const NO_CWD = "import sys; sys.path[:] = [p for p in sys.path if p]";
+
 const HEADROOM_SIDECAR = String.raw`
-import sys, json, logging
+${NO_CWD}
+import json, logging
 logging.disable(logging.CRITICAL)
 import headroom
 from headroom import compress
