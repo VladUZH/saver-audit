@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAudit } from "../src/pool.ts";
 import { intentUrl, REPO_URL, shareText, xLength } from "../src/report/share.ts";
-import { renderShort } from "../src/report/terminal.ts";
+import { loggedDays, renderShort } from "../src/report/terminal.ts";
 import { SAVERS } from "../src/savers/registry.ts";
 import { FAKE_TOOLS, fixtureOptions, SECRET } from "./helpers.ts";
 
@@ -23,7 +23,9 @@ test("the pre-filled post holds numbers only and fits a post", async () => {
   const text = shareText(r);
   assert.doesNotMatch(text, SECRET);
   for (const p of r.projects) assert.equal(text.includes(p), false);
-  assert.match(text, /^I replayed 29 days of my Claude Code \+ Codex sessions through popular token savers:/);
+  // The fixture sessions span 2026-09-20..22 in a 29-day window.
+  assert.match(text, new RegExp(`^I replayed ${loggedDays(r)} days of my Claude Code \\+ Codex sessions through popular token savers:`));
+  assert.ok(loggedDays(r) <= 4);
   assert.match(text, /\nheadroom −[\d.]+% \(\$0\.\d\d\)/, "measured savers lead, with % and $");
   assert.match(text, /of \$0\.04 API-equivalent spend\./);
   assert.match(text, /npx saver-audit$/);

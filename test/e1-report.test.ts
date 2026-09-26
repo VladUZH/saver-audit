@@ -136,3 +136,17 @@ test("the post fits X's weighted limit with the link, with many savers and '≈'
     assert.match(post, /rtk ≈?−/);
   }
 });
+
+test("the card and the post state the days the logs cover, not the requested window", () => {
+  const long = result({ period: { since: "2026-01-01T12:00:00.000Z", until: "2026-09-30T12:00:00.000Z" }, covered: { first: "2026-09-20T12:00:00.000Z", last: "2026-09-22T12:00:00.000Z" }, savers: [saver("rtk", "rtk", 9.87)] });
+  assert.match(shareText(long), /^I replayed 3 days of my /);
+  assert.match(cardSvg(long), /2026-01-01 → 2026-09-30 · logs cover 3 days</);
+  assert.match(shareText({ ...long, savers: [] }), / in 3 days\./);
+  const one = { ...long, covered: { first: "2026-09-20T11:00:00.000Z", last: "2026-09-20T13:00:00.000Z" } };
+  assert.match(shareText(one), /^I replayed 1 day of my /);
+  assert.match(cardSvg(one), /logs cover 1 day</);
+  // Logs over the whole window: the window's days.
+  const full = result({ covered: { first: "2026-08-27T13:00:00.000Z", last: "2026-09-26T11:00:00.000Z" }, savers: [saver("rtk", "rtk", 9.87)] });
+  assert.match(shareText(full), /^I replayed 30 days of my /);
+  assert.match(cardSvg(full), /2026-08-27 → 2026-09-26 · 30 days</);
+});

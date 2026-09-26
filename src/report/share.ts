@@ -5,7 +5,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { AuditResult } from "../audit.ts";
-import { isIndicative, measuredCost, onlyHypothetical, tooLittleData, unpricedCalls } from "./terminal.ts";
+import { isIndicative, loggedDays, measuredCost, onlyHypothetical, plural, tooLittleData, unpricedCalls } from "./terminal.ts";
 
 export const REPO_URL = "https://github.com/VladUZH/saver-audit";
 
@@ -55,7 +55,7 @@ const short = (name: string) => name.replace(" (proxy engine)", " engine").repla
  */
 export function shareText(r: AuditResult): string {
   const total = r.billing.total.cost;
-  const days = Math.max(1, Math.round((Date.parse(r.period.until) - Date.parse(r.period.since)) / 864e5));
+  const days = plural(loggedDays(r), "day"); // the span the logs cover, not the requested period
   const agents = Object.keys(r.sessions.bySource).map((s) => (s === "claude-code" ? "Claude Code" : "Codex")).join(" + ");
   const pct = (x: number) => `${((100 * x) / total).toFixed(1)}%`;
   const ok = r.savers.filter((s) => s.status === "ok" && total > 0);
@@ -74,7 +74,7 @@ export function shareText(r: AuditResult): string {
   // Candidates in priority order; the first that fits a post (with the link) wins.
   const candidates: string[][] = [];
   if (measured.length) {
-    const longHead = `I replayed ${days} days of my ${agents} sessions through popular token savers:`;
+    const longHead = `I replayed ${days} of my ${agents} sessions through popular token savers:`;
     const shortHead = `Token savers on my ${agents} sessions:`;
     // "≈" marks numbers not fully measured (a quick sample, or failed replays).
     const approx = (s: (typeof ok)[number]) => (isIndicative(s) ? "≈" : "");
@@ -90,7 +90,7 @@ export function shareText(r: AuditResult): string {
       [shortHead, ...lines.slice(0, 3), totalLine],
     );
   } else {
-    const head = `My AI coding agents (${agents}) used ${spend} of API-equivalent tokens in ${days} days.`;
+    const head = `My AI coding agents (${agents}) used ${spend} of API-equivalent tokens in ${days}.`;
     candidates.push([head, best], [head]);
   }
   // The link goes after the text, one character apart.

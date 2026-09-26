@@ -94,6 +94,23 @@ export function renderShort(r: AuditResult, o: TerminalOptions): string {
 
 type Saver = AuditResult["savers"][number];
 
+/** Days in the requested period. */
+export function periodDays(r: AuditResult): number {
+  return Math.max(1, Math.round((Date.parse(r.period.until) - Date.parse(r.period.since)) / 864e5));
+}
+
+/** Calendar days (local) from the first counted call to the last, at most the period's days. */
+export function loggedDays(r: AuditResult): number {
+  if (!r.covered) return periodDays(r);
+  const day = (iso: string) => {
+    const d = new Date(iso);
+    return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  };
+  return Math.min(periodDays(r), Math.round((day(r.covered.last) - day(r.covered.first)) / 864e5) + 1);
+}
+
+export const plural = (n: number, word: string) => `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
+
 /** A saver's number without a hypothetical Codex part (Codex hooks cannot rewrite tool input). */
 export function measuredCost(s: Saver): number {
   return s.codexHypothetical ? s.cost - s.codexCost : s.cost;

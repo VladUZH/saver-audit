@@ -111,6 +111,8 @@ export interface SaverRun {
 
 export interface AuditResult {
   period: { since: string; until: string };
+  /** Timestamps of the first and last counted call (the span the logs cover), if any has one. */
+  covered?: { first: string; last: string };
   looked: string[];
   sources: Source[];
   files: number;
@@ -239,6 +241,8 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
   const counted = new Set<number>();
   let outsidePeriod = 0;
   let notBillable = 0;
+  let first = "";
+  let last = "";
   const savers = saverRun?.savers ?? [];
   const saved = savers.map(() => ({ tokens: 0, cost: 0, codexCost: 0 }));
   const prefixCache = new Map<string, { pd: number[][]; pr: number[][] }>();
@@ -261,6 +265,8 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
       continue;
     }
     counted.add(rec.file);
+    if (rec.timestamp && (!first || rec.timestamp < first)) first = rec.timestamp;
+    if (rec.timestamp && rec.timestamp > last) last = rec.timestamp;
     const u = rec.call.usage;
     const prompt = promptTokens(u);
     const priced = resolveModel(opts.prices, rec.model, rec.timestamp);
@@ -357,6 +363,7 @@ export function summarize(opts: AuditOptions, results: FileResult[], saverRun?: 
   const countedModels = new Set([...models.values()].map((m) => m.model));
   return {
     period: { since, until },
+    covered: first ? { first, last } : undefined,
     looked: lookedIn(opts),
     sources: opts.sources,
     files: results.length,

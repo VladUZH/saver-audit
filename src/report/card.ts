@@ -4,7 +4,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AuditResult } from "../audit.ts";
-import { confidence, fmtTokens, fmtUsd, measuredCost, onlyHypothetical, shortLabel, tooLittleData, unpricedCalls } from "./terminal.ts";
+import { confidence, fmtTokens, fmtUsd, loggedDays, measuredCost, onlyHypothetical, periodDays, plural, shortLabel, tooLittleData, unpricedCalls } from "./terminal.ts";
 
 const W = 1200;
 const H = 675;
@@ -39,13 +39,15 @@ const METHOD: Record<string, string> = { replayed: "replayed", modeled: "modeled
 
 export function cardSvg(r: AuditResult): string {
   const total = r.billing.total.cost;
-  const days = Math.max(1, Math.round((Date.parse(r.period.until) - Date.parse(r.period.since)) / 864e5));
+  // Logs can cover less than the period (Claude Code keeps 30 days by default); say so.
+  const days = loggedDays(r);
+  const span = days < periodDays(r) ? `logs cover ${plural(days, "day")}` : plural(days, "day");
   const parts: string[] = [];
   parts.push(`<rect width="${W}" height="${H}" fill="${C.bg}"/>`);
 
   // Header
   parts.push(text(PAD, 76, "saver-audit", 30, C.accent, { bold: true }));
-  parts.push(text(W - PAD, 76, `${localDay(r.period.since)} → ${localDay(r.period.until)} · ${days} days`, 20, C.muted, { anchor: "end" }));
+  parts.push(text(W - PAD, 76, `${localDay(r.period.since)} → ${localDay(r.period.until)} · ${span}`, 20, C.muted, { anchor: "end" }));
 
   // Headline
   parts.push(text(PAD, 172, fmtUsd(total), 84, C.text, { bold: true }));
