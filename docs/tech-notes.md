@@ -815,3 +815,45 @@ This replaces the quick-mode sample and extrapolation of §8.11 and §8.12. Code
 - **Tokens** (what the estimator targets): mean |error| 12.3% → 5.6%, and all ten new estimates are within their own ±2 s.e.
 - **Dollars:** mean |error| 28.4% → 25.4%, median 19.7% → 17.3%. Dollars price each saved token for every later call that still holds it, so a few outputs early in a busy session weigh far more than their tokens. That is why the label says dollars can be off by more. Weighting the sample by a per-output dollar weight (x = that weight) is the structural fix; it is not done yet.
 - Run time was unchanged: 13–16 s per window for the two savers, before and after.
+
+### 8.14 Quick mode in dollars; cache-only savers (2026-09-26)
+
+This changes §8.13 in two places.
+
+**Dollar-weighted sampling.** Token-weighted sampling roughly halved the token error but hardly moved the dollar error (§8.13), because the report prices each saved token for every later call that still holds it.
+- `saverBlockWeights()` (in `audit.ts`) computes, before any replay, what one token saved in each saver block is worth: k × the new-token rate in the call that first sends it, plus k × the cache-read rate in every later call in the period until a compaction. A block appended again by a rewind is the same object and sums every place it appears; blocks no call in the period reads are worth 0. A test checks that Σ d × weight equals each replayed saver's dollars in the report. The weights share `summarize()`'s deduplicated calls and calibration, computed once per run; the weight pass itself took 0.02 s on the author's month.
+- An output's size x is Σ baseline × weight over its occurrences, and its measured saving is Σ d × weight, so R_g = Σw·d$ / Σw·x$ per band and d_j = R_g × baseline_j gives an unbiased dollar total. Bands start at what 500 tokens are worth on average for that saver. The se, and the ±X% the report shows, are in dollars.
+- Outputs worth $0 in the period (no priced call reads them) are never drawn or estimated: they count as unchanged unless an exact run measures them. On some weeks most outputs are like that (week 2: about 70 of 1,246 token-saver outputs are worth anything), so every output worth something fits in the budget and the quick number is exact.
+- With nothing priced (only unpriced models), quick mode stays in tokens, and the label says so.
+
+**Real-run check** (same setup as §8.13; dollar error of quick vs exact):
+
+| Window | Saver | Exact | Old | PPS in tokens | PPS in dollars | ±X% shown |
+|---|---|---|---|---|---|---|
+| month | token-saver | $65.83 | −52.0% | −37.6% | +7.0% | ±21% |
+| month | lean-ctx | $125.57 | −6.1% | +1.8% | +24.4% | ±16% |
+| week 1 | token-saver | $46.14 | +11.1% | +13.3% | +4.9% | ±11% |
+| week 1 | lean-ctx | $40.48 | −6.8% | −21.3% | +3.9% | ±14% |
+| week 2 | token-saver | $0.48 | −83.4% | +45.2% | 0.0% | exact |
+| week 2 | lean-ctx | $1.92 | −1.9% | −25.4% | 0.0% | exact |
+| week 3 | token-saver | $6.95 | +1.1% | −5.9% | 0.0% | exact |
+| week 3 | lean-ctx | $3.21 | +62.6% | +96.2% | +4.4% | ±10% |
+| week 4 | token-saver | $12.59 | +31.2% | −5.1% | −24.1% | ±38% |
+| week 4 | lean-ctx | $80.42 | −28.2% | +3.5% | +6.3% | ±14% |
+
+- Mean |dollar error| 28.4% (old) → 25.5% (PPS in tokens) → 7.5% (PPS in dollars); median 19.6% → 17.3% → 4.6%.
+- Of the seven estimates with a range, six are within their ±2 s.e.; lean-ctx's month (+24.4% against ±16%) is not.
+
+**Cache-only savers.** With cached results kept out of every sampled ratio (§8.13), headroom and the caveman engine showed "—" after an exact run as soon as any output was new. Now:
+- The caveman engine replays its new outputs worth something in a quick run when they fit in its budget (1,500, about 6 s), which makes it exact.
+- Otherwise (headroom, or caveman with more new outputs), new outputs worth at most 25% of the saver's value get the cached outputs' ratio Σd/Σx per size band (`fitFromCache`). The result is "indicative", with no ± (the cached outputs are not a sample), and the note gives the share: any bias from cached outputs of an earlier sub-period is confined to it. Above 25%, "exact run needed" as before.
+- **Real check:** a copy of the complete month cache with every output seen by the last hours or days removed (as if the exact run had been made that much earlier), then a quick run over the month. Dollar error vs exact:
+
+  | Removed since | caveman engine | headroom |
+  |---|---|---|
+  | 09-25 09:00 | 0.0% (170 replayed) | −0.5% (2.7% from cache) |
+  | 09-24 13:00 | 0.0% (309 replayed) | −0.5% (3.4%) |
+  | 09-24 01:00 | 0.0% (653 replayed) | −0.6% (5.5%) |
+  | 09-23 17:00 | +7.3% (15.8% from cache) | −0.4% (9.6%) |
+  | 09-23 13:00 | — (over 25%) | −1.0% (17.8%) |
+  | 09-21 13:00 | — | — |
