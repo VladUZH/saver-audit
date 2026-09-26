@@ -15,7 +15,7 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, win32 } from "node:path";
-import { toolPaths, toolsDir } from "./toolsdir.ts";
+import { findPython, toolPaths, toolsDir } from "./toolsdir.ts";
 
 export const RTK_TAG = "v0.50.0";
 export const CAVEMAN_BIN_TAG = "bin-v1.1.7";
@@ -190,7 +190,8 @@ export async function installLeanCtx(say: Say): Promise<string> {
 /** token-saver runs from its source with Python; its own installer (which edits Claude Code settings) is not used. */
 export async function installTokenSaver(say: Say): Promise<string> {
   if (process.platform === "win32") throw new Error("the token-saver installer here supports macOS and Linux");
-  if (!findPython()) throw new Error("token-saver needs Python 3.10 or newer on PATH");
+  const py = findPython();
+  if (!py) throw new Error("token-saver needs Python 3.10 or newer on PATH");
   say(`downloading token-saver ${TOKEN_SAVER_TAG} from github.com/ppgranger/token-saver…`);
   const archive = await download(`https://github.com/ppgranger/token-saver/archive/refs/tags/${TOKEN_SAVER_TAG}.tar.gz`);
   if (sha256(archive) !== TOKEN_SAVER_SHA256) throw new Error("token-saver: archive hash differs from the pinned one, not installed");
@@ -211,19 +212,14 @@ export async function installTokenSaver(say: Say): Promise<string> {
     rmSync(part, { recursive: true, force: true });
   }
   const wrapper = join(toolsDir(), "bin", "token-saver");
-  place("token-saver", Buffer.from(`#!/bin/sh\nexec python3 ${JSON.stringify(join(dir, "bin", "token-saver"))} "$@"\n`), wrapper, false);
+  place("token-saver", Buffer.from(tokenSaverWrapper(py, join(dir, "bin", "token-saver"))), wrapper, false);
   return wrapper;
 }
 
-/** A Python 3.10+ interpreter on PATH, or undefined. */
-export function findPython(): string | undefined {
-  for (const cmd of process.platform === "win32" ? ["py", "python"] : ["python3", "python"]) {
-    const args = cmd === "py" ? ["-3", "-c"] : ["-c"];
-    const r = spawnSync(cmd, [...args, "import sys; print('%d.%d' % sys.version_info[:2])"], { encoding: "utf8" });
-    const [maj, min] = (r.stdout ?? "").trim().split(".").map(Number);
-    if (r.status === 0 && (maj! > 3 || (maj === 3 && min! >= 10))) return cmd;
-  }
-  return undefined;
+/** Runs token-saver with the Python found at install time, not whatever `python3` is at replay time. */
+export function tokenSaverWrapper(python: string, script: string): string {
+  const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
+  return `#!/bin/sh\nexec ${q(python)} ${q(script)} "$@"\n`;
 }
 
 function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, onLine: Say): Promise<void> {
@@ -263,7 +259,7 @@ export async function installHeadroom(say: Say): Promise<string> {
   const env = { ...process.env, DO_NOT_TRACK: "1", HEADROOM_BEACON: "off", HF_HOME: paths.hfHome(), HEADROOM_WORKSPACE_DIR: paths.headroomState(), PIP_DISABLE_PIP_VERSION_CHECK: "1" };
   mkdirSync(toolsDir(), { recursive: true });
   say("creating a Python environment for headroom…");
-  await run(py, [...(py === "py" ? ["-3"] : []), "-m", "venv", venv], env, say);
+  await run(py, ["-m", "venv", venv], env, say);
   say(`installing headroom-ai ${HEADROOM_VERSION} from PyPI (about 1.3 GB, a few minutes)…`);
   await run(paths.headroomPython(), ["-m", "pip", "install", "--quiet", `headroom-ai[ml]==${HEADROOM_VERSION}`, "onnxruntime>=1.24"], env, (l) => say(`pip: ${l}`));
   say("downloading headroom's compression model from Hugging Face (about 260 MB)…");
