@@ -11,6 +11,7 @@ import type { FileResult } from "../audit.ts";
 import { readReplayCache, saveReplayCache } from "./cache.ts";
 import { presentedTokens, PREVIEW_CHARS, type ReplayResult } from "./tracker.ts";
 import type { ReplayJob } from "./types.ts";
+import type { SaverManifest } from "./manifest.ts";
 import { toolPaths, toolsDir } from "./toolsdir.ts";
 import { allSavers, saverIndex, type SaverAdapter } from "./registry.ts";
 
@@ -89,8 +90,9 @@ function onPath(name: string): string | undefined {
   return undefined;
 }
 
-function firstLine(cmd: string, args: string[]): string | undefined {
-  const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 10_000, env: saverEnv("") });
+function firstLine(cmd: string, args: string[], env: NodeJS.ProcessEnv | undefined): string | undefined {
+  if (!env) return undefined; // no state folder: not run
+  const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 10_000, env });
   const out = `${r.stdout ?? ""}`.trim().split("\n")[0];
   return r.status === 0 && out ? out : undefined;
 }
@@ -117,6 +119,31 @@ export function isOutdated(installed: string | undefined, adapter: string): bool
  * simply absent.
  */
 export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): Map<string, ReplayTool> {
+  // Probes run like replays: with the manifest's environment and a temporary state
+  // folder, so none writes to the user's home. Made on the first probe.
+  let state: string | null | undefined;
+  const probeEnv = (m?: SaverManifest) => {
+    if (state === undefined) {
+      try {
+        state = makeStateDir();
+      } catch {
+        state = null;
+      }
+    }
+    return state ? saverRunEnv(m, state) : undefined;
+  };
+  try {
+    return detect(savers, probeEnv);
+  } finally {
+    try {
+      if (state) rmSync(state, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      // a folder left in the temporary folder does not stop the audit
+    }
+  }
+}
+
+function detect(savers: SaverAdapter[], probeEnv: (m?: SaverManifest) => NodeJS.ProcessEnv | undefined): Map<string, ReplayTool> {
   const found = new Map<string, ReplayTool>();
   const exists = (p: string) => (existsSync(p) ? p : undefined);
   const exe = process.platform === "win32" ? ".exe" : "";
@@ -124,7 +151,7 @@ export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): 
     const m = s.manifest;
     if (!m || m.method !== "replayed" || !m.binary) continue;
     const name = new RegExp(`^${m.binary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+`); // "trim++ 1.0" → "1.0"
-    const probe = (command: string): ReplayTool => ({ saver: s.id, command, version: m.versionArgs ? versionOf(firstLine(command, m.versionArgs)?.replace(name, "")) : undefined });
+    const probe = (command: string): ReplayTool => ({ saver: s.id, command, version: m.versionArgs ? versionOf(firstLine(command, m.versionArgs, probeEnv(m))?.replace(name, "")) : undefined });
     const override = m.binaryEnv ? process.env[m.binaryEnv] : undefined;
     if (override) {
       found.set(s.id, probe(override));
@@ -147,7 +174,7 @@ export function detectReplayTools(savers: SaverAdapter[] = allSavers().savers): 
   const ours = own ? undefined : exists(toolPaths.headroomPython());
   const py = own ?? ours;
   if (py) {
-    const v = firstLine(py, ["-c", `${NO_CWD}; import headroom; print(getattr(headroom, '__version__', 'unknown'))`]);
+    const v = firstLine(py, ["-c", `${NO_CWD}; import headroom; print(getattr(headroom, '__version__', 'unknown'))`], probeEnv());
     // --install-savers keeps headroom's model, and its tokenizer vocabulary, in the tools folder.
     const vocab = toolPaths.tiktoken();
     const env = ours ? { HF_HOME: toolPaths.hfHome(), ...(existsSync(vocab) ? { TIKTOKEN_CACHE_DIR: vocab } : {}) } : undefined;
@@ -216,8 +243,31 @@ function saverEnv(stateDir: string): NodeJS.ProcessEnv {
     HF_HUB_OFFLINE: "1",
     TRANSFORMERS_OFFLINE: "1",
     ...NO_NETWORK,
-    ...(stateDir ? { CAVEMAN_HOME: join(stateDir, "caveman"), CAVEMAN_CCR_DB: join(stateDir, "caveman", "ccr.db"), HEADROOM_WORKSPACE_DIR: join(stateDir, "headroom") } : {}),
+    CAVEMAN_HOME: join(stateDir, "caveman"),
+    CAVEMAN_CCR_DB: join(stateDir, "caveman", "ccr.db"),
+    HEADROOM_WORKSPACE_DIR: join(stateDir, "headroom"),
   };
+}
+
+/**
+ * The environment a saver's program runs with: saverEnv, then the manifest's own
+ * ("{state}" is the temporary state folder), then the tool's.
+ */
+export function saverRunEnv(m: SaverManifest | undefined, stateDir: string, toolEnv?: Record<string, string>): NodeJS.ProcessEnv {
+  const menv = Object.fromEntries(Object.entries(m?.env ?? {}).map(([k, v]) => [k, v.replaceAll("{state}", stateDir)]));
+  return { ...saverEnv(stateDir), ...menv, ...toolEnv };
+}
+
+/** A temporary folder for the savers' state, with an empty working folder ("empty") in it. */
+export function makeStateDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "saver-audit-"));
+  try {
+    mkdirSync(join(dir, "empty")); // no project settings to pick up
+  } catch (err) {
+    rmSync(dir, { recursive: true, force: true });
+    throw err;
+  }
+  return dir;
 }
 
 /** Kills a saver process and the processes it started (a wrapper script's worker holds its output pipe). */
@@ -481,8 +531,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   const stateDir = (): string | undefined => {
     if (state || noState) return state;
     try {
-      state = mkdtempSync(join(tmpdir(), "saver-audit-"));
-      mkdirSync(join(state, "empty")); // the savers' working folder: no project settings to pick up
+      state = makeStateDir();
     } catch (err) {
       noState = true;
       warn?.(`cannot create a temporary folder (${(err as NodeJS.ErrnoException).code ?? "error"}); saver replays skipped.`);
@@ -600,9 +649,7 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
         }
       } else {
         const m = adapters.get(saver)?.manifest;
-        // The manifest's environment; "{state}" is this run's temporary state folder.
-        const menv = Object.fromEntries(Object.entries(m?.env ?? {}).map(([k, v]) => [k, v.replaceAll("{state}", dir)]));
-        const runEnv = { ...env, ...menv, ...tool.env };
+        const runEnv = saverRunEnv(m, dir, tool.env);
         const ratio = m?.jsonRatio;
         await pool(todo, WAIT_BOUND.has(saver) ? o.concurrency * 3 : o.concurrency, async (key) => {
           const j = unique.get(key)!;
