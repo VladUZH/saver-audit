@@ -1,12 +1,28 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { codexUsage, findCodexFiles, parseCodexFile, shellCommand } from "../src/sources/codex.ts";
+import { codexHome, codexUsage, findCodexFiles, parseCodexFile, shellCommand } from "../src/sources/codex.ts";
 import { shellFamily, toolCategory } from "../src/accounting/categories.ts";
 import { CODEX_HOME, collect } from "./helpers.ts";
 
 const thr1 = join(CODEX_HOME, "sessions", "2026", "09", "20", "rollout-2026-09-20T10-00-00-thr1.jsonl");
 const thr2 = join(CODEX_HOME, "sessions", "2026", "09", "21", "rollout-2026-09-21T08-00-00-thr2.jsonl");
+
+test("CODEX_HOME: empty means unset, relative is made absolute", () => {
+  const saved = process.env.CODEX_HOME;
+  try {
+    for (const v of ["", "  "]) {
+      process.env.CODEX_HOME = v;
+      assert.equal(codexHome(), join(homedir(), ".codex"));
+    }
+    process.env.CODEX_HOME = "rel/codex";
+    assert.equal(codexHome(), join(process.cwd(), "rel", "codex"));
+  } finally {
+    if (saved === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = saved;
+  }
+});
 
 test("finder prefers sessions/ over an archived copy", () => {
   const files = findCodexFiles(CODEX_HOME, 0);

@@ -2,13 +2,15 @@
 // archived_sessions/. Usage comes from repeated token_count events; cached tokens are
 // a subset of input (tech-notes.md §2, §8.2).
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { listFiles, readLines } from "./files.ts";
 import { emptyUsage, type Block, type Call, type Session, type SourceEvent, type UserKind, type Usage } from "./types.ts";
 import { shellFamily } from "../accounting/categories.ts";
 
 export function codexHome(): string {
-  return process.env.CODEX_HOME ?? join(homedir(), ".codex");
+  // An empty value counts as unset; a relative one is resolved so "Looked in" is unambiguous.
+  const v = process.env.CODEX_HOME?.trim();
+  return v ? resolve(v) : join(homedir(), ".codex");
 }
 
 export function findCodexFiles(home: string, sinceMs: number): string[] {
