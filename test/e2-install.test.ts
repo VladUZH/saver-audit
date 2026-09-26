@@ -40,6 +40,27 @@ test("an empty SAVER_AUDIT_HOME counts as unset: tools and manifests stay in ~/.
   });
 });
 
+test("a relative SAVER_AUDIT_HOME: the headroom install puts its venv where detection looks", { skip: unix }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sa-relhome-"));
+  const cwd = process.cwd();
+  try {
+    mkdirSync(join(dir, "pybin"));
+    copyFileSync(join(FIXTURES, "installer", "fake-python"), join(dir, "pybin", "python3"));
+    chmodSync(join(dir, "pybin", "python3"), 0o755);
+    process.chdir(dir);
+    await withEnv({ PATH: [join(dir, "pybin"), "/usr/bin", "/bin"].join(delimiter), SAVER_AUDIT_HOME: "sa", FAKE_PY_LOG: join(dir, "calls.log") }, async () => {
+      await installHeadroom(() => {});
+      assert.equal(existsSync(join(dir, "sa", "tools", "headroom-venv", "bin", "python")), true);
+      assert.equal(existsSync(join(dir, "sa", "tools", "sa")), false, "nothing nested under the tools folder");
+      assert.equal(headroomIncomplete(), false);
+      assert.equal(toolsDir(), join(realpathSync(dir), "sa", "tools"), "resolved where saver-audit was started");
+    });
+  } finally {
+    process.chdir(cwd);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("lean-ctx is not offered on Windows, where its settings cannot be kept apart from the user's", () => {
   const win = installPlan("win32", "x64", null).find((c) => c.id === "lean-ctx")!;
   assert.deepEqual({ available: win.available, why: win.why }, { available: false, why: "its settings cannot be kept apart from yours on Windows" });

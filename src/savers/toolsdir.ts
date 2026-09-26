@@ -3,7 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { lstatSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, isAbsolute, join } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 
 export const RTK_TAG = "v0.50.0";
 export const CAVEMAN_BIN_TAG = "bin-v1.1.7";
@@ -13,7 +13,9 @@ export const LEAN_CTX_TAG = "v3.10.3";
 
 export function toolsDir(): string {
   // An empty SAVER_AUDIT_HOME counts as unset: "" would put the tools in the current folder.
-  return join(process.env.SAVER_AUDIT_HOME || join(homedir(), ".saver-audit"), "tools");
+  // A relative one is made absolute: the install steps and the replays run the savers
+  // in other folders, where a relative path would point somewhere else.
+  return join(resolve(process.env.SAVER_AUDIT_HOME || join(homedir(), ".saver-audit")), "tools");
 }
 
 const EXE = process.platform === "win32" ? ".exe" : "";
