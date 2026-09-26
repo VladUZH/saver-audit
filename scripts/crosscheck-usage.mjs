@@ -102,9 +102,11 @@ const rows = [
 ];
 let worst = 0;
 for (const [label, ref, got] of rows) {
-  const diff = ref ? (got - ref) / ref : 0;
+  // A zero reference matches only a zero: anything else is an over-count.
+  const diff = ref ? (got - ref) / ref : got === 0 ? 0 : Infinity;
   worst = Math.max(worst, Math.abs(diff));
-  console.log(`${label.padEnd(12)} reference ${String(ref).padStart(14)}  saver-audit ${String(got).padStart(14)}  diff ${(diff * 100).toFixed(3)}%`);
+  const shown = Number.isFinite(diff) ? `${(diff * 100).toFixed(3)}%` : "n/a (reference 0)";
+  console.log(`${label.padEnd(12)} reference ${String(ref).padStart(14)}  saver-audit ${String(got).padStart(14)}  diff ${shown}`);
 }
 console.log(worst <= 0.01 ? "PASS: within 1%" : "FAIL: more than 1% apart");
 process.exitCode = worst <= 0.01 ? 0 : 1;
