@@ -1,0 +1,45 @@
+// The CLI in a terminal: spinner, warnings and errors (run in a pseudo-terminal).
+import { after, test } from "node:test";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { CLAUDE_ROOT, CODEX_HOME, FIXTURES } from "./helpers.ts";
+import { inTerminal, noTerminal } from "./pty.ts";
+
+const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+const BIN = join(FIXTURES, "bin");
+const temps: string[] = [];
+after(() => temps.forEach((d) => rmSync(d, { recursive: true, force: true })));
+
+/** The CLI in a terminal, on the fixtures, in an empty folder with its own home. */
+function term(args: string[], extra: Record<string, string> = {}): string {
+  const root = mkdtempSync(join(tmpdir(), "sa-term-"));
+  temps.push(root);
+  const env = { PATH: process.env.PATH, HOME: root, SAVER_AUDIT_HOME: join(root, "home"), XDG_CACHE_HOME: join(root, "cache"), CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, ...extra };
+  return inTerminal([CLI, ...args], { env, cwd: root })!;
+}
+
+test("a bad --last or --until is reported before the spinner starts, not on its line", { skip: noTerminal }, () => {
+  for (const [args, error] of [
+    [["--last", "30x"], /saver-audit: --last: expected e\.g\. 30d/],
+    [["--until", "soon"], /saver-audit: --until: not a date: soon/],
+  ] as const) {
+    const out = term([...args, "--no-savers"]);
+    assert.match(out, error);
+    assert.doesNotMatch(out, /Reading your agent logs/, "no spinner for a run that cannot start");
+  }
+});
+
+test("a bad --last stops --install-savers before it installs anything", () => {
+  const root = mkdtempSync(join(tmpdir(), "sa-cli-"));
+  temps.push(root);
+  // Every saver counts as installed (the fakes), so even a regression downloads nothing.
+  const env = { PATH: "/nonexistent", HOME: root, SAVER_AUDIT_HOME: join(root, "home"), SAVER_AUDIT_RTK: join(BIN, "rtk"), CAVEMAN_ENGINE_BIN: join(BIN, "caveman-engine"), SAVER_AUDIT_TOKEN_SAVER: join(BIN, "fake-trim"), SAVER_AUDIT_LEAN_CTX: join(BIN, "fake-trim"), SAVER_AUDIT_HEADROOM_PYTHON: join(BIN, "headroom-python") };
+  const r = spawnSync(process.execPath, [CLI, "--install-savers", "--last", "30x"], { env, encoding: "utf8" });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--last: expected/);
+  assert.equal(r.stdout, "", "the installer never started");
+});

@@ -114,6 +114,9 @@ async function main(argv: string[]): Promise<number> {
   if (src !== "all" && src !== "claude-code" && src !== "codex") throw new Error(`--source: expected claude-code, codex or all, got ${src}`);
   const sources: Source[] = src === "all" ? ["claude-code", "codex"] : [src];
   const now = Date.now();
+  // Checked before anything starts, so a typo never leaves a spinner or an install behind.
+  const sinceMs = parsePeriod(values.last, values.since, now);
+  const untilMs = parseUntil(values.until, now);
   const interactive = process.stdout.isTTY === true && !values.json;
   const color = (process.stdout.isTTY === true || !!process.env.FORCE_COLOR) && !process.env.NO_COLOR;
   const showSpinner = process.stderr.isTTY === true && !values.json && !process.env.CI;
@@ -134,39 +137,43 @@ async function main(argv: string[]): Promise<number> {
     const t0 = performance.now();
     const progress = new Map<string, string>();
     const spinner = new Spinner(process.stderr, showSpinner);
-    spinner.set("Reading your agent logs…");
-    const result = await runAudit(
-      { sinceMs: parsePeriod(values.last, values.since, now), untilMs: parseUntil(values.until, now), sources, claudeRoots: claudeRoots(), codexHome: codexHome(), prices: loadPrices() },
-      new URL(import.meta.url),
-      values.jobs ? Math.max(1, Number(values.jobs)) : defaultJobs(),
-      // With a spinner, replay progress shows there instead of as log lines.
-      { ids: saverIndex(saverIds).map((x) => x.id), full: exact, cacheFile: defaultReplayCachePath(), log: showSpinner ? undefined : log },
-      {
-        files: (done, total) => spinner.set(`Reading logs… ${fmt(done)}/${fmt(total)} files`),
-        replay: (saver, done, total) => {
-          progress.set(saver, `${saver} ${fmt(done)}/${fmt(total)}`);
-          spinner.set(`${exact ? "Exact replay" : "Quick check"}: ${[...progress.values()].join(" · ")}`);
+    // The spinner line is cleared before anything else is printed, an error included.
+    try {
+      spinner.set("Reading your agent logs…");
+      const result = await runAudit(
+        { sinceMs, untilMs, sources, claudeRoots: claudeRoots(), codexHome: codexHome(), prices: loadPrices() },
+        new URL(import.meta.url),
+        values.jobs ? Math.max(1, Number(values.jobs)) : defaultJobs(),
+        // With a spinner, replay progress shows there instead of as log lines.
+        { ids: saverIndex(saverIds).map((x) => x.id), full: exact, cacheFile: defaultReplayCachePath(), log: showSpinner ? undefined : log },
+        {
+          files: (done, total) => spinner.set(`Reading logs… ${fmt(done)}/${fmt(total)} files`),
+          replay: (saver, done, total) => {
+            progress.set(saver, `${saver} ${fmt(done)}/${fmt(total)}`);
+            spinner.set(`${exact ? "Exact replay" : "Quick check"}: ${[...progress.values()].join(" · ")}`);
+          },
         },
-      },
-    );
-    const elapsedMs = performance.now() - t0;
-    // The share card: by default in a terminal (it is what people share), elsewhere on request.
-    let cardPath: string | undefined;
-    if (wanted && result.calls > 0) {
-      spinner.set("Drawing your share card…");
-      const { writeCard } = await import("./report/card.ts");
-      for (const path of [wanted, join(tmpdir(), "saver-audit.png")]) {
-        try {
-          await writeCard(result, path);
-          cardPath = path;
-          break;
-        } catch {
-          // folder not writable: fall back to the temp folder
+      );
+      const elapsedMs = performance.now() - t0;
+      // The share card: by default in a terminal (it is what people share), elsewhere on request.
+      let cardPath: string | undefined;
+      if (wanted && result.calls > 0) {
+        spinner.set("Drawing your share card…");
+        const { writeCard } = await import("./report/card.ts");
+        for (const path of [wanted, join(tmpdir(), "saver-audit.png")]) {
+          try {
+            await writeCard(result, path);
+            cardPath = path;
+            break;
+          } catch {
+            // folder not writable: fall back to the temp folder
+          }
         }
       }
+      return { result, opts: { showProjects, verbose: values.verbose, color, elapsedMs, cardPath } };
+    } finally {
+      spinner.stop();
     }
-    spinner.stop();
-    return { result, opts: { showProjects, verbose: values.verbose, color, elapsedMs, cardPath } };
   };
 
   let { result, opts } = await audit();
