@@ -3,7 +3,7 @@
 // installed is skipped with a note. Every saver runs with telemetry off and its
 // state in a temporary folder.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 import { countProxy } from "../accounting/tokens.ts";
@@ -569,6 +569,8 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
   //    previews first, then hash order, so a run stopped part-way (the quick clock, or
   //    Ctrl+C during --exact) leaves a random sample, not the largest outputs.
   // SAVER_AUDIT_STRICT_SAMPLE=1 ignores the cache when choosing (for checking accuracy).
+  // SAVER_AUDIT_DUMP=<file> writes each unique output's hash, class, sizes, exact saving when
+  // cached and this run's saving to that file, to check quick mode offline (see dumpJobs).
   const strict = process.env.SAVER_AUDIT_STRICT_SAMPLE === "1";
   const sampled = new Map<string, Set<string>>();
   /** Per saver: the outputs extrapolation ratios come from (the stratum, or all when there are no small outputs). */
@@ -817,8 +819,46 @@ export async function runReplays(results: FileResult[], saverIds: string[], o: R
     e.add(j.key);
   }
   for (const [saver, st] of stats) st.extrapolated = st.insufficient ? 0 : (extrapolated.get(saver)?.size ?? 0);
+  if (process.env.SAVER_AUDIT_DUMP) dumpJobs(process.env.SAVER_AUDIT_DUMP, results, bySaver, cache, idx);
   for (const r of results) if (r.savers) r.savers.jobs = [];
   return stats;
+}
+
+/**
+ * Dev only (SAVER_AUDIT_DUMP): one JSON line per unique (saver, output), for checking
+ * quick mode against exact results offline. Hashes, fixed labels and numbers only:
+ * - `baseline`, `persisted`: the output quick mode ranks (the one kept per key);
+ * - `d`: its exact saving when cached, else null;
+ * - `n`, `sumBaseline`, `sumD`: over every occurrence of the output (a ratio sums these);
+ * - `est`: the saving this run wrote for all occurrences (measured or extrapolated);
+ * - `mixed`: occurrences differ in class or preview.
+ */
+function dumpJobs(file: string, results: FileResult[], bySaver: Map<string, Map<string, ReplayJob>>, cache: Map<string, ReplayResult>, idx: Map<string, number>): void {
+  type Row = { saver: string; key: string; cls: string; baseline: number; persisted: boolean; d: number | null; n: number; sumBaseline: number; sumD: number | null; est: number; mixed: boolean };
+  const rows = new Map<string, Row>();
+  const saving = (j: ReplayJob) => {
+    const hit = cache.get(j.key);
+    return hit ? j.baseline - presentedTokens(hit, j) : null;
+  };
+  for (const r of results) {
+    for (const j of r.savers?.jobs ?? []) {
+      const d = saving(j);
+      const est = r.savers!.timelines[j.timeline]!.blocks[j.block]!.d[idx.get(j.saver)!]!;
+      const row = rows.get(`${j.saver}\0${j.key}`);
+      if (row) {
+        row.n++;
+        row.sumBaseline += j.baseline;
+        row.sumD = row.sumD === null || d === null ? null : row.sumD + d;
+        row.est += est;
+        row.mixed ||= row.cls !== j.cls || row.persisted !== (j.persistedHeader !== undefined);
+        continue;
+      }
+      const u = bySaver.get(j.saver)!.get(j.key)!;
+      const persisted = u.persistedHeader !== undefined;
+      rows.set(`${j.saver}\0${j.key}`, { saver: j.saver, key: j.key, cls: u.cls, baseline: u.baseline, persisted, d: saving(u), n: 1, sumBaseline: j.baseline, sumD: d, est, mixed: j.cls !== u.cls || (j.persistedHeader !== undefined) !== persisted });
+    }
+  }
+  writeFileSync(file, [...rows.values()].map((row) => JSON.stringify(row) + "\n").join(""));
 }
 
 export type { ReplayResult };

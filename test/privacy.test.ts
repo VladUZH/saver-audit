@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { CLAUDE_ROOT, CODEX_HOME, SECRET } from "./helpers.ts";
 import { dirname, join } from "node:path";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -20,9 +20,13 @@ const SAVER_ENV = {
 const CWD = mkdtempSync(join(tmpdir(), "sa-cwd-"));
 
 function run(...args: string[]): string {
+  return runWith({}, ...args);
+}
+
+function runWith(extra: Record<string, string>, ...args: string[]): string {
   return execFileSync(process.execPath, [CLI, "--since", "2026-09-01", ...args], {
     cwd: CWD,
-    env: { ...process.env, ...SAVER_ENV, CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, HOME: "/nonexistent", XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "sa-priv-")), NO_COLOR: "1" },
+    env: { ...process.env, ...SAVER_ENV, CLAUDE_CONFIG_DIR: dirname(CLAUDE_ROOT), CODEX_HOME, HOME: "/nonexistent", XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "sa-priv-")), NO_COLOR: "1", ...extra },
     encoding: "utf8",
   });
 }
@@ -39,6 +43,25 @@ test("--json holds no text, paths, commands or project names from logs", () => {
   const out = run("--json");
   JSON.parse(out);
   assert.doesNotMatch(out, SECRET);
+});
+
+test("SAVER_AUDIT_DUMP (quick-mode accuracy checks) holds hashes, fixed labels and numbers only", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "sa-dump-")), "dump.jsonl");
+  runWith({ SAVER_AUDIT_DUMP: file }, "--json");
+  const text = readFileSync(file, "utf8");
+  assert.doesNotMatch(text, SECRET);
+  const rows = text.trim().split("\n").map((l) => JSON.parse(l));
+  const rtk = rows.filter((r) => r.saver === "rtk");
+  assert.ok(rtk.length && rtk.every((r) => typeof r.d === "number"), "rtk (replayed in full) with its exact savings");
+  for (const r of rows) {
+    assert.deepEqual(Object.keys(r), ["saver", "key", "cls", "baseline", "persisted", "d", "n", "sumBaseline", "sumD", "est", "mixed"]);
+    assert.match(r.saver, /^(rtk|caveman-engine|headroom)$/);
+    assert.match(r.key, /^[\w-]{32}$/, "a hash");
+    assert.match(r.cls, /^[A-Za-z ]+\|[a-z &]*$/, "a category and shell family from the fixed tables");
+    for (const k of ["baseline", "n", "sumBaseline", "est"]) assert.equal(typeof r[k], "number", k);
+    for (const k of ["d", "sumD"]) assert.ok(r[k] === null || typeof r[k] === "number", k); // null: not cached
+    for (const k of ["persisted", "mixed"]) assert.equal(typeof r[k], "boolean", k);
+  }
 });
 
 test("--show-projects is the only way project names appear", () => {
