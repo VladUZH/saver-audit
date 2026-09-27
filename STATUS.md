@@ -697,3 +697,20 @@ past wrappers, Codex base instructions after compaction, rewind credit).
   shows the method is unfair.
 - r/ClaudeCode post: write it yourself from `docs/launch/reddit-briefs.md` (use the exact
   README numbers, 26 Aug → 25 Sep), mention the method check sent to the maintainers.
+
+## 2026-09-27 — status check; lean-ctx 3.10.4 (0.7.2)
+
+- **Status of what went out:**
+  - awesome-list PRs bradAGI #389, ai-for-developers #780 and eltociear #136: open, no comments;
+  - InftyAI #572: their bot opened PR #573 (checks green), waiting for a merge;
+  - the five maintainer discussions: open, no replies yet;
+  - repo: 2 stars;
+  - npm: 783 downloads on 09-25 and 387 on 09-26, mostly mirrors and our own runs.
+- **Saver releases since pinning:**
+  - lean-ctx 3.10.4 (2026-09-26): a patch; its notes change nothing in compression;
+  - headroom 0.39.0 and 0.39.1: a minor; held at 0.38.0 until its maintainers answer the method-check discussion;
+  - rtk: only 0.51.0 release candidates;
+  - caveman and token-saver: current.
+- **lean-ctx pinned to v3.10.4** (installer tag, manifest version, version test). Installed with `--install-savers` (SHA256SUMS verified). Exact re-measure on the launch window: $125.57, Codex part $9.81, coverage 64%, all 11,637 outputs replayed, 0 failed. Identical to 3.10.3, so only the version label changed in README and the fact sheet. `npm test`: 286 pass.
+
+**Human step (GATE):** `cd ~/Documents/Programming/saver-audit && npm publish --auth-type=web` for 0.7.2.
