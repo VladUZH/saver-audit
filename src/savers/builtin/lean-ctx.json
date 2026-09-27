@@ -2,7 +2,7 @@
   "id": "lean-ctx",
   "name": "lean-ctx",
   "repo": "https://github.com/yvgude/lean-ctx",
-  "version": "3.10.3",
+  "version": "3.10.4",
   "licence": "Apache-2.0",
   "method": "replayed",
   "covers": "shell output and file reads, by its shell and read pipelines",

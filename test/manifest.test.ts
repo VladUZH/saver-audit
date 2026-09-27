@@ -173,7 +173,7 @@ test("a binary name with regular-expression characters is found and its version 
   }
 });
 
-test("the version number is read from lines like 'token-saver v3.0.0' and 'lean-ctx 3.10.3 (official, …)'", async () => {
+test("the version number is read from lines like 'token-saver v3.0.0' and 'lean-ctx 3.10.4 (official, …)'", async () => {
   const { saverIndex } = await import("../src/savers/registry.ts");
   const { detectReplayTools } = await import("../src/savers/replay.ts");
   const { keyVersion } = await import("../src/savers/tracker.ts");
@@ -186,14 +186,14 @@ test("the version number is read from lines like 'token-saver v3.0.0' and 'lean-
     };
     const env = {
       SAVER_AUDIT_TOKEN_SAVER: fake("token-saver", "token-saver v3.0.0"),
-      SAVER_AUDIT_LEAN_CTX: fake("lean-ctx", "lean-ctx 3.10.3 (official, https://github.com/yvgude/lean-ctx)"),
+      SAVER_AUDIT_LEAN_CTX: fake("lean-ctx", "lean-ctx 3.10.4 (official, https://github.com/yvgude/lean-ctx)"),
       SAVER_AUDIT_HOME: dir,
       SAVER_AUDIT_HEADROOM_PYTHON: "",
     };
     const adapters = saverIndex(["token-saver", "lean-ctx"]);
     const found = await withEnv(env, () => detectReplayTools(adapters));
     assert.equal(found.get("token-saver")?.version, "3.0.0");
-    assert.equal(found.get("lean-ctx")?.version, "3.10.3");
+    assert.equal(found.get("lean-ctx")?.version, "3.10.4");
     for (const a of adapters) assert.equal(keyVersion(a.version, found.get(a.id)?.version), a.version, `${a.id} keeps the adapter's cache key`);
     const { runAudit } = await import("../src/pool.ts");
     const { fixtureOptions } = await import("./helpers.ts");

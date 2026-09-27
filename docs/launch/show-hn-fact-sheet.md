@@ -49,7 +49,7 @@ rtk, the caveman engine and headroom were all fully replayed.
 | rtk 0.50.0 | replayed, all 3,291 outputs; a lower bound (its hook also rewrites commands with no offline filter) | 6% of tool output | $21 | 0.5% |
 | caveman proxy engine | replayed, every output of 500+ tokens | all tool output | $13 | 0.3% |
 | headroom 0.38.0 | replayed, every output of 200+ tokens; a lower estimate | 56% | $151 | 3.6% |
-| lean-ctx 3.10.3 | replayed, every output of 500+ tokens (~1% low) | 64% | $126 | 3.0% |
+| lean-ctx 3.10.4 | replayed, every output of 500+ tokens (~1% low) | 64% | $126 | 3.0% |
 | token-saver 3.0.0 | replayed, every output of 500+ tokens (~9% low) | 48% | $66 | 1.6% |
 | caveman skill | modeled: −8.5% output (JetBrains), SKILL.md in every prompt | output | $96 | 2.3% |
 | codegraph | upper bound (it changes agent behaviour) | 43% | ≤ $578 | ≤ 13.7% |

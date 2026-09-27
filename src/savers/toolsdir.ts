@@ -9,7 +9,7 @@ export const RTK_TAG = "v0.50.0";
 export const CAVEMAN_BIN_TAG = "bin-v1.1.7";
 export const HEADROOM_VERSION = "0.38.0";
 export const TOKEN_SAVER_TAG = "v3.0.0";
-export const LEAN_CTX_TAG = "v3.10.3";
+export const LEAN_CTX_TAG = "v3.10.4";
 
 export function toolsDir(): string {
   // An empty SAVER_AUDIT_HOME counts as unset: "" would put the tools in the current folder.
