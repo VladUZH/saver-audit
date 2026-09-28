@@ -8,3 +8,4 @@ coverage/
 *.jsonl
 !test/fixtures/**/*.jsonl
 saver-audit*.png
+.playwright-mcp/
